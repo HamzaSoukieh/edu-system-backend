@@ -57,6 +57,14 @@ router.patch(
     requirePermission("department.manage"),
     departmentController.updateDepartment
 );
+router.delete(
+    "/:institutionId/departments/:departmentId",
+    authJwt,
+    requireEmailVerified,
+    institutionAccess(),
+    requirePermission("department.manage"),
+    departmentController.deleteDepartment
+);
 router.post(
     "/:institutionId/departments/:departmentId/subjects",
     authJwt,
@@ -64,6 +72,38 @@ router.post(
     institutionAccess(),
     requirePermission("subject.manage"),
     subjectController.createSubject
+);
+router.get(
+    "/:institutionId/subjects",
+    authJwt,
+    requireEmailVerified,
+    institutionAccess(),
+    requirePermission("subject.manage"),
+    subjectController.listSubjects
+);
+router.get(
+    "/:institutionId/subjects/:subjectId",
+    authJwt,
+    requireEmailVerified,
+    institutionAccess(),
+    requirePermission("subject.manage"),
+    subjectController.getSubjectById
+);
+router.patch(
+    "/:institutionId/subjects/:subjectId",
+    authJwt,
+    requireEmailVerified,
+    institutionAccess(),
+    requirePermission("subject.manage"),
+    subjectController.updateSubject
+);
+router.delete(
+    "/:institutionId/subjects/:subjectId",
+    authJwt,
+    requireEmailVerified,
+    institutionAccess(),
+    requirePermission("subject.manage"),
+    subjectController.deleteSubject
 );
 
 module.exports = router;

@@ -82,9 +82,26 @@ async function updateDepartment(req, res) {
     }
 }
 
+async function deleteDepartment(req, res) {
+    try {
+        const institutionId = req.params.institutionId || req.tenantId;
+        const departmentId = req.params.departmentId;
+        const result = await departmentService.deleteDepartment({
+            institutionId,
+            departmentId,
+        });
+
+        return res.status(200).json(result);
+    } catch (error) {
+        const statusCode = resolveStatusCode(error);
+        return res.status(statusCode).json({ message: resolveMessage(error, statusCode) });
+    }
+}
+
 module.exports = {
     listDepartments,
     getDepartmentById,
     createDepartment,
     updateDepartment,
+    deleteDepartment,
 };

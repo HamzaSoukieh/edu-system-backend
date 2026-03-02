@@ -1,5 +1,6 @@
 const mongoose = require("mongoose");
 const Department = require("../models/Department");
+const Subject = require("../models/Subject");
 
 function createError(statusCode, message) {
     const error = new Error(message);
@@ -133,6 +134,17 @@ function validateUpdateDepartmentInput(payload) {
     }
 
     return updates;
+}
+
+async function deleteDepartmentDependencies({ institutionId, departmentId }) {
+    const subjectDeleteResult = await Subject.deleteMany({
+        institutionId,
+        departmentId,
+    });
+
+    return {
+        deletedSubjects: subjectDeleteResult.deletedCount || 0,
+    };
 }
 
 async function listDepartments({ institutionId, status }) {
@@ -328,9 +340,49 @@ async function updateDepartment({ institutionId, departmentId, payload }) {
     };
 }
 
+async function deleteDepartment({ institutionId, departmentId }) {
+    if (!institutionId || !isValidObjectId(institutionId)) {
+        throw createError(400, "Invalid institution context");
+    }
+
+    if (!departmentId || !isValidObjectId(departmentId)) {
+        throw createError(400, "Invalid department id");
+    }
+
+    const department = await Department.findOne({
+        _id: departmentId,
+        institutionId,
+    })
+        .select("_id status")
+        .lean();
+
+    if (!department) {
+        throw createError(404, "Department not found");
+    }
+
+    if (department.status !== "archived") {
+        throw createError(400, "Archive department before deleting");
+    }
+
+    await deleteDepartmentDependencies({
+        institutionId,
+        departmentId,
+    });
+
+    await Department.deleteOne({
+        _id: departmentId,
+        institutionId,
+    });
+
+    return {
+        message: "Department deleted successfully",
+    };
+}
+
 module.exports = {
     listDepartments,
     getDepartmentById,
     createDepartment,
     updateDepartment,
+    deleteDepartment,
 };
