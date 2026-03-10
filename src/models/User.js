@@ -17,6 +17,10 @@ const userSchema = new mongoose.Schema(
             type: Boolean,
             default: false,
         },
+        mustChangePassword: {
+            type: Boolean,
+            default: false,
+        },
         status: {
             type: String,
             enum: ["active", "suspended", "archived"],

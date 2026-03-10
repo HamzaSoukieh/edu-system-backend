@@ -89,6 +89,46 @@ function buildOtpHtml({ code, purpose, expiresInMinutes }) {
 </div>`;
 }
 
+function buildMemberAccountCreatedText({ isNewUser, email, initialPasswordHint }) {
+    if (isNewUser) {
+        return [
+            "Your account has been created by your institution admin.",
+            `Login email: ${email}`,
+            `Initial password: ${initialPasswordHint}`,
+            "For your security, please change your password after first login.",
+        ].join("\n");
+    }
+
+    return [
+        "You were added to an institution by an admin.",
+        `Login email: ${email}`,
+        "Use your existing account password to login.",
+        "If you cannot login, contact your institution admin.",
+    ].join("\n");
+}
+
+function buildMemberAccountCreatedHtml({ isNewUser, email, initialPasswordHint }) {
+    const passwordBlock = isNewUser
+        ? `<p style="margin:0 0 12px;color:#475569;font-size:14px;line-height:1.6;">Initial password: <strong>${initialPasswordHint}</strong></p>
+           <p style="margin:0;color:#64748b;font-size:13px;line-height:1.6;">For your security, please change your password after first login.</p>`
+        : `<p style="margin:0 0 12px;color:#475569;font-size:14px;line-height:1.6;">Use your existing account password to login.</p>
+           <p style="margin:0;color:#64748b;font-size:13px;line-height:1.6;">If you cannot login, contact your institution admin.</p>`;
+
+    return `
+<div style="margin:0;padding:24px;background:#f4f6fb;font-family:Arial,sans-serif;">
+  <div style="max-width:560px;margin:0 auto;background:#ffffff;border:1px solid #dbe2ee;border-radius:12px;overflow:hidden;">
+    <div style="background:#0f172a;color:#ffffff;padding:18px 24px;">
+      <h1 style="margin:0;font-size:20px;line-height:1.3;">Your account has been created</h1>
+    </div>
+    <div style="padding:24px;">
+      <p style="margin:0 0 12px;color:#334155;font-size:15px;line-height:1.6;">An institution admin created your account.</p>
+      <p style="margin:0 0 16px;color:#475569;font-size:14px;line-height:1.6;">Login email: <strong>${email}</strong></p>
+      ${passwordBlock}
+    </div>
+  </div>
+</div>`;
+}
+
 async function sendOtpEmail({ to, code, purpose, expiresInMinutes }) {
     const mailTransporter = getTransporter();
     const from = process.env.EMAIL_FROM || process.env.GMAIL_USER;
@@ -109,6 +149,31 @@ async function sendOtpEmail({ to, code, purpose, expiresInMinutes }) {
     });
 }
 
+async function sendMemberAccountCreatedEmail({ to, email, initialPasswordHint, isNewUser }) {
+    const mailTransporter = getTransporter();
+    const from = process.env.EMAIL_FROM || process.env.GMAIL_USER;
+    const subject = "Your account has been created";
+    const text = buildMemberAccountCreatedText({
+        isNewUser,
+        email,
+        initialPasswordHint,
+    });
+    const html = buildMemberAccountCreatedHtml({
+        isNewUser,
+        email,
+        initialPasswordHint,
+    });
+
+    await mailTransporter.sendMail({
+        from,
+        to,
+        subject,
+        text,
+        html,
+    });
+}
+
 module.exports = {
     sendOtpEmail,
+    sendMemberAccountCreatedEmail,
 };

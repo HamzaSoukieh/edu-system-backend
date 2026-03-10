@@ -3,11 +3,15 @@ const authJwt = require("../middleware/authJwt");
 const requireEmailVerified = require("../middleware/requireEmailVerified");
 const { institutionAccess, requirePermission } = require("../middleware/authorize");
 const uploadInstitutionLogo = require("../middleware/uploadInstitutionLogo");
+const uploadMemberProfilePicture = require("../middleware/uploadMemberProfilePicture");
 const institutionController = require("../controllers/institutionController");
 const departmentController = require("../controllers/departmentController");
 const subjectController = require("../controllers/subjectController");
+const semesterController = require("../controllers/semesterController");
+const memberController = require("../controllers/memberController");
 
 const router = express.Router();
+const parsePlainTextJsonBody = express.text({ type: "text/plain" });
 
 router.get("/me", authJwt, requireEmailVerified, institutionController.getMyInstitutionContext);
 router.patch(
@@ -104,6 +108,97 @@ router.delete(
     institutionAccess(),
     requirePermission("subject.manage"),
     subjectController.deleteSubject
+);
+router.post(
+    "/:institutionId/members",
+    authJwt,
+    requireEmailVerified,
+    institutionAccess(),
+    requirePermission("membership.manage"),
+    parsePlainTextJsonBody,
+    uploadMemberProfilePicture,
+    memberController.createMember
+);
+router.get(
+    "/:institutionId/members",
+    authJwt,
+    requireEmailVerified,
+    institutionAccess(),
+    requirePermission("membership.manage"),
+    memberController.listMembers
+);
+router.get(
+    "/:institutionId/members/:membershipId",
+    authJwt,
+    requireEmailVerified,
+    institutionAccess(),
+    requirePermission("membership.manage"),
+    memberController.getMemberById
+);
+router.patch(
+    "/:institutionId/members/:membershipId",
+    authJwt,
+    requireEmailVerified,
+    institutionAccess(),
+    requirePermission("membership.manage"),
+    parsePlainTextJsonBody,
+    uploadMemberProfilePicture,
+    memberController.updateMember
+);
+router.patch(
+    "/:institutionId/members/:membershipId/status",
+    authJwt,
+    requireEmailVerified,
+    institutionAccess(),
+    requirePermission("membership.manage"),
+    memberController.updateMemberStatus
+);
+router.post(
+    "/:institutionId/semesters",
+    authJwt,
+    requireEmailVerified,
+    institutionAccess(),
+    requirePermission("semester.manage"),
+    semesterController.createSemester
+);
+router.get(
+    "/:institutionId/semesters",
+    authJwt,
+    requireEmailVerified,
+    institutionAccess(),
+    requirePermission("semester.manage"),
+    semesterController.listSemesters
+);
+router.get(
+    "/:institutionId/semesters/active",
+    authJwt,
+    requireEmailVerified,
+    institutionAccess(),
+    semesterController.getActiveSemester
+);
+router.get(
+    "/:institutionId/semesters/:semesterId",
+    authJwt,
+    requireEmailVerified,
+    institutionAccess(),
+    requirePermission("semester.manage"),
+    semesterController.getSemesterById
+);
+router.patch(
+    "/:institutionId/semesters/:semesterId",
+    authJwt,
+    requireEmailVerified,
+    institutionAccess(),
+    requirePermission("semester.manage"),
+    semesterController.updateSemester
+);
+router.delete(
+    "/:institutionId/semesters/:semesterId",
+    authJwt,
+    requireEmailVerified,
+    institutionAccess(),
+    requirePermission("semester.manage"),
+    semesterController.deleteSemester
 );
 
 module.exports = router;

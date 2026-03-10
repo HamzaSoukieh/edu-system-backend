@@ -6,6 +6,7 @@ const institutionRoutes = require("./routes/institutionRoutes");
 const app = express();
 
 app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
 app.use("/uploads", express.static(path.join(__dirname, "..", "uploads")));
 app.use("/auth", authRoutes);
 app.use("/institutions", institutionRoutes);

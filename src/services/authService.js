@@ -27,6 +27,7 @@ function toSafeUser(user) {
         email: user.email,
         status: user.status,
         isEmailVerified: user.isEmailVerified,
+        mustChangePassword: Boolean(user.mustChangePassword),
     };
 }
 
@@ -265,7 +266,7 @@ async function login({ email, password }) {
     });
 
     const user = await User.findOne({ email: normalizedEmail })
-        .select("_id email passwordHash status isEmailVerified")
+        .select("_id email passwordHash status isEmailVerified mustChangePassword")
         .lean();
 
     if (!user) {
@@ -297,7 +298,7 @@ async function resendSignupOtp(authUser) {
         throw createError(401, "Unauthorized");
     }
 
-    const user = await User.findById(userId).select("_id email status isEmailVerified").lean();
+    const user = await User.findById(userId).select("_id email status isEmailVerified mustChangePassword").lean();
     if (!user) {
         throw createError(401, "Unauthorized");
     }
@@ -332,7 +333,7 @@ async function verifySignupOtp(authUser, code) {
         throw createError(400, "Invalid OTP code format");
     }
 
-    const user = await User.findById(userId).select("_id email status isEmailVerified").lean();
+    const user = await User.findById(userId).select("_id email status isEmailVerified mustChangePassword").lean();
     if (!user) {
         throw createError(401, "Unauthorized");
     }
@@ -398,6 +399,7 @@ async function verifySignupOtp(authUser, code) {
             email: user.email,
             status: user.status,
             isEmailVerified: true,
+            mustChangePassword: Boolean(user.mustChangePassword),
         },
     };
 }
@@ -414,7 +416,7 @@ async function forgotPassword({ email }) {
 
     const responseMessage = "If an account exists, check your email for the reset code.";
     const user = await User.findOne({ email: normalizedEmail })
-        .select("_id email status isEmailVerified")
+        .select("_id email status isEmailVerified mustChangePassword")
         .lean();
 
     if (!user || user.status !== "active" || !user.isEmailVerified) {
@@ -458,7 +460,7 @@ async function resetPassword({ email, code, newPassword }) {
     }
 
     const user = await User.findOne({ email: normalizedEmail })
-        .select("_id email status isEmailVerified passwordHash")
+        .select("_id email status isEmailVerified passwordHash mustChangePassword")
         .lean();
 
     if (!user || user.status !== "active" || !user.isEmailVerified) {

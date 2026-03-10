@@ -66,8 +66,12 @@
   - `{ institution: { ... } }`
   - `{ department: { ... } }`
   - `{ subject: { ... } }`
+  - `{ semester: { ... } }`
+  - `{ member: { ... } }`
   - `{ departments: [...] }`
+  - `{ members: [...] }`
   - `{ subjects: [...] }`
+  - `{ semesters: [...] }`
 - Error responses use:
   - `{ "message": "..." }`
 - Prefer explicit route params over hidden context when the resource is institution-owned.
@@ -106,6 +110,20 @@
   - get by id
   - update/archive through `PATCH`
   - delete (admin-only, archived first)
+- Semester management:
+  - create
+  - list
+  - get by id
+  - update (partial)
+  - delete (admin-only, guarded by status/data rule)
+  - week-based response with teaching/off/exam data
+- Member management:
+  - create (admin-only)
+  - list (admin-only)
+  - get by membership id (admin-only)
+  - update (admin-only)
+  - update status (admin-only)
+  - profile picture upload support
 
 ## Current Decisions
 - Keep the codebase simple and MVP-focused.
@@ -114,16 +132,113 @@
 - Department and subject management are admin-only right now.
 - Soft state (`active` / `archived`) is preferred before hard delete.
 - Hard delete is allowed only in limited cases and should be guarded.
+- Only one `active` semester is allowed per institution.
+- Member data is split by responsibility:
+  - `User` = auth/login identity
+  - `Membership` = institution access + role + member status
+  - `MemberProfile` = personal identity/profile data inside the institution
+- Admin creates members directly right now:
+  - no invitation flow
+  - new admin-created users get `isEmailVerified = true`
+  - new admin-created users get `mustChangePassword = true`
+  - initial password is the member `nationalNumber` (hashed)
+- Semester calendar uses exact dates internally:
+  - `calendarOverrides` for off-days
+  - `examDates` for exams
+- Semester delete policy:
+  - allow delete if semester is `archived`
+  - or allow delete when semester has no linked data
+  - currently linked-data guard checks `sections` collection and can be extended
 
 ## Next Build Order
-1. Departments
-2. Subjects
-3. Semesters
-4. Sections
+1. Sections
+2. Section-linked flows (enrollment/scheduling/attendance)
+3. Additional semester-linked guards as new models are added
 
 Note:
-- Departments and subjects are already started.
-- The next major domain work should move toward semesters and sections.
+- Departments, subjects, semesters, and member management are now implemented.
+- The next major domain work should move to sections.
+
+## Member Module Flow (Current)
+- Routes:
+  - `POST /institutions/:institutionId/members`
+  - `GET /institutions/:institutionId/members`
+  - `GET /institutions/:institutionId/members/:membershipId`
+  - `PATCH /institutions/:institutionId/members/:membershipId`
+  - `PATCH /institutions/:institutionId/members/:membershipId/status`
+- Permission:
+  - all current member routes require `requirePermission("membership.manage")`
+- Data split:
+  - `User` stores auth fields only
+  - `Membership` stores `institutionId`, `role`, `status`, `invitedBy`, `joinedAt`
+  - `MemberProfile` stores personal profile fields and derived full-name fields
+- Member profile fields:
+  - refs: `membershipId`, `userId`, `institutionId`
+  - personal fields: `firstName`, `lastName`, `fatherName`, `motherName`, `birthPlace`, `birthDate`, `gender`, `nationality`, `nationalNumber`, `mobile`, `profilePictureUrl`
+  - derived fields: `fullName`, `fullNameNormalized`
+- Create-member behavior:
+  - admin sends `email`, `role`, and `profile`
+  - if user email already exists globally, reuse the existing `User` if membership does not already exist in the same institution
+  - if user email does not exist, create a new `User`
+  - create `Membership`
+  - create `MemberProfile`
+  - send account-created email
+- Member uniqueness rules:
+  - one membership per `{ userId, institutionId }`
+  - one `nationalNumber` per institution
+  - one profile per membership
+- List behavior:
+  - supports `role`, `status`, `search`, `page`, `limit`
+  - response shape is `{ total, members }`
+  - search currently checks `fullName`, `email`, and `nationalNumber`
+- Update behavior:
+  - admin can update `email`, `role`, and profile fields
+  - `nationalNumber` change does not reset password
+  - `fullName` and `fullNameNormalized` are rebuilt when first/last name changes
+- Status update behavior:
+  - only `active` and `suspended` are allowed through status endpoint
+- Upload behavior:
+  - profile picture field name: `profilePicture`
+  - create/update member routes accept:
+    - raw JSON
+    - `application/x-www-form-urlencoded`
+    - multipart form-data
+  - multipart can send:
+    - top-level `email`, `role`, and `profile` JSON string
+    - or `payload` as one JSON string
+  - member routes also tolerate `text/plain` JSON bodies now for Postman/raw testing
+
+## Semester Module Flow (Current)
+- Routes:
+  - `POST /institutions/:institutionId/semesters`
+  - `GET /institutions/:institutionId/semesters`
+  - `GET /institutions/:institutionId/semesters/:semesterId`
+  - `PATCH /institutions/:institutionId/semesters/:semesterId`
+  - `DELETE /institutions/:institutionId/semesters/:semesterId`
+- Permission:
+  - create/update/delete require `requirePermission("semester.manage")`
+- Core semester fields:
+  - `institutionId`
+  - `name`
+  - `startDate`, `endDate`
+  - `teachingDays`
+  - `calendarOverrides` (`type: "off"`)
+  - `examDates` (`type: "midterm" | "final"`)
+  - `weekCount`
+  - `status`
+  - `createdByUserId`
+- Create/update helpers also accept convenience range input:
+  - `holidayRange` / `holidayRanges` -> expanded to `calendarOverrides`
+  - `examRange` / `examRanges` -> expanded to `examDates`
+- Week response (`weeks`) is generated on read and includes:
+  - `teachingDates`
+  - `offDates`
+  - `examDates`
+  - `teachingDayCount`
+  - `offDayCount`
+- Teaching-day rule:
+  - `offDates` remove dates from `teachingDates`
+  - exam dates also block those dates from `teachingDates`
 
 ## Subject/Section Design Notes
 - `Subject` = master course definition (catalog item).
@@ -149,6 +264,11 @@ Note:
 - `x-institution-id` can be used as a fallback where supported by middleware.
 - Logo upload uses multipart form-data:
   - field name: `logo`
+- Member profile picture upload uses multipart form-data:
+  - file field name: `profilePicture`
+  - if sending multipart member data, use either:
+    - `email`, `role`, and `profile` as JSON string
+    - or `payload` as one JSON string
 - If a JSON body arrives as `{}`, check the request body type first.
 
 ## Instructions for AI/Codex
