@@ -33,8 +33,8 @@ const subjectSchema = new mongoose.Schema(
         },
         creditHours: {
             type: Number,
-            required: true,
             min: 1,
+            default: null,
         },
         status: {
             type: String,

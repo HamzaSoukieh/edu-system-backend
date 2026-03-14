@@ -1,5 +1,6 @@
 const mongoose = require("mongoose");
 const Department = require("../models/Department");
+const Institution = require("../models/Institution");
 const Subject = require("../models/Subject");
 
 function createError(statusCode, message) {
@@ -84,6 +85,34 @@ function validateCreditHours(rawValue) {
     return rawValue;
 }
 
+function isUniversityInstitutionType(rawValue) {
+    return normalizeString(rawValue).toLowerCase() === "university";
+}
+
+function validateCreateCreditHours(rawValue, institutionType) {
+    if (rawValue === undefined || rawValue === null) {
+        if (isUniversityInstitutionType(institutionType)) {
+            throw createError(400, "creditHours is required");
+        }
+
+        return null;
+    }
+
+    return validateCreditHours(rawValue);
+}
+
+function validateUpdateCreditHours(rawValue, institutionType) {
+    if (rawValue === null) {
+        if (isUniversityInstitutionType(institutionType)) {
+            throw createError(400, "creditHours is required");
+        }
+
+        return null;
+    }
+
+    return validateCreditHours(rawValue);
+}
+
 function validateStatus(rawValue) {
     if (rawValue === undefined) {
         return "active";
@@ -97,14 +126,14 @@ function validateStatus(rawValue) {
     return status;
 }
 
-function validateCreateSubjectInput(payload) {
+function validateCreateSubjectInput(payload, institutionType) {
     if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
         throw createError(400, "Invalid request body");
     }
 
     const { name, nameNormalized } = validateName(payload.name);
     const code = validateCode(payload.code);
-    const creditHours = validateCreditHours(payload.creditHours);
+    const creditHours = validateCreateCreditHours(payload.creditHours, institutionType);
     const status = validateStatus(payload.status);
 
     return {
@@ -116,7 +145,7 @@ function validateCreateSubjectInput(payload) {
     };
 }
 
-function validateUpdateSubjectInput(payload) {
+function validateUpdateSubjectInput(payload, institutionType) {
     if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
         throw createError(400, "Invalid request body");
     }
@@ -134,7 +163,7 @@ function validateUpdateSubjectInput(payload) {
     }
 
     if (payload.creditHours !== undefined) {
-        updates.creditHours = validateCreditHours(payload.creditHours);
+        updates.creditHours = validateUpdateCreditHours(payload.creditHours, institutionType);
     }
 
     if (payload.status !== undefined) {
@@ -239,22 +268,36 @@ async function createSubject({ institutionId, departmentId, createdByUserId, pay
         throw createError(401, "Unauthorized");
     }
 
-    const department = await Department.findOne({
-        _id: departmentId,
-        institutionId,
-    })
-        .select("_id status")
-        .lean();
+    const [department, institution] = await Promise.all([
+        Department.findOne({
+            _id: departmentId,
+            institutionId,
+        })
+            .select("_id status")
+            .lean(),
+        Institution.findOne({
+            _id: institutionId,
+        })
+            .select("_id type")
+            .lean(),
+    ]);
 
     if (!department) {
         throw createError(404, "Department not found");
+    }
+
+    if (!institution) {
+        throw createError(404, "Institution not found");
     }
 
     if (department.status !== "active") {
         throw createError(400, "Department is not active");
     }
 
-    const { name, nameNormalized, code, creditHours, status } = validateCreateSubjectInput(payload);
+    const { name, nameNormalized, code, creditHours, status } = validateCreateSubjectInput(
+        payload,
+        institution.type
+    );
 
     const [codeMatch, nameMatch] = await Promise.all([
         Subject.findOne({ institutionId, code }).select("_id").lean(),
@@ -311,18 +354,29 @@ async function updateSubject({ institutionId, subjectId, payload }) {
         throw createError(400, "Invalid subject id");
     }
 
-    const existingSubject = await Subject.findOne({
-        _id: subjectId,
-        institutionId,
-    })
-        .select("_id departmentId nameNormalized")
-        .lean();
+    const [existingSubject, institution] = await Promise.all([
+        Subject.findOne({
+            _id: subjectId,
+            institutionId,
+        })
+            .select("_id departmentId nameNormalized")
+            .lean(),
+        Institution.findOne({
+            _id: institutionId,
+        })
+            .select("_id type")
+            .lean(),
+    ]);
 
     if (!existingSubject) {
         throw createError(404, "Subject not found");
     }
 
-    const updates = validateUpdateSubjectInput(payload);
+    if (!institution) {
+        throw createError(404, "Institution not found");
+    }
+
+    const updates = validateUpdateSubjectInput(payload, institution.type);
     const targetDepartmentId = updates.departmentId || existingSubject.departmentId.toString();
 
     if (updates.departmentId) {

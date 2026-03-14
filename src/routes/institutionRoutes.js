@@ -9,6 +9,7 @@ const departmentController = require("../controllers/departmentController");
 const subjectController = require("../controllers/subjectController");
 const semesterController = require("../controllers/semesterController");
 const memberController = require("../controllers/memberController");
+const sectionController = require("../controllers/sectionController");
 
 const router = express.Router();
 const parsePlainTextJsonBody = express.text({ type: "text/plain" });
@@ -152,6 +153,38 @@ router.patch(
     institutionAccess(),
     requirePermission("membership.manage"),
     memberController.updateMemberStatus
+);
+router.post(
+    "/:institutionId/sections",
+    authJwt,
+    requireEmailVerified,
+    institutionAccess(),
+    requirePermission("section.manage"),
+    sectionController.createSection
+);
+router.get(
+    "/:institutionId/sections",
+    authJwt,
+    requireEmailVerified,
+    institutionAccess(),
+    requirePermission("section.manage"),
+    sectionController.listSections
+);
+router.get(
+    "/:institutionId/sections/:sectionId",
+    authJwt,
+    requireEmailVerified,
+    institutionAccess(),
+    requirePermission("section.manage"),
+    sectionController.getSectionById
+);
+router.patch(
+    "/:institutionId/sections/:sectionId",
+    authJwt,
+    requireEmailVerified,
+    institutionAccess(),
+    requirePermission("section.manage"),
+    sectionController.updateSection
 );
 router.post(
     "/:institutionId/semesters",

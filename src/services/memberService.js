@@ -7,7 +7,7 @@ const { sendMemberAccountCreatedEmail } = require("./emailService");
 
 const DEFAULT_SALT_ROUNDS = 10;
 const MEMBER_ROLES = ["admin", "instructor", "student"];
-const MEMBER_STATUSES = ["invited", "active", "suspended"];
+const MEMBER_STATUSES = ["active", "suspended"];
 const MANAGEABLE_MEMBER_STATUSES = ["active", "suspended"];
 const GENDERS = ["male", "female"];
 
@@ -175,7 +175,7 @@ function validateFilterStatus(rawValue) {
     }
 
     if (!MEMBER_STATUSES.includes(status)) {
-        throw createError(400, "status must be invited, active, or suspended");
+        throw createError(400, "status must be active or suspended");
     }
 
     return status;
