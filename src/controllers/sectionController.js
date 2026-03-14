@@ -81,9 +81,26 @@ async function updateSection(req, res) {
     }
 }
 
+async function deleteSection(req, res) {
+    try {
+        const institutionId = req.params.institutionId || req.tenantId;
+        const sectionId = req.params.sectionId;
+        const result = await sectionService.deleteSection({
+            institutionId,
+            sectionId,
+        });
+
+        return res.status(200).json(result);
+    } catch (error) {
+        const statusCode = resolveStatusCode(error);
+        return res.status(statusCode).json({ message: resolveMessage(error, statusCode) });
+    }
+}
+
 module.exports = {
     listSections,
     getSectionById,
     createSection,
     updateSection,
+    deleteSection,
 };

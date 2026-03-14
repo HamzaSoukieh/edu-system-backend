@@ -15,9 +15,13 @@ Then inspect the relevant code paths before making changes.
 
 Rules:
 - Keep changes minimal and safe
+- Keep changes scoped and easy to review
 - Follow the existing architecture: routes -> middleware -> controller -> service -> model
 - Keep tenant scoping by institutionId
 - Keep explanations concise and practical
+- Prefer a concise plan before editing many files
+- Ask before adding new production dependencies
+- Run relevant tests or validation steps before finishing
 - If something is uncertain, add a TODO/verify note instead of guessing
 
 Task:
@@ -32,8 +36,12 @@ Please:
 - inspect the relevant files first
 - implement the requested change in the current project style
 - keep the change minimal and local
+- keep the change scoped and easy to review
 - do not redesign unrelated parts
 - preserve tenant scoping and current response style
+- prefer a concise plan before editing many files
+- ask before adding new production dependencies
+- run relevant tests or validation steps before finishing
 
 After coding:
 - list changed files
@@ -70,9 +78,13 @@ I want a minimal safe change in this backend repo.
 Constraints:
 - keep the current architecture
 - keep changes local
+- keep changes scoped and easy to review
 - do not introduce abstractions unless necessary
+- ask before adding new production dependencies
 - do not redesign unrelated files
 - preserve current behavior except for the requested change
+- prefer a concise plan before editing many files
+- run relevant tests or validation steps before finishing
 
 Task:
 [PASTE TASK HERE]
@@ -93,6 +105,9 @@ Then:
 - summarize current module state
 - list the next sensible implementation step
 - complete the task below with minimal safe changes
+- prefer a concise plan before editing many files
+- ask before adding new production dependencies
+- run relevant tests or validation steps before finishing
 
 Task:
 [PASTE TASK HERE]
@@ -114,6 +129,10 @@ Project brief:
 - Do not add departmentId directly to Section
 - For university filtering, derive department through Subject
 - Keep changes minimal, safe, and practical
+- Prefer a concise plan before editing many files
+- Ask before adding new production dependencies
+- Run relevant tests or validation steps before finishing
+- Keep changes scoped and easy to review
 
 Current module:
 [PASTE CURRENT MODULE HERE]

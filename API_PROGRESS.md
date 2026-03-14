@@ -51,6 +51,7 @@
 - `GET /institutions/:institutionId/sections`
 - `GET /institutions/:institutionId/sections/:sectionId`
 - `PATCH /institutions/:institutionId/sections/:sectionId`
+- `DELETE /institutions/:institutionId/sections/:sectionId`
 - Current implemented rules:
   - semester teaching-day validation
   - room conflict validation
@@ -58,12 +59,10 @@
   - lightweight list response
   - fuller detail response
 - Still missing:
-  - delete
   - enrollment
   - linked attendance/scheduling flows
 
 ## Planned Next
-- Section delete with safe guards
 - Enrollment
 - Attendance
 - Section-linked scheduling rules

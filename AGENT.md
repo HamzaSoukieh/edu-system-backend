@@ -62,12 +62,19 @@
 
 ## Coding Style Preferences
 - Keep changes minimal and local.
+- Keep changes scoped and easy to review.
 - Prefer explicit validation over implicit behavior.
 - Normalize strings before uniqueness checks.
 - Build safe `$set` objects for updates.
 - Reject empty or invalid patch payloads.
 - Use `returnDocument: "after"` for update queries.
 - Keep naming consistent with existing services and models.
+
+## Working Preferences
+- Prefer a concise plan before editing many files.
+- Ask before adding new production dependencies.
+- Run relevant tests or validation steps before finishing.
+- Keep changes scoped and easy to review.
 
 ## What To Avoid
 - Do not split school/university into separate hard-coded systems unless there is no safe shared design.
@@ -80,7 +87,10 @@
 - Read the existing route/controller/service for the same module first.
 - Confirm tenant scoping and ownership rules.
 - Reuse current response shapes and error message style.
+- If the change touches many files, give a short plan first.
 - Add indexes only when they are clearly needed.
+- Ask before introducing a new runtime or production dependency.
+- Run the most relevant available validation before finishing.
 - If code and docs disagree, trust the code first, then update docs.
 - After changes, update:
   - `DECISIONS.md` if a real design decision changed
@@ -100,11 +110,11 @@
   - list
   - get by id
   - update
+  - delete
   - room conflict validation
   - lightweight list response
   - fuller detail response
 - Not done yet:
-  - delete
   - enrollment
   - school class-level support
   - scoped responsibility flows for sections

@@ -186,6 +186,14 @@ router.patch(
     requirePermission("section.manage"),
     sectionController.updateSection
 );
+router.delete(
+    "/:institutionId/sections/:sectionId",
+    authJwt,
+    requireEmailVerified,
+    institutionAccess(),
+    requirePermission("section.manage"),
+    sectionController.deleteSection
+);
 router.post(
     "/:institutionId/semesters",
     authJwt,

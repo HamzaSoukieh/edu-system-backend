@@ -29,6 +29,7 @@
   - `GET /institutions/:institutionId/sections`
   - `GET /institutions/:institutionId/sections/:sectionId`
   - `PATCH /institutions/:institutionId/sections/:sectionId`
+  - `DELETE /institutions/:institutionId/sections/:sectionId`
 
 ## Common Things To Verify
 - Invalid ObjectId returns clean `400`
@@ -97,5 +98,4 @@
 ## Space For Session Notes
 - TODO:
   - add real sample responses when helpful
-  - add delete-section test cases after endpoint exists
   - add enrollment test notes after module starts

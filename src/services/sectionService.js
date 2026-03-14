@@ -10,6 +10,7 @@ const SECTION_STATUSES = ["draft", "active", "closed", "cancelled"];
 const SCHEDULE_DAYS = ["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"];
 const TEACHING_MEMBER_ROLES = ["instructor"];
 const ROOM_RESERVED_SECTION_STATUSES = ["draft", "active"];
+const DELETABLE_SECTION_STATUSES = ["draft", "cancelled"];
 const SECTION_SELECT_FIELDS =
     "_id institutionId semesterId subjectId code title instructorMemberId capacity schedule status createdByUserId createdAt updatedAt";
 
@@ -509,6 +510,12 @@ function mapDuplicateSectionError(error) {
     return createError(409, "Section already exists");
 }
 
+function ensureSectionCanBeDeleted(section) {
+    if (!DELETABLE_SECTION_STATUSES.includes(section.status)) {
+        throw createError(409, "Only draft or cancelled sections can be deleted");
+    }
+}
+
 async function listSections({ institutionId, query }) {
     if (!institutionId || !isValidObjectId(institutionId)) {
         throw createError(400, "Invalid institution context");
@@ -809,6 +816,45 @@ async function updateSection({ institutionId, sectionId, payload }) {
     };
 }
 
+async function deleteSection({ institutionId, sectionId }) {
+    if (!institutionId || !isValidObjectId(institutionId)) {
+        throw createError(400, "Invalid institution context");
+    }
+
+    if (!sectionId || !isValidObjectId(sectionId)) {
+        throw createError(400, "Invalid section id");
+    }
+
+    const [institution, section] = await Promise.all([
+        Institution.findOne({ _id: institutionId }).select("_id").lean(),
+        Section.findOne({
+            _id: sectionId,
+            institutionId,
+        })
+            .select("_id status")
+            .lean(),
+    ]);
+
+    if (!institution) {
+        throw createError(404, "Institution not found");
+    }
+
+    if (!section) {
+        throw createError(404, "Section not found");
+    }
+
+    ensureSectionCanBeDeleted(section);
+
+    await Section.deleteOne({
+        _id: sectionId,
+        institutionId,
+    });
+
+    return {
+        message: "Section deleted successfully",
+    };
+}
+
 module.exports = {
     validateListSectionsInput,
     validateCreateSectionInput,
@@ -819,4 +865,5 @@ module.exports = {
     getSectionById,
     createSection,
     updateSection,
+    deleteSection,
 };
