@@ -2,6 +2,7 @@ const mongoose = require("mongoose");
 
 const SECTION_STATUSES = ["draft", "active", "closed", "cancelled"];
 const SCHEDULE_DAYS = ["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"];
+const SECTION_SCHEDULE_SESSION_TYPES = ["lecture", "lab"];
 
 const sectionSchema = new mongoose.Schema(
     {
@@ -49,6 +50,11 @@ const sectionSchema = new mongoose.Schema(
             type: [
                 {
                     _id: false,
+                    sessionType: {
+                        type: String,
+                        enum: SECTION_SCHEDULE_SESSION_TYPES,
+                        default: null,
+                    },
                     day: {
                         type: String,
                         required: true,

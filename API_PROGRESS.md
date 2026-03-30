@@ -59,13 +59,111 @@
   - lightweight list response
   - fuller detail response
 - Still missing:
-  - enrollment
   - linked attendance/scheduling flows
 
+### Enrollments
+- `POST /institutions/:institutionId/sections/:sectionId/enrollments`
+- `GET /institutions/:institutionId/sections/:sectionId/enrollments`
+- `GET /institutions/:institutionId/sections/:sectionId/enrollments/:enrollmentId`
+- `PATCH /institutions/:institutionId/sections/:sectionId/enrollments/:enrollmentId/status`
+- Current implemented rules:
+  - student-only enrollment records through `Membership`
+  - section and student must belong to the same institution
+  - section must be `draft` or `active` to accept enrollment
+  - capacity validation against current `enrolled` records
+  - one enrollment record per institution + section + studentMemberId
+- Still missing:
+  - student self-service enrollment
+  - delete/withdraw flow
+  - attendance / grading linkage
+
+### Section Sessions
+- `POST /institutions/:institutionId/sections/:sectionId/sessions`
+- `POST /institutions/:institutionId/sections/:sectionId/sessions/generate`
+- `GET /institutions/:institutionId/sections/:sectionId/sessions`
+- `GET /institutions/:institutionId/sections/:sectionId/sessions/:sectionSessionId`
+- `PATCH /institutions/:institutionId/sections/:sectionId/sessions/:sectionSessionId`
+- `PATCH /institutions/:institutionId/sections/:sectionId/sessions/:sectionSessionId/status`
+- Current implemented rules:
+  - one dated meeting per section occurrence
+  - sessionType supports `lecture` and `lab`
+  - sessionDate must stay within the section semester range
+  - sessionDate day must be allowed by semester teachingDays
+  - duplicate protection on section + date + startTime + sessionType
+  - recurring section schedule can generate many dated section sessions across the linked semester range
+  - generation skips semester off-days/exam dates and skips already existing sessions instead of rewriting them
+  - session detail now includes lightweight `section` and `subject` summaries
+  - list response stays lightweight without section/subject summaries
+  - dedicated status endpoint updates only session status fields and metadata
+  - generic session update should not be used for status changes
+  - status-change authorization allows:
+    - admin
+    - the parent section instructor
+    - department coordinator derived through `Section -> Subject -> Department`
+  - cancellation emails go only to students who are both:
+    - currently enrolled in the section
+    - active in the same institution
+- Still missing:
+  - delete/cancel policy beyond status updates
+  - attendance analytics / reporting
+  - student attendance self-view/history
+  - TODO/verify for legacy sections whose schedule rows do not yet include `sessionType`
+
+### Attendance
+- `POST /institutions/:institutionId/sections/:sectionId/sessions/:sectionSessionId/attendance/open`
+- `POST /institutions/:institutionId/sections/:sectionId/sessions/:sectionSessionId/attendance/qr-token`
+- `PUT /institutions/:institutionId/sections/:sectionId/sessions/:sectionSessionId/attendance/manual`
+- `GET /institutions/:institutionId/sections/:sectionId/sessions/:sectionSessionId/attendance/roster`
+- `POST /institutions/:institutionId/sections/:sectionId/sessions/:sectionSessionId/attendance/close`
+- `POST /institutions/:institutionId/sections/:sectionId/sessions/:sectionSessionId/attendance/check-in`
+- Current implemented rules:
+  - attendance is anchored to `SectionSession`
+  - only the parent section instructor can manage attendance in this step
+  - attendance uses one record per enrollment per section session
+  - QR flow stores only token hash + expiry in DB
+  - QR tokens expire after 20 seconds and old tokens are not kept valid
+  - each QR token call replaces the previous token and can be repeated while attendance stays open
+  - QR token issuance and student QR check-in are only available on the scheduled local session date
+  - student QR check-in requires active student membership + active enrolled enrollment
+  - same-day QR check-in is `present` before or within the 10-minute grace window after the later of the scheduled section session start time and `attendanceOpenedAt`, and `late` after that window
+  - QR check-in remains blocked after attendance is closed
+  - manual attendance can still correct a closed dated session for authorized instructor/admin/derived coordinator access
+  - roster is enrollment-based and supports:
+    - `all`
+    - `attended`
+    - `not_attended`
+    - `present`
+    - `absent`
+    - `late`
+    - `excused`
+    - `pending`
+  - closing attendance creates `absent` records for still-missing enrolled students
+- Still missing:
+  - attendance analytics / reporting
+  - student attendance self-view/history
+  - broader attendance oversight flows for coordinator/admin
+
+### Latest Review Note - 2026-03-21
+- `SectionSession` now stores:
+  - `statusNote`
+  - `statusChangedAt`
+  - `statusChangedByUserId`
+- `GET /sessions/:sectionSessionId` was enriched to include:
+  - `section: { id, code, title }`
+  - `subject: { id, name, code }`
+- `PATCH /sessions/:sectionSessionId/status` is the only path that should change session status.
+- Generic session update should not be used for status changes, because the dedicated status flow is what handles:
+  - fine-grained instructor/coordinator/admin authorization
+  - status metadata
+  - student cancellation email notification
+- Notification recipients are selected from:
+  - `Enrollment.status = enrolled`
+  - plus `Membership.status = active`
+  - plus users with a valid email
+
 ## Planned Next
-- Enrollment
-- Attendance
-- Section-linked scheduling rules
+- Attendance analytics / reporting
+- Student attendance self-view/history
 - Scoped responsibility routes
 - School class-level support
 
@@ -73,7 +171,9 @@
 - Verify whether section list should get pagination soon.
 - Verify subject scope strategy once school class-level model is introduced.
 - Verify delete guards for sections after enrollment exists.
+- Verify whether `lecture` / `lab` should stay the long-term shared `sessionType` enum for school support.
 - Verify responsibility flows before exposing them as active module features.
+- Verify whether attendance should later allow coordinator/admin review after instructor-first flow.
 
 ## Notes
 - Keep this file easy to update after each work session.

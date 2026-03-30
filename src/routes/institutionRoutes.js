@@ -10,6 +10,9 @@ const subjectController = require("../controllers/subjectController");
 const semesterController = require("../controllers/semesterController");
 const memberController = require("../controllers/memberController");
 const sectionController = require("../controllers/sectionController");
+const attendanceController = require("../controllers/attendanceController");
+const enrollmentController = require("../controllers/enrollmentController");
+const sectionSessionController = require("../controllers/sectionSessionController");
 
 const router = express.Router();
 const parsePlainTextJsonBody = express.text({ type: "text/plain" });
@@ -193,6 +196,127 @@ router.delete(
     institutionAccess(),
     requirePermission("section.manage"),
     sectionController.deleteSection
+);
+router.post(
+    "/:institutionId/sections/:sectionId/sessions",
+    authJwt,
+    requireEmailVerified,
+    institutionAccess(),
+    requirePermission("section.manage"),
+    sectionSessionController.createSectionSession
+);
+router.get(
+    "/:institutionId/sections/:sectionId/sessions",
+    authJwt,
+    requireEmailVerified,
+    institutionAccess(),
+    requirePermission("section.manage"),
+    sectionSessionController.listSectionSessions
+);
+router.post(
+    "/:institutionId/sections/:sectionId/sessions/generate",
+    authJwt,
+    requireEmailVerified,
+    institutionAccess(),
+    requirePermission("section.manage"),
+    sectionSessionController.generateSectionSessions
+);
+router.get(
+    "/:institutionId/sections/:sectionId/sessions/:sectionSessionId",
+    authJwt,
+    requireEmailVerified,
+    institutionAccess(),
+    requirePermission("section.manage"),
+    sectionSessionController.getSectionSessionById
+);
+router.patch(
+    "/:institutionId/sections/:sectionId/sessions/:sectionSessionId/status",
+    authJwt,
+    requireEmailVerified,
+    institutionAccess(),
+    sectionSessionController.updateSectionSessionStatus
+);
+router.patch(
+    "/:institutionId/sections/:sectionId/sessions/:sectionSessionId",
+    authJwt,
+    requireEmailVerified,
+    institutionAccess(),
+    requirePermission("section.manage"),
+    sectionSessionController.updateSectionSession
+);
+router.post(
+    "/:institutionId/sections/:sectionId/sessions/:sectionSessionId/attendance/open",
+    authJwt,
+    requireEmailVerified,
+    institutionAccess(),
+    attendanceController.openSectionSessionAttendance
+);
+router.post(
+    "/:institutionId/sections/:sectionId/sessions/:sectionSessionId/attendance/qr-token",
+    authJwt,
+    requireEmailVerified,
+    institutionAccess(),
+    attendanceController.issueSectionSessionQrToken
+);
+router.put(
+    "/:institutionId/sections/:sectionId/sessions/:sectionSessionId/attendance/manual",
+    authJwt,
+    requireEmailVerified,
+    institutionAccess(),
+    attendanceController.upsertManualSectionSessionAttendance
+);
+router.get(
+    "/:institutionId/sections/:sectionId/sessions/:sectionSessionId/attendance/roster",
+    authJwt,
+    requireEmailVerified,
+    institutionAccess(),
+    attendanceController.listSectionSessionAttendanceRoster
+);
+router.post(
+    "/:institutionId/sections/:sectionId/sessions/:sectionSessionId/attendance/close",
+    authJwt,
+    requireEmailVerified,
+    institutionAccess(),
+    attendanceController.closeSectionSessionAttendance
+);
+router.post(
+    "/:institutionId/sections/:sectionId/sessions/:sectionSessionId/attendance/check-in",
+    authJwt,
+    requireEmailVerified,
+    institutionAccess(),
+    attendanceController.checkInToSectionSessionAttendance
+);
+router.post(
+    "/:institutionId/sections/:sectionId/enrollments",
+    authJwt,
+    requireEmailVerified,
+    institutionAccess(),
+    requirePermission("section.manage"),
+    enrollmentController.createEnrollment
+);
+router.get(
+    "/:institutionId/sections/:sectionId/enrollments",
+    authJwt,
+    requireEmailVerified,
+    institutionAccess(),
+    requirePermission("section.manage"),
+    enrollmentController.listEnrollments
+);
+router.get(
+    "/:institutionId/sections/:sectionId/enrollments/:enrollmentId",
+    authJwt,
+    requireEmailVerified,
+    institutionAccess(),
+    requirePermission("section.manage"),
+    enrollmentController.getEnrollmentById
+);
+router.patch(
+    "/:institutionId/sections/:sectionId/enrollments/:enrollmentId/status",
+    authJwt,
+    requireEmailVerified,
+    institutionAccess(),
+    requirePermission("section.manage"),
+    enrollmentController.updateEnrollmentStatus
 );
 router.post(
     "/:institutionId/semesters",

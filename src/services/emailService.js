@@ -129,6 +129,82 @@ function buildMemberAccountCreatedHtml({ isNewUser, email, initialPasswordHint }
 </div>`;
 }
 
+function buildSectionSessionStatusUpdatedText({
+    subjectName,
+    subjectCode,
+    sectionCode,
+    sectionTitle,
+    sessionDate,
+    startTime,
+    endTime,
+    room,
+    status,
+    note,
+}) {
+    const sectionLabel = [sectionCode, sectionTitle].filter(Boolean).join(" - ");
+    const lines = [
+        "A section session status has been updated.",
+        `Subject: ${subjectName}${subjectCode ? ` (${subjectCode})` : ""}`,
+        `Section: ${sectionLabel || sectionCode || "N/A"}`,
+        `Session date: ${sessionDate}`,
+        `Time: ${startTime} - ${endTime}`,
+        `Status: ${status}`,
+    ];
+
+    if (room) {
+        lines.push(`Room: ${room}`);
+    }
+
+    if (note) {
+        lines.push(`Note: ${note}`);
+    }
+
+    return lines.join("\n");
+}
+
+function buildSectionSessionStatusUpdatedHtml({
+    subjectName,
+    subjectCode,
+    sectionCode,
+    sectionTitle,
+    sessionDate,
+    startTime,
+    endTime,
+    room,
+    status,
+    note,
+}) {
+    const sectionLabel = [sectionCode, sectionTitle].filter(Boolean).join(" - ");
+    const roomBlock = room
+        ? `<p style="margin:0 0 10px;color:#475569;font-size:14px;line-height:1.6;">Room: <strong>${room}</strong></p>`
+        : "";
+    const noteBlock = note
+        ? `<div style="margin-top:16px;padding:14px;background:#f8fafc;border:1px solid #dbe2ee;border-radius:10px;">
+             <p style="margin:0 0 6px;color:#0f172a;font-size:14px;font-weight:600;">Note</p>
+             <p style="margin:0;color:#475569;font-size:14px;line-height:1.6;">${note}</p>
+           </div>`
+        : "";
+
+    return `
+<div style="margin:0;padding:24px;background:#f4f6fb;font-family:Arial,sans-serif;">
+  <div style="max-width:560px;margin:0 auto;background:#ffffff;border:1px solid #dbe2ee;border-radius:12px;overflow:hidden;">
+    <div style="background:#0f172a;color:#ffffff;padding:18px 24px;">
+      <h1 style="margin:0;font-size:20px;line-height:1.3;">Section Session Update</h1>
+    </div>
+    <div style="padding:24px;">
+      <p style="margin:0 0 12px;color:#334155;font-size:15px;line-height:1.6;">A section session status has been updated.</p>
+      <p style="margin:0 0 10px;color:#475569;font-size:14px;line-height:1.6;">Subject: <strong>${subjectName}${subjectCode ? ` (${subjectCode})` : ""}</strong></p>
+      <p style="margin:0 0 10px;color:#475569;font-size:14px;line-height:1.6;">Section: <strong>${sectionLabel || sectionCode || "N/A"}</strong></p>
+      <p style="margin:0 0 10px;color:#475569;font-size:14px;line-height:1.6;">Session date: <strong>${sessionDate}</strong></p>
+      <p style="margin:0 0 10px;color:#475569;font-size:14px;line-height:1.6;">Time: <strong>${startTime} - ${endTime}</strong></p>
+      ${roomBlock}
+      <p style="margin:0;color:#475569;font-size:14px;line-height:1.6;">Status: <strong>${status}</strong></p>
+      ${noteBlock}
+    </div>
+  </div>
+</div>`;
+}
+
 async function sendOtpEmail({ to, code, purpose, expiresInMinutes }) {
     const mailTransporter = getTransporter();
     const from = process.env.EMAIL_FROM || process.env.GMAIL_USER;
@@ -173,7 +249,58 @@ async function sendMemberAccountCreatedEmail({ to, email, initialPasswordHint, i
     });
 }
 
+async function sendSectionSessionStatusUpdatedEmail({
+    to,
+    subjectName,
+    subjectCode,
+    sectionCode,
+    sectionTitle,
+    sessionDate,
+    startTime,
+    endTime,
+    room,
+    status,
+    note,
+}) {
+    const mailTransporter = getTransporter();
+    const from = process.env.EMAIL_FROM || process.env.GMAIL_USER;
+    const subject = `Section session ${status}`;
+    const text = buildSectionSessionStatusUpdatedText({
+        subjectName,
+        subjectCode,
+        sectionCode,
+        sectionTitle,
+        sessionDate,
+        startTime,
+        endTime,
+        room,
+        status,
+        note,
+    });
+    const html = buildSectionSessionStatusUpdatedHtml({
+        subjectName,
+        subjectCode,
+        sectionCode,
+        sectionTitle,
+        sessionDate,
+        startTime,
+        endTime,
+        room,
+        status,
+        note,
+    });
+
+    await mailTransporter.sendMail({
+        from,
+        to,
+        subject,
+        text,
+        html,
+    });
+}
+
 module.exports = {
     sendOtpEmail,
     sendMemberAccountCreatedEmail,
+    sendSectionSessionStatusUpdatedEmail,
 };

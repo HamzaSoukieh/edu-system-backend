@@ -76,3 +76,45 @@
 - Decision: Base access comes from role; scoped delegated access belongs in `ResponsibilityAssignment`.
 - Reason: Keeps onboarding simpler and permissions more explicit.
 - Notes: Responsibility routes/workflows are still mostly pending.
+
+## D013 - Enrollment Stays Shared And Status-Based
+- Status: Confirmed
+- Decision: Keep one shared `Enrollment` model for both institution types, with one record per institution + section + student membership.
+- Reason: Enrollment is a cross-cutting participation concept that should stay reusable.
+- Notes: Reactivation happens through status updates instead of creating duplicate enrollment records.
+
+## D014 - SectionSession Is The Attendance Foundation
+- Status: Confirmed
+- Decision: Use `SectionSession` for actual dated meetings, while `Section.schedule` remains the recurring template.
+- Reason: Attendance and QR/barcode check-in need a real meeting/session concept, not only a recurring section schedule.
+- Notes: Keep `SectionSession` shared for school and university later.
+
+## D015 - Section Session Status Changes Use A Dedicated Endpoint
+- Status: Confirmed
+- Decision: Session status changes must go through a dedicated status route and service flow.
+- Reason: Status changes need note/metadata handling, contextual authorization, and optional student notification.
+- Notes: Current contextual authorization allows admin, parent section instructor, or derived department coordinator.
+
+## D016 - Attendance Is Anchored To SectionSession
+- Status: Confirmed
+- Decision: Use `SectionSession` as the attendance anchor, with one `AttendanceRecord` per enrollment per section session.
+- Reason: Attendance belongs to one actual dated meeting, not only the recurring section template.
+- Notes: Closing attendance fills in missing enrolled students as `absent`.
+
+## D017 - First Attendance Flow Is Instructor-Managed With Rotating QR Token
+- Status: Confirmed
+- Decision: The first attendance workflow is managed only by the parent section instructor, with manual attendance plus authenticated QR check-in using a short-lived hashed token.
+- Reason: This keeps the first release simple while still supporting both manual and student QR attendance.
+- Notes: Only the current QR token hash + expiry are stored; old QR tokens are not kept valid. QR check-in is classified as `present` or `late` from a small grace window anchored to the later of the scheduled session start time and `attendanceOpenedAt`.
+
+## D018 - Recurring Schedule Generates Dated SectionSession Records Without Auto-Resync
+- Status: Confirmed
+- Decision: Generate `SectionSession` records from the section recurring schedule across the linked semester range, but do not auto-delete or auto-regenerate future sessions later when semester dates or plans change.
+- Reason: This keeps attendance anchored to real dated meetings while avoiding unsafe background rewrites of already planned sessions.
+- Notes: Generation skips dates already blocked by semester off-days/exam dates and skips already existing section sessions.
+
+## D019 - Closed Attendance Can Be Corrected Without Reopen
+- Status: Confirmed
+- Decision: Keep QR check-in open-only, but allow manual attendance correction after close for the same dated session through authorized staff correction flow.
+- Reason: This is simpler and safer for MVP than adding attendance reopen while still allowing real correction cases like `absent -> excused`.
+- Notes: Closed-session correction currently uses the manual attendance path and updates existing attendance records in place without deleting them.

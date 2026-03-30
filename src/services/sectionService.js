@@ -8,6 +8,7 @@ const Subject = require("../models/Subject");
 
 const SECTION_STATUSES = ["draft", "active", "closed", "cancelled"];
 const SCHEDULE_DAYS = ["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"];
+const SECTION_SCHEDULE_SESSION_TYPES = ["lecture", "lab"];
 const TEACHING_MEMBER_ROLES = ["instructor"];
 const ROOM_RESERVED_SECTION_STATUSES = ["draft", "active"];
 const DELETABLE_SECTION_STATUSES = ["draft", "cancelled"];
@@ -120,6 +121,23 @@ function validateSectionStatus(rawValue, { allowUndefined = false } = {}) {
     return status;
 }
 
+function validateScheduleSessionType(rawValue, fieldName, { allowUndefined = false } = {}) {
+    if (rawValue === undefined) {
+        return allowUndefined ? undefined : null;
+    }
+
+    if (rawValue === null) {
+        return null;
+    }
+
+    const sessionType = normalizeLowerString(rawValue);
+    if (!SECTION_SCHEDULE_SESSION_TYPES.includes(sessionType)) {
+        throw createError(400, `${fieldName} must be lecture or lab`);
+    }
+
+    return sessionType;
+}
+
 function statusReservesRoom(rawValue) {
     return ROOM_RESERVED_SECTION_STATUSES.includes(normalizeLowerString(rawValue));
 }
@@ -195,6 +213,9 @@ function buildRoomScheduleEntries(schedule, { silentInvalidTimes = false } = {})
         }
 
         entries.push({
+            sessionType: validateScheduleSessionType(entry.sessionType, `schedule[${index}].sessionType`, {
+                allowUndefined: true,
+            }),
             day,
             room,
             roomLabel: normalizeString(entry.room),
@@ -236,6 +257,9 @@ function validateScheduleEntry(rawValue, index) {
     }
 
     return {
+        sessionType: validateScheduleSessionType(rawValue.sessionType, `schedule[${index}].sessionType`, {
+            allowUndefined: true,
+        }),
         day,
         startTime,
         endTime,
@@ -367,6 +391,7 @@ function toSectionResponse(section) {
         capacity: section.capacity ?? null,
         schedule: Array.isArray(section.schedule)
             ? section.schedule.map((entry) => ({
+                  sessionType: entry.sessionType || null,
                   day: normalizeLowerString(entry.day),
                   startTime: entry.startTime,
                   endTime: entry.endTime,

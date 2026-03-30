@@ -1,0 +1,47 @@
+const mongoose = require("mongoose");
+
+const ENROLLMENT_STATUSES = ["enrolled", "dropped"];
+
+const enrollmentSchema = new mongoose.Schema(
+    {
+        institutionId: {
+            type: mongoose.Schema.Types.ObjectId,
+            ref: "Institution",
+            required: true,
+            index: true,
+        },
+        sectionId: {
+            type: mongoose.Schema.Types.ObjectId,
+            ref: "Section",
+            required: true,
+            index: true,
+        },
+        studentMemberId: {
+            type: mongoose.Schema.Types.ObjectId,
+            ref: "Membership",
+            required: true,
+            index: true,
+        },
+        status: {
+            type: String,
+            enum: ENROLLMENT_STATUSES,
+            default: "enrolled",
+            index: true,
+        },
+        enrolledAt: {
+            type: Date,
+            default: Date.now,
+            required: true,
+        },
+        createdByUserId: {
+            type: mongoose.Schema.Types.ObjectId,
+            ref: "User",
+            required: true,
+        },
+    },
+    { timestamps: true }
+);
+
+enrollmentSchema.index({ institutionId: 1, sectionId: 1, studentMemberId: 1 }, { unique: true });
+
+module.exports = mongoose.model("Enrollment", enrollmentSchema);
