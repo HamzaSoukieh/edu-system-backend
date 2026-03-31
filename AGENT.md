@@ -50,6 +50,9 @@
   - `req.tenantId`
   - `req.membership`
 - `ResponsibilityAssignment` exists in the codebase, but scoped business routes are still limited. Verify current usage before building on it.
+- Some contextual actions use `institutionAccess()` plus service-level authorization instead of `requirePermission(...)` alone.
+- Current example:
+  - section session status change, where access can come from admin role, parent section instructor, or derived department coordinator/head.
 
 ## API Conventions
 - Keep success responses simple:
@@ -93,6 +96,7 @@
 - Run the most relevant available validation before finishing.
 - If code and docs disagree, trust the code first, then update docs.
 - After changes, update:
+  - `PROJECT_CONTEXT.md` if the current module picture changed
   - `DECISIONS.md` if a real design decision changed
   - `API_PROGRESS.md` if module status changed
   - `TESTING_NOTES.md` if testing steps changed
@@ -104,17 +108,41 @@
 - If something is uncertain, say so clearly.
 
 ## Current Module Focus
-- Sections are the active build area.
-- Current Section work in repo:
-  - create
-  - list
-  - get by id
-  - update
-  - delete
-  - room conflict validation
-  - lightweight list response
-  - fuller detail response
+- Sections and section-linked workflows are the active build area.
+- Current repo state:
+  - Section:
+    - create
+    - list
+    - get by id
+    - update
+    - delete
+    - room conflict validation
+    - lightweight list response
+    - fuller detail response
+  - Enrollment:
+    - create
+    - list
+    - get by id
+    - status update
+  - SectionSession:
+    - create
+    - generate from recurring section schedule
+    - list
+    - get by id
+    - update
+    - dedicated status update
+    - get-by-id includes lightweight section/subject summaries
+  - Attendance:
+    - open
+    - issue QR token
+    - student QR check-in
+    - manual attendance upsert
+    - manual correction after close by authorized staff
+    - roster list with filters
+    - close and mark remaining enrolled students absent
+    - student self attendance history
+    - section-level attendance analytics for finalized closed sessions
 - Not done yet:
-  - enrollment
+  - broader attendance reporting beyond section-level finalized analytics
   - school class-level support
-  - scoped responsibility flows for sections
+  - broader scoped responsibility flows

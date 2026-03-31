@@ -22,6 +22,9 @@ const ATTENDANCE_RECORD_SELECT_FIELDS =
     "_id institutionId sectionId sectionSessionId enrollmentId studentMemberId attendanceStatus source checkedInAt note recordedByUserId createdAt updatedAt";
 const SECTION_SESSION_ATTENDANCE_SELECT_FIELDS =
     "_id institutionId sectionId sessionDate startTime endTime status attendanceState attendanceOpenedAt attendanceClosedAt attendanceOpenedByUserId currentQrTokenHash currentQrTokenExpiresAt";
+const ATTENDANCE_HISTORY_SESSION_SELECT_FIELDS = "_id institutionId sectionId sessionDate startTime endTime";
+const ATTENDANCE_HISTORY_SECTION_SELECT_FIELDS = "_id institutionId subjectId code title";
+const ATTENDANCE_HISTORY_SUBJECT_SELECT_FIELDS = "_id institutionId code name";
 
 function createError(statusCode, message) {
     const error = new Error(message);
@@ -65,6 +68,28 @@ function isValidObjectId(value) {
 
 function formatDateOnly(value) {
     return value.toISOString().slice(0, 10);
+}
+
+function parseDateOnly(rawValue, fieldName) {
+    if (rawValue instanceof Date) {
+        if (Number.isNaN(rawValue.getTime())) {
+            throw createError(400, `${fieldName} must be a valid date`);
+        }
+
+        return new Date(`${formatDateOnly(rawValue)}T00:00:00.000Z`);
+    }
+
+    const value = normalizeString(rawValue);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+        throw createError(400, `${fieldName} must be in YYYY-MM-DD format`);
+    }
+
+    const parsed = new Date(`${value}T00:00:00.000Z`);
+    if (Number.isNaN(parsed.getTime()) || formatDateOnly(parsed) !== value) {
+        throw createError(400, `${fieldName} must be a valid date`);
+    }
+
+    return parsed;
 }
 
 function parseTimeValue(rawValue, fieldName) {
@@ -137,6 +162,58 @@ function validateAttendanceRosterFilter(rawValue) {
 function validateAttendanceRosterQuery(query = {}) {
     return {
         filter: validateAttendanceRosterFilter(query.filter),
+    };
+}
+
+function validateAttendanceHistoryStatusFilter(rawValue) {
+    const value = normalizeLowerString(rawValue);
+    if (!value) {
+        return "";
+    }
+
+    if (!ATTENDANCE_STATUSES.includes(value)) {
+        throw createError(400, "status must be present, absent, late, or excused");
+    }
+
+    return value;
+}
+
+function validateAttendanceHistoryQuery(query = {}) {
+    const sectionId = normalizeId(query.sectionId);
+    if (sectionId && !isValidObjectId(sectionId)) {
+        throw createError(400, "sectionId is invalid");
+    }
+
+    const fromDateValue = normalizeString(query.fromDate);
+    const toDateValue = normalizeString(query.toDate);
+
+    const fromDate = fromDateValue ? parseDateOnly(fromDateValue, "fromDate") : undefined;
+    const toDate = toDateValue ? parseDateOnly(toDateValue, "toDate") : undefined;
+    if (fromDate && toDate && toDate.getTime() < fromDate.getTime()) {
+        throw createError(400, "toDate must be on or after fromDate");
+    }
+
+    return {
+        sectionId,
+        fromDate,
+        toDate,
+        status: validateAttendanceHistoryStatusFilter(query.status),
+    };
+}
+
+function validateAttendanceAnalyticsQuery(query = {}) {
+    const fromDateValue = normalizeString(query.fromDate);
+    const toDateValue = normalizeString(query.toDate);
+
+    const fromDate = fromDateValue ? parseDateOnly(fromDateValue, "fromDate") : undefined;
+    const toDate = toDateValue ? parseDateOnly(toDateValue, "toDate") : undefined;
+    if (fromDate && toDate && toDate.getTime() < fromDate.getTime()) {
+        throw createError(400, "toDate must be on or after fromDate");
+    }
+
+    return {
+        fromDate,
+        toDate,
     };
 }
 
@@ -228,6 +305,90 @@ function buildStudentSummary({ profile, user }) {
     };
 }
 
+function buildSectionSummary(section) {
+    if (!section) {
+        return null;
+    }
+
+    return {
+        id: section._id.toString(),
+        code: section.code,
+        title: section.title || null,
+    };
+}
+
+function buildSubjectSummary(subject) {
+    if (!subject) {
+        return null;
+    }
+
+    return {
+        id: subject._id.toString(),
+        code: subject.code,
+        name: subject.name,
+    };
+}
+
+function buildAttendanceHistorySessionSummary(sectionSession) {
+    if (!sectionSession) {
+        return null;
+    }
+
+    return {
+        id: sectionSession._id.toString(),
+        sessionDate: formatDateOnly(new Date(sectionSession.sessionDate)),
+        startTime: sectionSession.startTime,
+        endTime: sectionSession.endTime,
+    };
+}
+
+function createAttendanceMetricsAccumulator() {
+    return {
+        presentCount: 0,
+        lateCount: 0,
+        absentCount: 0,
+        excusedCount: 0,
+        totalCount: 0,
+    };
+}
+
+function appendAttendanceStatusToMetrics(metrics, attendanceStatus) {
+    metrics.totalCount += 1;
+
+    if (attendanceStatus === "present") {
+        metrics.presentCount += 1;
+        return;
+    }
+
+    if (attendanceStatus === "late") {
+        metrics.lateCount += 1;
+        return;
+    }
+
+    if (attendanceStatus === "absent") {
+        metrics.absentCount += 1;
+        return;
+    }
+
+    if (attendanceStatus === "excused") {
+        metrics.excusedCount += 1;
+    }
+}
+
+function finalizeAttendanceMetrics(metrics) {
+    const attendedCount = metrics.presentCount + metrics.lateCount;
+
+    return {
+        presentCount: metrics.presentCount,
+        lateCount: metrics.lateCount,
+        absentCount: metrics.absentCount,
+        excusedCount: metrics.excusedCount,
+        attendedCount,
+        totalCount: metrics.totalCount,
+        attendanceRate: metrics.totalCount ? attendedCount / metrics.totalCount : 0,
+    };
+}
+
 function matchesRosterFilter(attendanceStatus, filter) {
     if (filter === "all") {
         return true;
@@ -257,6 +418,56 @@ function toAttendanceRosterItem({ enrollment, membership, profile, user, attenda
         checkedInAt: attendanceRecord?.checkedInAt || null,
         note: attendanceRecord?.note || null,
         updatedAt: attendanceRecord?.updatedAt || null,
+    };
+}
+
+function toAttendanceHistoryItem({ attendanceRecord, sectionSession, section, subject }) {
+    return {
+        id: attendanceRecord._id.toString(),
+        attendanceStatus: attendanceRecord.attendanceStatus,
+        source: attendanceRecord.source,
+        checkedInAt: attendanceRecord.checkedInAt || null,
+        note: attendanceRecord.note || null,
+        session: buildAttendanceHistorySessionSummary(sectionSession),
+        section: buildSectionSummary(section),
+        subject: buildSubjectSummary(subject),
+    };
+}
+
+function buildAttendanceHistorySummary(attendanceRecords) {
+    const metrics = createAttendanceMetricsAccumulator();
+    for (const attendanceRecord of attendanceRecords) {
+        appendAttendanceStatusToMetrics(metrics, attendanceRecord.attendanceStatus);
+    }
+
+    const summary = finalizeAttendanceMetrics(metrics);
+    delete summary.attendanceRate;
+
+    return summary;
+}
+
+function buildAttendanceAnalyticsRange(input) {
+    return {
+        fromDate: input.fromDate ? formatDateOnly(input.fromDate) : null,
+        toDate: input.toDate ? formatDateOnly(input.toDate) : null,
+    };
+}
+
+function toAttendanceAnalyticsStudentItem({ studentMemberId, profile, user, metrics }) {
+    return {
+        studentMemberId,
+        student: buildStudentSummary({
+            profile,
+            user,
+        }),
+        ...finalizeAttendanceMetrics(metrics),
+    };
+}
+
+function toAttendanceAnalyticsSessionItem({ sectionSession, metrics }) {
+    return {
+        session: buildAttendanceHistorySessionSummary(sectionSession),
+        ...finalizeAttendanceMetrics(metrics),
     };
 }
 
@@ -359,7 +570,7 @@ async function loadSectionRecord({ institutionId, sectionId }) {
         _id: sectionId,
         institutionId,
     })
-        .select("_id institutionId subjectId instructorMemberId status")
+        .select("_id institutionId subjectId code title instructorMemberId status")
         .lean();
 }
 
@@ -813,6 +1024,345 @@ async function upsertManualSectionSessionAttendance({
     };
 }
 
+async function listMyAttendanceHistory({ institutionId, actorUserId, actorMembership, query = {} }) {
+    if (!institutionId || !isValidObjectId(institutionId)) {
+        throw createError(400, "Invalid institution context");
+    }
+
+    if (!actorUserId || !isValidObjectId(actorUserId)) {
+        throw createError(401, "Unauthorized");
+    }
+
+    if (!actorMembership || !actorMembership._id) {
+        throw createError(500, "Membership context missing");
+    }
+
+    if (actorMembership.role !== "student") {
+        throw createError(403, "Only students can view their own attendance history");
+    }
+
+    const input = validateAttendanceHistoryQuery(query);
+    const studentMemberId = normalizeId(actorMembership._id);
+    const attendanceFilters = {
+        institutionId,
+        studentMemberId,
+    };
+
+    if (input.sectionId) {
+        attendanceFilters.sectionId = input.sectionId;
+    }
+
+    if (input.status) {
+        attendanceFilters.attendanceStatus = input.status;
+    }
+
+    const attendanceRecords = await AttendanceRecord.find(attendanceFilters)
+        .select(ATTENDANCE_RECORD_SELECT_FIELDS)
+        .sort({ createdAt: -1, _id: -1 })
+        .lean();
+
+    if (!attendanceRecords.length) {
+        return {
+            attendanceHistory: [],
+            summary: buildAttendanceHistorySummary([]),
+        };
+    }
+
+    const sectionSessionIds = [
+        ...new Set(attendanceRecords.map((attendanceRecord) => normalizeId(attendanceRecord.sectionSessionId)).filter(Boolean)),
+    ];
+    const sectionSessionFilters = {
+        _id: { $in: sectionSessionIds },
+        institutionId,
+    };
+    if (input.fromDate || input.toDate) {
+        sectionSessionFilters.sessionDate = {};
+        if (input.fromDate) {
+            sectionSessionFilters.sessionDate.$gte = input.fromDate;
+        }
+        if (input.toDate) {
+            sectionSessionFilters.sessionDate.$lte = input.toDate;
+        }
+    }
+
+    const sectionSessions = await SectionSession.find(sectionSessionFilters)
+        .select(ATTENDANCE_HISTORY_SESSION_SELECT_FIELDS)
+        .lean();
+    const sectionSessionById = new Map(
+        sectionSessions.map((sectionSession) => [sectionSession._id.toString(), sectionSession])
+    );
+
+    const filteredAttendanceRecords = attendanceRecords.filter((attendanceRecord) =>
+        sectionSessionById.has(attendanceRecord.sectionSessionId.toString())
+    );
+
+    if (!filteredAttendanceRecords.length) {
+        return {
+            attendanceHistory: [],
+            summary: buildAttendanceHistorySummary([]),
+        };
+    }
+
+    const sectionIds = [
+        ...new Set(sectionSessions.map((sectionSession) => normalizeId(sectionSession.sectionId)).filter(Boolean)),
+    ];
+    const sections = sectionIds.length
+        ? await Section.find({
+              _id: { $in: sectionIds },
+              institutionId,
+          })
+              .select(ATTENDANCE_HISTORY_SECTION_SELECT_FIELDS)
+              .lean()
+        : [];
+    const sectionById = new Map(sections.map((section) => [section._id.toString(), section]));
+
+    const subjectIds = [...new Set(sections.map((section) => normalizeId(section.subjectId)).filter(Boolean))];
+    const subjects = subjectIds.length
+        ? await Subject.find({
+              _id: { $in: subjectIds },
+              institutionId,
+          })
+              .select(ATTENDANCE_HISTORY_SUBJECT_SELECT_FIELDS)
+              .lean()
+        : [];
+    const subjectById = new Map(subjects.map((subject) => [subject._id.toString(), subject]));
+
+    const attendanceHistory = filteredAttendanceRecords
+        .map((attendanceRecord) => {
+            const sectionSession = sectionSessionById.get(attendanceRecord.sectionSessionId.toString()) || null;
+            const section = sectionSession ? sectionById.get(sectionSession.sectionId.toString()) || null : null;
+            const subject = section?.subjectId ? subjectById.get(section.subjectId.toString()) || null : null;
+
+            return {
+                attendanceRecord,
+                sectionSession,
+                section,
+                subject,
+            };
+        })
+        .sort((left, right) => {
+            const leftSessionDate = left.sectionSession ? new Date(left.sectionSession.sessionDate).getTime() : 0;
+            const rightSessionDate = right.sectionSession ? new Date(right.sectionSession.sessionDate).getTime() : 0;
+            if (rightSessionDate !== leftSessionDate) {
+                return rightSessionDate - leftSessionDate;
+            }
+
+            const leftStartTime = left.sectionSession?.startTime || "";
+            const rightStartTime = right.sectionSession?.startTime || "";
+            const timeOrder = rightStartTime.localeCompare(leftStartTime);
+            if (timeOrder !== 0) {
+                return timeOrder;
+            }
+
+            return new Date(right.attendanceRecord.createdAt).getTime() - new Date(left.attendanceRecord.createdAt).getTime();
+        })
+        .map(toAttendanceHistoryItem);
+
+    return {
+        attendanceHistory,
+        summary: buildAttendanceHistorySummary(filteredAttendanceRecords),
+    };
+}
+
+async function getSectionAttendanceAnalytics({
+    institutionId,
+    sectionId,
+    actorUserId,
+    actorMembership,
+    query = {},
+}) {
+    if (!institutionId || !isValidObjectId(institutionId)) {
+        throw createError(400, "Invalid institution context");
+    }
+
+    if (!sectionId || !isValidObjectId(sectionId)) {
+        throw createError(400, "Invalid section id");
+    }
+
+    if (!actorUserId || !isValidObjectId(actorUserId)) {
+        throw createError(401, "Unauthorized");
+    }
+
+    if (!actorMembership || !actorMembership._id) {
+        throw createError(500, "Membership context missing");
+    }
+
+    if (actorMembership.role === "student") {
+        throw createError(403, "Students cannot access attendance analytics");
+    }
+
+    const input = validateAttendanceAnalyticsQuery(query);
+    const section = await loadSectionRecord({ institutionId, sectionId });
+    if (!section) {
+        throw createError(404, "Section not found");
+    }
+
+    const subject = await loadSubjectRecord({
+        institutionId,
+        subjectId: section.subjectId,
+    });
+    if (!subject) {
+        throw createError(404, "Subject not found");
+    }
+
+    await ensureCanChangeSectionSessionStatus({
+        institutionId,
+        actorUserId,
+        actorMembership,
+        section,
+        subject,
+    });
+
+    const sectionSessionFilters = {
+        institutionId,
+        sectionId,
+        attendanceState: "closed",
+        status: { $ne: "cancelled" },
+    };
+    if (input.fromDate || input.toDate) {
+        sectionSessionFilters.sessionDate = {};
+        if (input.fromDate) {
+            sectionSessionFilters.sessionDate.$gte = input.fromDate;
+        }
+        if (input.toDate) {
+            sectionSessionFilters.sessionDate.$lte = input.toDate;
+        }
+    }
+
+    const sectionSessions = await SectionSession.find(sectionSessionFilters)
+        .select(ATTENDANCE_HISTORY_SESSION_SELECT_FIELDS)
+        .sort({ sessionDate: 1, startTime: 1, _id: 1 })
+        .lean();
+
+    const totalClosedSessions = sectionSessions.length;
+    if (!sectionSessions.length) {
+        return {
+            attendanceAnalytics: {
+                section: buildSectionSummary(section),
+                subject: buildSubjectSummary(subject),
+                range: buildAttendanceAnalyticsRange(input),
+                summary: {
+                    totalClosedSessions,
+                    ...finalizeAttendanceMetrics(createAttendanceMetricsAccumulator()),
+                },
+                perStudent: [],
+                perSession: [],
+            },
+        };
+    }
+
+    const sectionSessionIds = sectionSessions.map((sectionSession) => sectionSession._id);
+    const attendanceRecords = await AttendanceRecord.find({
+        institutionId,
+        sectionId,
+        sectionSessionId: { $in: sectionSessionIds },
+    })
+        .select(ATTENDANCE_RECORD_SELECT_FIELDS)
+        .lean();
+
+    const overallMetrics = createAttendanceMetricsAccumulator();
+    const sessionMetricsById = new Map(
+        sectionSessions.map((sectionSession) => [sectionSession._id.toString(), createAttendanceMetricsAccumulator()])
+    );
+    const studentMetricsById = new Map();
+
+    for (const attendanceRecord of attendanceRecords) {
+        appendAttendanceStatusToMetrics(overallMetrics, attendanceRecord.attendanceStatus);
+
+        const sectionSessionIdKey = attendanceRecord.sectionSessionId.toString();
+        const sessionMetrics = sessionMetricsById.get(sectionSessionIdKey);
+        if (sessionMetrics) {
+            appendAttendanceStatusToMetrics(sessionMetrics, attendanceRecord.attendanceStatus);
+        }
+
+        const studentMemberId = attendanceRecord.studentMemberId.toString();
+        if (!studentMetricsById.has(studentMemberId)) {
+            studentMetricsById.set(studentMemberId, createAttendanceMetricsAccumulator());
+        }
+
+        appendAttendanceStatusToMetrics(studentMetricsById.get(studentMemberId), attendanceRecord.attendanceStatus);
+    }
+
+    const studentMemberIds = [...studentMetricsById.keys()];
+    const [memberships, profiles] = await Promise.all([
+        studentMemberIds.length
+            ? Membership.find({
+                  _id: { $in: studentMemberIds },
+                  institutionId,
+              })
+                  .select("_id userId")
+                  .lean()
+            : [],
+        studentMemberIds.length
+            ? MemberProfile.find({
+                  membershipId: { $in: studentMemberIds },
+                  institutionId,
+              })
+                  .select("_id membershipId fullName")
+                  .lean()
+            : [],
+    ]);
+
+    const membershipById = new Map(memberships.map((membership) => [membership._id.toString(), membership]));
+    const profileByMembershipId = new Map(
+        profiles.map((profile) => [profile.membershipId.toString(), profile])
+    );
+    const userIds = [...new Set(memberships.map((membership) => normalizeId(membership.userId)).filter(Boolean))];
+    const users = userIds.length
+        ? await User.find({
+              _id: { $in: userIds },
+          })
+              .select("_id email")
+              .lean()
+        : [];
+    const userById = new Map(users.map((user) => [user._id.toString(), user]));
+
+    const perStudent = [...studentMetricsById.entries()]
+        .map(([studentMemberId, metrics]) => {
+            const membership = membershipById.get(studentMemberId) || null;
+            const profile = profileByMembershipId.get(studentMemberId) || null;
+            const user = membership?.userId ? userById.get(membership.userId.toString()) || null : null;
+
+            return toAttendanceAnalyticsStudentItem({
+                studentMemberId,
+                profile,
+                user,
+                metrics,
+            });
+        })
+        .sort((left, right) => {
+            const leftName = normalizeLowerString(left.student.fullName || left.student.email || "");
+            const rightName = normalizeLowerString(right.student.fullName || right.student.email || "");
+            const nameOrder = leftName.localeCompare(rightName);
+            if (nameOrder !== 0) {
+                return nameOrder;
+            }
+
+            return left.studentMemberId.localeCompare(right.studentMemberId);
+        });
+
+    const perSession = sectionSessions.map((sectionSession) =>
+        toAttendanceAnalyticsSessionItem({
+            sectionSession,
+            metrics: sessionMetricsById.get(sectionSession._id.toString()) || createAttendanceMetricsAccumulator(),
+        })
+    );
+
+    return {
+        attendanceAnalytics: {
+            section: buildSectionSummary(section),
+            subject: buildSubjectSummary(subject),
+            range: buildAttendanceAnalyticsRange(input),
+            summary: {
+                totalClosedSessions,
+                ...finalizeAttendanceMetrics(overallMetrics),
+            },
+            perStudent,
+            perSession,
+        },
+    };
+}
+
 async function listSectionSessionAttendanceRoster({
     institutionId,
     sectionId,
@@ -1047,6 +1597,8 @@ module.exports = {
     validateAttendanceRosterQuery,
     toAttendanceRecordResponse,
     toAttendanceRosterItem,
+    listMyAttendanceHistory,
+    getSectionAttendanceAnalytics,
     openSectionSessionAttendance,
     issueSectionSessionQrToken,
     checkInToSectionSessionAttendance,

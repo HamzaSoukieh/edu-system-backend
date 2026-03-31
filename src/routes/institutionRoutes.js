@@ -286,6 +286,20 @@ router.post(
     institutionAccess(),
     attendanceController.checkInToSectionSessionAttendance
 );
+router.get(
+    "/:institutionId/sections/:sectionId/attendance/analytics",
+    authJwt,
+    requireEmailVerified,
+    institutionAccess(),
+    attendanceController.getSectionAttendanceAnalytics
+);
+router.get(
+    "/:institutionId/students/me/attendance-history",
+    authJwt,
+    requireEmailVerified,
+    institutionAccess(),
+    attendanceController.listMyAttendanceHistory
+);
 router.post(
     "/:institutionId/sections/:sectionId/enrollments",
     authJwt,

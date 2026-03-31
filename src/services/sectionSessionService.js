@@ -750,10 +750,10 @@ async function ensureCanChangeSectionSessionStatus({
 
     const departmentId = normalizeId(subject?.departmentId);
     if (departmentId) {
-        const coordinatorAssignments = await ResponsibilityAssignment.find({
+        const departmentOversightAssignments = await ResponsibilityAssignment.find({
             institutionId,
             userId: actorUserId,
-            responsibilityType: "coordinator",
+            responsibilityType: { $in: ["coordinator", "head"] },
             scopeType: "department",
             scopeId: departmentId,
             isActive: true,
@@ -762,11 +762,11 @@ async function ensureCanChangeSectionSessionStatus({
             .lean();
 
         const now = new Date();
-        const hasActiveCoordinatorAssignment = coordinatorAssignments.some((assignment) =>
+        const hasActiveDepartmentOversightAssignment = departmentOversightAssignments.some((assignment) =>
             isResponsibilityAssignmentActiveNow(assignment, now)
         );
 
-        if (hasActiveCoordinatorAssignment) {
+        if (hasActiveDepartmentOversightAssignment) {
             return;
         }
     }

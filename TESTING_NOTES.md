@@ -49,6 +49,8 @@
   - `GET /institutions/:institutionId/sections/:sectionId/sessions/:sectionSessionId/attendance/roster`
   - `POST /institutions/:institutionId/sections/:sectionId/sessions/:sectionSessionId/attendance/close`
   - `POST /institutions/:institutionId/sections/:sectionId/sessions/:sectionSessionId/attendance/check-in`
+  - `GET /institutions/:institutionId/sections/:sectionId/attendance/analytics`
+  - `GET /institutions/:institutionId/students/me/attendance-history`
 
 ## Common Things To Verify
 - Invalid ObjectId returns clean `400`
@@ -104,6 +106,7 @@
   - admin
   - parent section instructor
   - derived department coordinator
+  - derived department head
 - Session cancellation email should target only:
   - `Enrollment.status = enrolled`
   - `Membership.status = active`
@@ -145,7 +148,7 @@
   - accept only enrolled enrollments from the same section
   - update existing attendance record if it already exists
   - reject duplicate `enrollmentId` values in the same payload
-  - allow correction after attendance is `closed` for authorized instructor/admin/derived coordinator access
+  - allow correction after attendance is `closed` for authorized instructor/admin/derived coordinator/head access
   - still block attendance edits when attendance was never opened
 - Roster should:
   - use enrollments as the base
@@ -163,6 +166,43 @@
   - fail when attendance is not `open`
   - create `absent` records for enrolled students still missing attendance
   - clear current QR token hash/expiry on the section session
+- Student attendance history should:
+  - allow only the logged-in student membership in that institution
+  - reject non-student memberships
+  - return only existing `AttendanceRecord` rows for that student
+  - support optional `sectionId`, `fromDate`, `toDate`, and `status` filters
+  - apply date filtering against `SectionSession.sessionDate`
+  - keep tenant scoping by `institutionId`
+  - return lightweight nested:
+    - `session`
+    - `section`
+    - `subject`
+  - avoid unnecessary duplicate top-level ids when nested objects already provide that context
+  - keep `summary` counts aligned with the exact filtered history result set
+- Attendance analytics should:
+  - allow:
+    - admin
+    - the parent section instructor
+    - the same safely-derived department coordinator/head path already used for section session status changes
+  - reject students
+  - reject unrelated staff from other departments/scopes
+  - include only section sessions where:
+    - `attendanceState = closed`
+    - `status != cancelled`
+  - exclude `open`, `not_started`, and `cancelled` sessions
+  - support optional `fromDate` and `toDate` filters against `SectionSession.sessionDate`
+  - keep analytics strictly based on the filtered finalized `AttendanceRecord` rows
+  - count `late` as attended while keeping it separate from `present`
+  - keep `excused` separate from `absent`
+  - return:
+    - top-level `section`
+    - top-level `subject`
+    - top-level `range`
+    - `summary.totalClosedSessions`
+    - `summary.attendanceRate = attendedCount / totalCount`
+    - stable `perSession` ordering by `sessionDate`, then `startTime`
+    - stable `perStudent` ordering by student full name when available
+  - avoid unnecessary duplicate fields in the analytics response
 
 ## Known Debugging Notes
 - If request body is unexpectedly `{}`, check content type first.

@@ -93,7 +93,7 @@
 - Status: Confirmed
 - Decision: Session status changes must go through a dedicated status route and service flow.
 - Reason: Status changes need note/metadata handling, contextual authorization, and optional student notification.
-- Notes: Current contextual authorization allows admin, parent section instructor, or derived department coordinator.
+- Notes: Current contextual authorization allows admin, parent section instructor, or derived department coordinator/head.
 
 ## D016 - Attendance Is Anchored To SectionSession
 - Status: Confirmed

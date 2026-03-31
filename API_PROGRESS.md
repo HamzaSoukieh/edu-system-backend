@@ -59,7 +59,7 @@
   - lightweight list response
   - fuller detail response
 - Still missing:
-  - linked attendance/scheduling flows
+  - broader linked grading/reporting flows
 
 ### Enrollments
 - `POST /institutions/:institutionId/sections/:sectionId/enrollments`
@@ -99,14 +99,12 @@
   - status-change authorization allows:
     - admin
     - the parent section instructor
-    - department coordinator derived through `Section -> Subject -> Department`
+    - department coordinator/head derived through `Section -> Subject -> Department`
   - cancellation emails go only to students who are both:
     - currently enrolled in the section
     - active in the same institution
 - Still missing:
   - delete/cancel policy beyond status updates
-  - attendance analytics / reporting
-  - student attendance self-view/history
   - TODO/verify for legacy sections whose schedule rows do not yet include `sessionType`
 
 ### Attendance
@@ -116,6 +114,8 @@
 - `GET /institutions/:institutionId/sections/:sectionId/sessions/:sectionSessionId/attendance/roster`
 - `POST /institutions/:institutionId/sections/:sectionId/sessions/:sectionSessionId/attendance/close`
 - `POST /institutions/:institutionId/sections/:sectionId/sessions/:sectionSessionId/attendance/check-in`
+- `GET /institutions/:institutionId/sections/:sectionId/attendance/analytics`
+- `GET /institutions/:institutionId/students/me/attendance-history`
 - Current implemented rules:
   - attendance is anchored to `SectionSession`
   - only the parent section instructor can manage attendance in this step
@@ -127,7 +127,8 @@
   - student QR check-in requires active student membership + active enrolled enrollment
   - same-day QR check-in is `present` before or within the 10-minute grace window after the later of the scheduled section session start time and `attendanceOpenedAt`, and `late` after that window
   - QR check-in remains blocked after attendance is closed
-  - manual attendance can still correct a closed dated session for authorized instructor/admin/derived coordinator access
+  - manual attendance can still correct a closed dated session for authorized instructor/admin/derived coordinator/head access
+  - scoped attendance oversight paths that reuse section-session authorization also allow the matching department `head`
   - roster is enrollment-based and supports:
     - `all`
     - `attended`
@@ -138,10 +139,27 @@
     - `excused`
     - `pending`
   - closing attendance creates `absent` records for still-missing enrolled students
+  - logged-in students can fetch only their own tenant-scoped attendance history from existing `AttendanceRecord` rows
+  - attendance history supports optional `sectionId`, `fromDate`, `toDate`, and `status` filters
+  - attendance history response stays record-first and includes lightweight nested `session`, `section`, and `subject` summaries plus a filtered summary count block
+  - section-level attendance analytics are available to:
+    - admin
+    - the parent section instructor
+    - derived department coordinator/head through the same safe scoped oversight path already used for section session status changes
+  - students cannot access attendance analytics
+  - attendance analytics include only section sessions that are both:
+    - `attendanceState = closed`
+    - `status != cancelled`
+  - attendance analytics support optional `fromDate` and `toDate` filters against `SectionSession.sessionDate`
+  - attendance analytics remain finalized-record-based for MVP:
+    - `late` counts as attended
+    - `late` remains separate from `present`
+    - `excused` remains separate from `absent`
+    - `attendanceRate = attendedCount / totalCount`
+    - `totalCount` uses only the filtered finalized `AttendanceRecord` rows tied to eligible section sessions
 - Still missing:
-  - attendance analytics / reporting
-  - student attendance self-view/history
-  - broader attendance oversight flows for coordinator/admin
+  - broader attendance reporting beyond section-level finalized analytics
+  - broader attendance oversight flows beyond the current safe scoped read/correction paths
 
 ### Latest Review Note - 2026-03-21
 - `SectionSession` now stores:
@@ -153,7 +171,7 @@
   - `subject: { id, name, code }`
 - `PATCH /sessions/:sectionSessionId/status` is the only path that should change session status.
 - Generic session update should not be used for status changes, because the dedicated status flow is what handles:
-  - fine-grained instructor/coordinator/admin authorization
+  - fine-grained instructor/coordinator/head/admin authorization
   - status metadata
   - student cancellation email notification
 - Notification recipients are selected from:
@@ -162,8 +180,6 @@
   - plus users with a valid email
 
 ## Planned Next
-- Attendance analytics / reporting
-- Student attendance self-view/history
 - Scoped responsibility routes
 - School class-level support
 

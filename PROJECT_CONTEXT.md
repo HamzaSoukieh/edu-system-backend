@@ -113,7 +113,7 @@
   - update
   - dedicated status update with note + metadata
   - session detail includes lightweight section + subject summaries
-  - status change authorization allows admin, parent section instructor, or derived department coordinator
+  - status change authorization allows admin, parent section instructor, or derived department coordinator/head
   - generated sessions do not auto-resync later if semester dates or future plans change
 - Attendance
   - instructor opens attendance on a section session
@@ -125,13 +125,14 @@
   - closed attendance can still be corrected manually for the same dated session by authorized staff
   - roster is enrollment-based and filterable
   - closing attendance marks remaining enrolled students absent
+  - logged-in students can fetch their own attendance history from final `AttendanceRecord` data with optional `sectionId`, `fromDate`, `toDate`, and `status` filters
+  - authorized staff can fetch section-level attendance analytics for finalized attendance data
+  - attendance oversight reads/corrections that reuse section-session scoped authorization allow the same department-derived coordinator/head path
+  - analytics include only closed, non-cancelled section sessions and use filtered finalized `AttendanceRecord` rows as the attendance-rate denominator
 - Not done yet:
-  - attendance analytics / reporting
-  - student attendance self-view/history
+  - broader attendance reporting beyond section-level finalized analytics
 
 ## Next Likely Modules
-- Attendance analytics / reporting
-- Student attendance self-view/history
 - Scoped responsibility routes
 - School class-level model / academic unit strategy
 
