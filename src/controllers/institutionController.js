@@ -27,6 +27,16 @@ async function getMyInstitutionContext(req, res) {
     }
 }
 
+async function createInstitution(req, res) {
+    try {
+        const result = await institutionService.createInstitution(req.user || {}, req.body || {});
+        return res.status(201).json(result);
+    } catch (error) {
+        const statusCode = resolveStatusCode(error);
+        return res.status(statusCode).json({ message: resolveMessage(error, statusCode) });
+    }
+}
+
 async function updateInstitution(req, res) {
     try {
         const institutionId = req.params.institutionId || req.tenantId;
@@ -60,6 +70,7 @@ async function uploadInstitutionLogo(req, res) {
 }
 
 module.exports = {
+    createInstitution,
     getMyInstitutionContext,
     updateInstitution,
     uploadInstitutionLogo,

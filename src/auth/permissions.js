@@ -2,6 +2,7 @@ const ROLE_PERMISSIONS = {
     admin: [
         "institution.manage",
         "department.manage",
+        "class.manage",
         "membership.manage",
         "semester.manage",
         "subject.manage",

@@ -6,6 +6,9 @@ const uploadInstitutionLogo = require("../middleware/uploadInstitutionLogo");
 const uploadMemberProfilePicture = require("../middleware/uploadMemberProfilePicture");
 const institutionController = require("../controllers/institutionController");
 const departmentController = require("../controllers/departmentController");
+const classLevelController = require("../controllers/classLevelController");
+const schoolClassController = require("../controllers/schoolClassController");
+const classStudentAssignmentController = require("../controllers/classStudentAssignmentController");
 const subjectController = require("../controllers/subjectController");
 const semesterController = require("../controllers/semesterController");
 const memberController = require("../controllers/memberController");
@@ -18,6 +21,7 @@ const router = express.Router();
 const parsePlainTextJsonBody = express.text({ type: "text/plain" });
 
 router.get("/me", authJwt, requireEmailVerified, institutionController.getMyInstitutionContext);
+router.post("/", authJwt, requireEmailVerified, institutionController.createInstitution);
 router.patch(
     "/:institutionId",
     authJwt,
@@ -43,6 +47,14 @@ router.post(
     requirePermission("department.manage"),
     departmentController.createDepartment
 );
+router.post(
+    "/:institutionId/class-levels",
+    authJwt,
+    requireEmailVerified,
+    institutionAccess(),
+    requirePermission("class.manage"),
+    classLevelController.createClassLevel
+);
 router.get(
     "/:institutionId/departments",
     authJwt,
@@ -51,11 +63,27 @@ router.get(
     departmentController.listDepartments
 );
 router.get(
+    "/:institutionId/class-levels",
+    authJwt,
+    requireEmailVerified,
+    institutionAccess(),
+    requirePermission("class.manage"),
+    classLevelController.listClassLevels
+);
+router.get(
     "/:institutionId/departments/:departmentId",
     authJwt,
     requireEmailVerified,
     institutionAccess(),
     departmentController.getDepartmentById
+);
+router.get(
+    "/:institutionId/class-levels/:classLevelId",
+    authJwt,
+    requireEmailVerified,
+    institutionAccess(),
+    requirePermission("class.manage"),
+    classLevelController.getClassLevelById
 );
 router.patch(
     "/:institutionId/departments/:departmentId",
@@ -64,6 +92,14 @@ router.patch(
     institutionAccess(),
     requirePermission("department.manage"),
     departmentController.updateDepartment
+);
+router.patch(
+    "/:institutionId/class-levels/:classLevelId",
+    authJwt,
+    requireEmailVerified,
+    institutionAccess(),
+    requirePermission("class.manage"),
+    classLevelController.updateClassLevel
 );
 router.delete(
     "/:institutionId/departments/:departmentId",
@@ -74,7 +110,47 @@ router.delete(
     departmentController.deleteDepartment
 );
 router.post(
+    "/:institutionId/classes",
+    authJwt,
+    requireEmailVerified,
+    institutionAccess(),
+    requirePermission("class.manage"),
+    schoolClassController.createSchoolClass
+);
+router.get(
+    "/:institutionId/classes",
+    authJwt,
+    requireEmailVerified,
+    institutionAccess(),
+    requirePermission("class.manage"),
+    schoolClassController.listSchoolClasses
+);
+router.get(
+    "/:institutionId/classes/:classId",
+    authJwt,
+    requireEmailVerified,
+    institutionAccess(),
+    requirePermission("class.manage"),
+    schoolClassController.getSchoolClassById
+);
+router.patch(
+    "/:institutionId/classes/:classId",
+    authJwt,
+    requireEmailVerified,
+    institutionAccess(),
+    requirePermission("class.manage"),
+    schoolClassController.updateSchoolClass
+);
+router.post(
     "/:institutionId/departments/:departmentId/subjects",
+    authJwt,
+    requireEmailVerified,
+    institutionAccess(),
+    requirePermission("subject.manage"),
+    subjectController.createSubject
+);
+router.post(
+    "/:institutionId/class-levels/:classLevelId/subjects",
     authJwt,
     requireEmailVerified,
     institutionAccess(),
@@ -299,6 +375,38 @@ router.get(
     requireEmailVerified,
     institutionAccess(),
     attendanceController.listMyAttendanceHistory
+);
+router.post(
+    "/:institutionId/classes/:classId/students",
+    authJwt,
+    requireEmailVerified,
+    institutionAccess(),
+    requirePermission("class.manage"),
+    classStudentAssignmentController.createClassStudentAssignment
+);
+router.get(
+    "/:institutionId/classes/:classId/students",
+    authJwt,
+    requireEmailVerified,
+    institutionAccess(),
+    requirePermission("class.manage"),
+    classStudentAssignmentController.listClassStudentAssignments
+);
+router.get(
+    "/:institutionId/classes/:classId/students/:assignmentId",
+    authJwt,
+    requireEmailVerified,
+    institutionAccess(),
+    requirePermission("class.manage"),
+    classStudentAssignmentController.getClassStudentAssignmentById
+);
+router.patch(
+    "/:institutionId/classes/:classId/students/:assignmentId/status",
+    authJwt,
+    requireEmailVerified,
+    institutionAccess(),
+    requirePermission("class.manage"),
+    classStudentAssignmentController.updateClassStudentAssignmentStatus
 );
 router.post(
     "/:institutionId/sections/:sectionId/enrollments",

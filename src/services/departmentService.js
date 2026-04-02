@@ -1,5 +1,6 @@
 const mongoose = require("mongoose");
 const Department = require("../models/Department");
+const Institution = require("../models/Institution");
 const Subject = require("../models/Subject");
 
 function createError(statusCode, message) {
@@ -30,6 +31,19 @@ function isDuplicateKeyError(error) {
 
 function isValidObjectId(value) {
     return Boolean(value) && mongoose.Types.ObjectId.isValid(value);
+}
+
+async function ensureUniversityInstitution(institutionId) {
+    const institution = await Institution.findOne({ _id: institutionId }).select("_id type").lean();
+    if (!institution) {
+        throw createError(404, "Institution not found");
+    }
+
+    if (institution.type !== "university") {
+        throw createError(409, "Departments are only available for university institutions");
+    }
+
+    return institution;
 }
 
 function toDepartmentResponse(department) {
@@ -152,6 +166,8 @@ async function listDepartments({ institutionId, status }) {
         throw createError(400, "Invalid institution context");
     }
 
+    await ensureUniversityInstitution(institutionId);
+
     const query = { institutionId };
     const normalizedStatus = normalizeString(status).toLowerCase();
     if (!normalizedStatus) {
@@ -182,6 +198,8 @@ async function getDepartmentById({ institutionId, departmentId }) {
         throw createError(400, "Invalid department id");
     }
 
+    await ensureUniversityInstitution(institutionId);
+
     const department = await Department.findOne({
         _id: departmentId,
         institutionId,
@@ -206,6 +224,8 @@ async function createDepartment({ institutionId, createdByUserId, payload }) {
     if (!createdByUserId || !isValidObjectId(createdByUserId)) {
         throw createError(401, "Unauthorized");
     }
+
+    await ensureUniversityInstitution(institutionId);
 
     const { name, nameNormalized, code, description } = validateCreateDepartmentInput(payload);
 
@@ -261,6 +281,8 @@ async function updateDepartment({ institutionId, departmentId, payload }) {
     if (!departmentId || !isValidObjectId(departmentId)) {
         throw createError(400, "Invalid department id");
     }
+
+    await ensureUniversityInstitution(institutionId);
 
     const updates = validateUpdateDepartmentInput(payload);
 
@@ -348,6 +370,8 @@ async function deleteDepartment({ institutionId, departmentId }) {
     if (!departmentId || !isValidObjectId(departmentId)) {
         throw createError(400, "Invalid department id");
     }
+
+    await ensureUniversityInstitution(institutionId);
 
     const department = await Department.findOne({
         _id: departmentId,

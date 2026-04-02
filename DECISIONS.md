@@ -118,3 +118,27 @@
 - Decision: Keep QR check-in open-only, but allow manual attendance correction after close for the same dated session through authorized staff correction flow.
 - Reason: This is simpler and safer for MVP than adding attendance reopen while still allowing real correction cases like `absent -> excused`.
 - Notes: Closed-session correction currently uses the manual attendance path and updates existing attendance records in place without deleting them.
+
+## D020 - School Uses ClassLevel Plus SchoolClass
+- Status: Confirmed
+- Decision: For school institutions, use `ClassLevel` as the academic grouping for subjects and `SchoolClass` as the actual student cohort.
+- Reason: This keeps the department concept university-only while modeling school grouping and roster concepts separately.
+- Notes: `SchoolClass` stays stable across semesters; semester membership lives in `ClassStudentAssignment`.
+
+## D021 - School Enrollment Stays Backend-Managed
+- Status: Confirmed
+- Decision: Keep the shared `Enrollment` model for school, but manage it only through school class roster sync instead of direct school enrollment writes.
+- Reason: Attendance, analytics, and section-session flows already rely on enrollment records and should stay shared.
+- Notes: School enrollment create/status-change endpoints are blocked; read flows can remain available.
+
+## D022 - New School Modules Are Status-Only In MVP
+- Status: Confirmed
+- Decision: Do not add delete endpoints for `ClassLevel`, `SchoolClass`, or `ClassStudentAssignment` in the MVP.
+- Reason: Status-only lifecycle is safer while roster sync, linked sections, and attendance history are still settling.
+- Notes: Use `active|archived` for class levels/classes and `assigned|removed` for class roster records.
+
+## D023 - One User Can Belong To Multiple Institutions
+- Status: Confirmed
+- Decision: Keep auth user identity separate from institution membership so the same `User` can create and belong to multiple institutions.
+- Reason: A single account may need to manage both university and school tenants without creating a second login.
+- Notes: Ownership stays on `Institution.ownerUserId`, while operational access still comes from a normal `admin|instructor|student` membership in each institution.

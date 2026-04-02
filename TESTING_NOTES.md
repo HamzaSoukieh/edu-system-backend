@@ -22,6 +22,9 @@
 ## Route Patterns To Remember
 - Auth routes:
   - `/auth/...`
+- Institution root routes:
+  - `POST /institutions`
+  - `GET /institutions/me`
 - Institution-scoped business routes:
   - `/institutions/:institutionId/...`
 - Current section routes:
@@ -35,6 +38,21 @@
   - `GET /institutions/:institutionId/sections/:sectionId/enrollments`
   - `GET /institutions/:institutionId/sections/:sectionId/enrollments/:enrollmentId`
   - `PATCH /institutions/:institutionId/sections/:sectionId/enrollments/:enrollmentId/status`
+- Current school structure routes:
+  - `POST /institutions/:institutionId/class-levels`
+  - `GET /institutions/:institutionId/class-levels`
+  - `GET /institutions/:institutionId/class-levels/:classLevelId`
+  - `PATCH /institutions/:institutionId/class-levels/:classLevelId`
+  - `POST /institutions/:institutionId/classes`
+  - `GET /institutions/:institutionId/classes`
+  - `GET /institutions/:institutionId/classes/:classId`
+  - `PATCH /institutions/:institutionId/classes/:classId`
+  - `POST /institutions/:institutionId/classes/:classId/students`
+  - `GET /institutions/:institutionId/classes/:classId/students`
+  - `GET /institutions/:institutionId/classes/:classId/students/:assignmentId`
+  - `PATCH /institutions/:institutionId/classes/:classId/students/:assignmentId/status`
+- Current school subject create route:
+  - `POST /institutions/:institutionId/class-levels/:classLevelId/subjects`
 - Current section session routes:
   - `POST /institutions/:institutionId/sections/:sectionId/sessions`
   - `POST /institutions/:institutionId/sections/:sectionId/sessions/generate`
@@ -59,6 +77,14 @@
 - Update endpoints reject empty payloads
 - List endpoints keep response shape stable
 - Detail endpoints return fuller resource shape
+- Additional institution create should:
+  - require authenticated verified user
+  - require `name`
+  - require valid `type` of `school` or `university`
+  - create a new institution with the same user as `ownerUserId`
+  - create an active `admin` membership for that same user in the new institution
+  - keep existing memberships untouched
+  - make the new institution appear in `GET /institutions/me`
 
 ## Section-Specific Checks
 - Schedule day must exist in the selected semester teaching days
@@ -73,6 +99,7 @@
   - `09:00-10:30`
   - `10:30-12:00`
 - Department filtering for section list should work through Subject, not direct Section fields
+- School section list should support `schoolClassId` filtering
 - Enrollment should fail when:
   - section is `closed` or `cancelled`
   - student membership is missing
@@ -80,6 +107,14 @@
   - member role is not `student`
   - section capacity is already full
 - Re-enrollment should happen through enrollment status update, not by creating a second enrollment record
+- School section create should:
+  - require `schoolClassId`
+  - reject `schoolClassId` for university institutions
+  - reject inactive `SchoolClass`
+  - reject inactive `Subject`
+  - reject `schoolClass.classLevelId != subject.classLevelId`
+  - backfill enrollments from active class assignments when section status is `draft` or `active`
+  - respect remaining section capacity during backfill and skip extra assigned students once the section is full
 - Section session should fail when:
   - section is missing
   - section semester is missing
@@ -111,6 +146,55 @@
   - `Enrollment.status = enrolled`
   - `Membership.status = active`
   - users with a valid email
+
+## School Structure Checks
+- Department routes should fail for `institution.type = school`
+- Class-level routes should fail for `institution.type = university`
+- School-class routes should fail for `institution.type = university`
+- Class-level create/update should:
+  - require tenant ownership by `institutionId`
+  - enforce unique `code`
+  - enforce unique normalized `name`
+  - accept only `active` or `archived` status
+- School-class create/update should:
+  - require an active `ClassLevel` in the same institution
+  - enforce unique `code`
+  - enforce unique normalized `name`
+  - reject changing `classLevelId` after create
+  - support `status=active|archived|all` in list queries
+- School subject create/update should:
+  - require `classLevelId` for school institutions
+  - reject `departmentId` for school institutions
+  - reject non-null `creditHours`
+  - persist `creditHours = null`
+  - reject archived target `ClassLevel`
+- Class roster create should:
+  - require `semesterId`
+  - require `studentMemberId`
+  - require an active `SchoolClass`
+  - require the target membership to be an active student in the same institution
+  - create or reactivate one semester-scoped assignment row per student
+  - reject duplicate active assignment creation for the same student and semester
+- Class roster list should:
+  - require `semesterId`
+  - stay scoped to the target class and institution
+  - return stable assignment status values: `assigned` or `removed`
+- Class roster status update should:
+  - allow only `assigned` and `removed`
+  - reactivate existing shared enrollments when moving back to `assigned`
+  - mark matching school enrollments as `dropped` when moving to `removed`
+- School enrollment write flows should fail with a clear class-roster-managed message for:
+  - `POST /sections/:sectionId/enrollments`
+  - `PATCH /sections/:sectionId/enrollments/:enrollmentId/status`
+- School enrollment read flows may still be used to verify synced roster state
+- Roster sync checks:
+  - assigning a student to a class should create `Enrollment.status = enrolled` for all matching school sections in the same class and semester where section status is `draft` or `active`
+  - assigning a student to a class should skip matching school sections that are already at capacity
+  - removing a student from a class should change matching school enrollments to `dropped`
+  - reassigning the same student should reactivate matching dropped enrollments to `enrolled`
+  - reassigning the same student should still skip a matching section if that section is now full
+  - creating a new school section should backfill active assigned students in stable assignment order until capacity is reached
+  - sections in `closed` or `cancelled` status should not be rewritten by roster sync
 
 ## Attendance-Specific Checks
 - Opening attendance should fail when:
@@ -247,10 +331,76 @@
 }
 ```
 
+### Create School Section
+```json
+{
+  "semesterId": "SEMESTER_ID",
+  "subjectId": "SUBJECT_ID",
+  "schoolClassId": "SCHOOL_CLASS_ID",
+  "code": "A",
+  "title": "Grade 7 A - Math",
+  "instructorMemberId": "MEMBERSHIP_ID",
+  "capacity": 40,
+  "schedule": [
+    {
+      "sessionType": "lecture",
+      "day": "monday",
+      "startTime": "09:00",
+      "endTime": "10:30",
+      "room": "Room 201"
+    }
+  ],
+  "status": "draft"
+}
+```
+
 ### Create Enrollment
 ```json
 {
   "studentMemberId": "MEMBERSHIP_ID"
+}
+```
+
+### Create Class Level
+```json
+{
+  "name": "Grade 7",
+  "code": "G7",
+  "description": "Lower secondary level",
+  "status": "active"
+}
+```
+
+### Create School Class
+```json
+{
+  "classLevelId": "CLASS_LEVEL_ID",
+  "name": "Grade 7 A",
+  "code": "G7-A",
+  "status": "active"
+}
+```
+
+### Create Additional Institution
+```json
+{
+  "name": "Second Campus School",
+  "type": "school"
+}
+```
+
+### Assign Student To School Class
+```json
+{
+  "semesterId": "SEMESTER_ID",
+  "studentMemberId": "MEMBERSHIP_ID"
+}
+```
+
+### Update Class Assignment Status
+```json
+{
+  "status": "removed"
 }
 ```
 

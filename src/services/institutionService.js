@@ -1,6 +1,8 @@
 const Institution = require("../models/Institution");
 const Membership = require("../models/Membership");
 
+const INSTITUTION_TYPES = ["school", "university"];
+
 function createError(statusCode, message) {
     const error = new Error(message);
     error.statusCode = statusCode;
@@ -19,6 +21,10 @@ function normalizeString(value) {
     return value.trim();
 }
 
+function normalizeInstitutionType(value) {
+    return normalizeString(value).toLowerCase();
+}
+
 function isFiniteNumber(value) {
     return typeof value === "number" && Number.isFinite(value);
 }
@@ -33,6 +39,15 @@ function toInstitutionResponse(institution) {
         policies: institution.policies,
         ownerUserId: institution.ownerUserId?.toString() || null,
         updatedAt: institution.updatedAt,
+    };
+}
+
+function toMembershipSummary(membership) {
+    return {
+        institutionId: membership.institutionId.toString(),
+        role: membership.role,
+        status: membership.status,
+        joinedAt: membership.joinedAt,
     };
 }
 
@@ -71,6 +86,31 @@ function buildOnboarding({ user, memberships, activeInstitution }) {
         hasAdminMembership,
         activeInstitutionType: activeInstitution?.type || null,
         nextStep,
+    };
+}
+
+function buildInstitutionCreate(payload) {
+    if (!isPlainObject(payload)) {
+        throw createError(400, "Invalid request body");
+    }
+
+    const name = normalizeString(payload.name);
+    if (!name) {
+        throw createError(400, "Institution name is required");
+    }
+
+    const type = normalizeInstitutionType(payload.type);
+    if (!type) {
+        throw createError(400, "Institution type is required");
+    }
+
+    if (!INSTITUTION_TYPES.includes(type)) {
+        throw createError(400, "Invalid institution type");
+    }
+
+    return {
+        name,
+        type,
     };
 }
 
@@ -126,6 +166,46 @@ async function getMyInstitutionContext(authUser) {
             memberships: membershipItems,
             activeInstitution,
         }),
+    };
+}
+
+async function createInstitution(authUser, payload) {
+    if (!authUser?.id) {
+        throw createError(401, "Unauthorized");
+    }
+
+    const input = buildInstitutionCreate(payload);
+
+    let institution = null;
+    let membership = null;
+    try {
+        institution = await Institution.create({
+            name: input.name,
+            type: input.type,
+            ownerUserId: authUser.id,
+        });
+
+        membership = await Membership.create({
+            userId: authUser.id,
+            institutionId: institution._id,
+            role: "admin",
+            status: "active",
+        });
+    } catch (error) {
+        if (membership?._id) {
+            await Membership.deleteOne({ _id: membership._id });
+        }
+
+        if (institution?._id) {
+            await Institution.deleteOne({ _id: institution._id });
+        }
+
+        throw error;
+    }
+
+    return {
+        institution: toInstitutionResponse(institution),
+        membership: toMembershipSummary(membership),
     };
 }
 
@@ -250,6 +330,7 @@ async function updateInstitutionLogo(institutionId, logoUrl) {
 }
 
 module.exports = {
+    createInstitution,
     getMyInstitutionContext,
     updateInstitution,
     updateInstitutionLogo,

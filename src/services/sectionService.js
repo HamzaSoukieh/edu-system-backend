@@ -2,9 +2,11 @@ const mongoose = require("mongoose");
 const Department = require("../models/Department");
 const Institution = require("../models/Institution");
 const Membership = require("../models/Membership");
+const SchoolClass = require("../models/SchoolClass");
 const Section = require("../models/Section");
 const Semester = require("../models/Semester");
 const Subject = require("../models/Subject");
+const { backfillSchoolSectionEnrollments } = require("./enrollmentService");
 
 const SECTION_STATUSES = ["draft", "active", "closed", "cancelled"];
 const SCHEDULE_DAYS = ["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"];
@@ -13,7 +15,7 @@ const TEACHING_MEMBER_ROLES = ["instructor"];
 const ROOM_RESERVED_SECTION_STATUSES = ["draft", "active"];
 const DELETABLE_SECTION_STATUSES = ["draft", "cancelled"];
 const SECTION_SELECT_FIELDS =
-    "_id institutionId semesterId subjectId code title instructorMemberId capacity schedule status createdByUserId createdAt updatedAt";
+    "_id institutionId semesterId subjectId schoolClassId code title instructorMemberId capacity schedule status createdByUserId createdAt updatedAt";
 
 function createError(statusCode, message) {
     const error = new Error(message);
@@ -295,6 +297,7 @@ function validateCreateSectionInput(payload) {
     return {
         semesterId: payload.semesterId,
         subjectId: payload.subjectId,
+        schoolClassId: normalizeNullableObjectId(payload.schoolClassId, "schoolClassId"),
         code: normalizeRequiredCode(payload.code),
         title: normalizeNullableString(payload.title, "title"),
         instructorMemberId: normalizeNullableObjectId(payload.instructorMemberId, "instructorMemberId"),
@@ -315,6 +318,10 @@ function validateUpdateSectionInput(payload) {
 
     if (payload.subjectId !== undefined) {
         throw createError(400, "subjectId cannot be updated");
+    }
+
+    if (payload.schoolClassId !== undefined) {
+        throw createError(400, "schoolClassId cannot be updated");
     }
 
     const updates = {};
@@ -375,6 +382,7 @@ function validateListSectionsInput(query = {}) {
         subjectId: validateOptionalFilterObjectId(query.subjectId, "subjectId"),
         instructorMemberId: validateOptionalFilterObjectId(query.instructorMemberId, "instructorMemberId"),
         departmentId: validateOptionalFilterObjectId(query.departmentId, "departmentId"),
+        schoolClassId: validateOptionalFilterObjectId(query.schoolClassId, "schoolClassId"),
         status: validateSectionStatus(query.status, { allowUndefined: true }),
     };
 }
@@ -385,6 +393,7 @@ function toSectionResponse(section) {
         institutionId: section.institutionId.toString(),
         semesterId: section.semesterId.toString(),
         subjectId: section.subjectId.toString(),
+        schoolClassId: section.schoolClassId ? section.schoolClassId.toString() : null,
         code: section.code,
         title: section.title || null,
         instructorMemberId: section.instructorMemberId ? section.instructorMemberId.toString() : null,
@@ -410,6 +419,7 @@ function toSectionListItem(section) {
         id: section._id.toString(),
         semesterId: section.semesterId.toString(),
         subjectId: section.subjectId.toString(),
+        schoolClassId: section.schoolClassId ? section.schoolClassId.toString() : null,
         code: section.code,
         title: section.title || null,
         instructorMemberId: section.instructorMemberId ? section.instructorMemberId.toString() : null,
@@ -528,7 +538,13 @@ function mapDuplicateSectionError(error) {
         return null;
     }
 
-    if (error.keyPattern && error.keyPattern.institutionId && error.keyPattern.semesterId && error.keyPattern.subjectId && error.keyPattern.code) {
+    if (
+        error.keyPattern &&
+        error.keyPattern.institutionId &&
+        error.keyPattern.semesterId &&
+        error.keyPattern.subjectId &&
+        error.keyPattern.code
+    ) {
         return createError(409, "Section code already exists for this subject in this semester");
     }
 
@@ -541,12 +557,86 @@ function ensureSectionCanBeDeleted(section) {
     }
 }
 
+async function loadInstitutionRecord(institutionId) {
+    const institution = await Institution.findOne({ _id: institutionId }).select("_id type").lean();
+    if (!institution) {
+        throw createError(404, "Institution not found");
+    }
+
+    return institution;
+}
+
+async function loadSchoolClassRecord({ institutionId, schoolClassId }) {
+    const schoolClass = await SchoolClass.findOne({
+        _id: schoolClassId,
+        institutionId,
+    })
+        .select("_id classLevelId status")
+        .lean();
+
+    if (!schoolClass) {
+        throw createError(404, "Class not found");
+    }
+
+    return schoolClass;
+}
+
+async function loadSectionSemester({ institutionId, semesterId }) {
+    const semester = await Semester.findOne({
+        _id: semesterId,
+        institutionId,
+    })
+        .select("_id institutionId teachingDays")
+        .lean();
+
+    if (!semester) {
+        throw createError(404, "Semester not found");
+    }
+
+    return semester;
+}
+
+async function loadSubjectRecord({ institutionId, subjectId }) {
+    const subject = await Subject.findOne({
+        _id: subjectId,
+        institutionId,
+    })
+        .select("_id institutionId departmentId classLevelId status")
+        .lean();
+
+    if (!subject) {
+        throw createError(404, "Subject not found");
+    }
+
+    return subject;
+}
+
+function ensureSubjectAndSchoolClassCompatibility({ subject, schoolClass }) {
+    if (subject.status !== "active") {
+        throw createError(400, "Subject must be active");
+    }
+
+    if (schoolClass.status !== "active") {
+        throw createError(400, "Class must be active");
+    }
+
+    const subjectClassLevelId = subject.classLevelId ? subject.classLevelId.toString() : null;
+    const schoolClassLevelId = schoolClass.classLevelId ? schoolClass.classLevelId.toString() : null;
+    if (!subjectClassLevelId || subjectClassLevelId !== schoolClassLevelId) {
+        throw createError(400, "Class level does not match the subject class level");
+    }
+}
+
 async function listSections({ institutionId, query }) {
     if (!institutionId || !isValidObjectId(institutionId)) {
         throw createError(400, "Invalid institution context");
     }
 
-    const filters = validateListSectionsInput(query);
+    const [institution, filters] = await Promise.all([
+        loadInstitutionRecord(institutionId),
+        Promise.resolve(validateListSectionsInput(query)),
+    ]);
+
     const sectionQuery = { institutionId };
 
     if (filters.semesterId) {
@@ -565,40 +655,58 @@ async function listSections({ institutionId, query }) {
         sectionQuery.status = filters.status;
     }
 
-    if (filters.departmentId) {
-        const department = await Department.findOne({
-            _id: filters.departmentId,
-            institutionId,
-        })
-            .select("_id")
-            .lean();
-
-        if (!department) {
-            throw createError(404, "Department not found");
+    if (institution.type === "school") {
+        if (filters.departmentId) {
+            throw createError(400, "departmentId is not supported for school sections");
         }
 
-        const subjects = await Subject.find({
-            institutionId,
-            departmentId: filters.departmentId,
-        })
-            .select("_id")
-            .lean();
-
-        const subjectIds = subjects.map((subject) => subject._id.toString());
-        if (!subjectIds.length) {
-            return {
-                sections: [],
-            };
+        if (filters.schoolClassId) {
+            await loadSchoolClassRecord({
+                institutionId,
+                schoolClassId: filters.schoolClassId,
+            });
+            sectionQuery.schoolClassId = filters.schoolClassId;
+        }
+    } else {
+        if (filters.schoolClassId) {
+            throw createError(400, "schoolClassId is not supported for university sections");
         }
 
-        if (filters.subjectId) {
-            if (!subjectIds.includes(filters.subjectId)) {
+        if (filters.departmentId) {
+            const department = await Department.findOne({
+                _id: filters.departmentId,
+                institutionId,
+            })
+                .select("_id")
+                .lean();
+
+            if (!department) {
+                throw createError(404, "Department not found");
+            }
+
+            const subjects = await Subject.find({
+                institutionId,
+                departmentId: filters.departmentId,
+            })
+                .select("_id")
+                .lean();
+
+            const subjectIds = subjects.map((subject) => subject._id.toString());
+            if (!subjectIds.length) {
                 return {
                     sections: [],
                 };
             }
-        } else {
-            sectionQuery.subjectId = { $in: subjectIds };
+
+            if (filters.subjectId) {
+                if (!subjectIds.includes(filters.subjectId)) {
+                    return {
+                        sections: [],
+                    };
+                }
+            } else {
+                sectionQuery.subjectId = { $in: subjectIds };
+            }
         }
     }
 
@@ -649,31 +757,35 @@ async function createSection({ institutionId, createdByUserId, payload }) {
     const input = validateCreateSectionInput(payload);
 
     const [institution, semester, subject] = await Promise.all([
-        Institution.findOne({ _id: institutionId }).select("_id").lean(),
-        Semester.findOne({
-            _id: input.semesterId,
+        loadInstitutionRecord(institutionId),
+        loadSectionSemester({
             institutionId,
-        })
-            .select("_id institutionId teachingDays")
-            .lean(),
-        Subject.findOne({
-            _id: input.subjectId,
+            semesterId: input.semesterId,
+        }),
+        loadSubjectRecord({
             institutionId,
-        })
-            .select("_id institutionId")
-            .lean(),
+            subjectId: input.subjectId,
+        }),
     ]);
 
-    if (!institution) {
-        throw createError(404, "Institution not found");
+    if (institution.type === "school") {
+        if (!input.schoolClassId) {
+            throw createError(400, "schoolClassId is required for school sections");
+        }
+    } else if (input.schoolClassId) {
+        throw createError(400, "schoolClassId is not supported for university sections");
     }
 
-    if (!semester) {
-        throw createError(404, "Semester not found");
-    }
-
-    if (!subject) {
-        throw createError(404, "Subject not found");
+    let schoolClass = null;
+    if (institution.type === "school") {
+        schoolClass = await loadSchoolClassRecord({
+            institutionId,
+            schoolClassId: input.schoolClassId,
+        });
+        ensureSubjectAndSchoolClassCompatibility({
+            subject,
+            schoolClass,
+        });
     }
 
     validateScheduleAgainstSemesterTeachingDays(input.schedule, semester);
@@ -707,6 +819,7 @@ async function createSection({ institutionId, createdByUserId, payload }) {
             institutionId,
             semesterId: input.semesterId,
             subjectId: input.subjectId,
+            schoolClassId: input.schoolClassId,
             code: input.code,
             title: input.title,
             instructorMemberId: input.instructorMemberId,
@@ -724,6 +837,14 @@ async function createSection({ institutionId, createdByUserId, payload }) {
         throw error;
     }
 
+    if (institution.type === "school" && statusReservesRoom(section.status)) {
+        await backfillSchoolSectionEnrollments({
+            institutionId,
+            section,
+            createdByUserId,
+        });
+    }
+
     return {
         section: toSectionResponse(section),
     };
@@ -739,7 +860,7 @@ async function updateSection({ institutionId, sectionId, payload }) {
     }
 
     const [institution, existingSection] = await Promise.all([
-        Institution.findOne({ _id: institutionId }).select("_id").lean(),
+        loadInstitutionRecord(institutionId),
         Section.findOne({
             _id: sectionId,
             institutionId,
@@ -748,10 +869,6 @@ async function updateSection({ institutionId, sectionId, payload }) {
             .lean(),
     ]);
 
-    if (!institution) {
-        throw createError(404, "Institution not found");
-    }
-
     if (!existingSection) {
         throw createError(404, "Section not found");
     }
@@ -759,17 +876,10 @@ async function updateSection({ institutionId, sectionId, payload }) {
     const updates = validateUpdateSectionInput(payload);
 
     if (updates.schedule !== undefined) {
-        const semester = await Semester.findOne({
-            _id: existingSection.semesterId,
+        const semester = await loadSectionSemester({
             institutionId,
-        })
-            .select("_id teachingDays")
-            .lean();
-
-        if (!semester) {
-            throw createError(404, "Semester not found");
-        }
-
+            semesterId: existingSection.semesterId,
+        });
         validateScheduleAgainstSemesterTeachingDays(updates.schedule, semester);
     }
 
@@ -780,12 +890,13 @@ async function updateSection({ institutionId, sectionId, payload }) {
         });
     }
 
+    if (institution.type === "university" && existingSection.schoolClassId) {
+        throw createError(409, "University sections cannot use schoolClassId");
+    }
+
     const nextSchedule = updates.schedule !== undefined ? updates.schedule : existingSection.schedule || [];
     const nextStatus = updates.status !== undefined ? updates.status : existingSection.status;
-    if (
-        (updates.schedule !== undefined || updates.status !== undefined) &&
-        statusReservesRoom(nextStatus)
-    ) {
+    if ((updates.schedule !== undefined || updates.status !== undefined) && statusReservesRoom(nextStatus)) {
         await ensureNoRoomScheduleConflicts({
             institutionId,
             semesterId: existingSection.semesterId,
@@ -851,7 +962,7 @@ async function deleteSection({ institutionId, sectionId }) {
     }
 
     const [institution, section] = await Promise.all([
-        Institution.findOne({ _id: institutionId }).select("_id").lean(),
+        loadInstitutionRecord(institutionId),
         Section.findOne({
             _id: sectionId,
             institutionId,

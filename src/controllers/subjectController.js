@@ -22,6 +22,7 @@ async function listSubjects(req, res) {
         const result = await subjectService.listSubjects({
             institutionId,
             departmentId: req.query?.departmentId,
+            classLevelId: req.query?.classLevelId,
             active: req.query?.active,
         });
 
@@ -52,11 +53,13 @@ async function createSubject(req, res) {
     try {
         const institutionId = req.params.institutionId || req.tenantId;
         const departmentId = req.params.departmentId;
+        const classLevelId = req.params.classLevelId;
         const createdByUserId = req.user?.id || null;
 
         const result = await subjectService.createSubject({
             institutionId,
             departmentId,
+            classLevelId,
             createdByUserId,
             payload: req.body || {},
         });

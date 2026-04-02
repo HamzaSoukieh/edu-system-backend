@@ -1,4 +1,5 @@
 const mongoose = require("mongoose");
+const ClassLevel = require("../models/ClassLevel");
 const Department = require("../models/Department");
 const Institution = require("../models/Institution");
 const Subject = require("../models/Subject");
@@ -25,6 +26,10 @@ function normalizeName(value) {
     return normalizeString(value).toLowerCase();
 }
 
+function normalizeInstitutionType(value) {
+    return normalizeString(value).toLowerCase();
+}
+
 function isValidObjectId(value) {
     return Boolean(value) && mongoose.Types.ObjectId.isValid(value);
 }
@@ -37,7 +42,8 @@ function toSubjectResponse(subject) {
     return {
         id: subject._id.toString(),
         institutionId: subject.institutionId.toString(),
-        departmentId: subject.departmentId.toString(),
+        departmentId: subject.departmentId ? subject.departmentId.toString() : null,
+        classLevelId: subject.classLevelId ? subject.classLevelId.toString() : null,
         name: subject.name,
         code: subject.code,
         creditHours: subject.creditHours,
@@ -46,6 +52,40 @@ function toSubjectResponse(subject) {
         createdAt: subject.createdAt,
         updatedAt: subject.updatedAt,
     };
+}
+
+function resolveSubjectScopeConfig(institutionType) {
+    if (normalizeInstitutionType(institutionType) === "school") {
+        return {
+            type: "school",
+            createParamName: "classLevelId",
+            scopeField: "classLevelId",
+            scopeLabel: "Class level",
+            scopeModel: ClassLevel,
+        };
+    }
+
+    return {
+        type: "university",
+        createParamName: "departmentId",
+        scopeField: "departmentId",
+        scopeLabel: "Department",
+        scopeModel: Department,
+    };
+}
+
+async function loadInstitution(institutionId) {
+    const institution = await Institution.findOne({
+        _id: institutionId,
+    })
+        .select("_id type")
+        .lean();
+
+    if (!institution) {
+        throw createError(404, "Institution not found");
+    }
+
+    return institution;
 }
 
 function validateName(rawValue) {
@@ -85,29 +125,35 @@ function validateCreditHours(rawValue) {
     return rawValue;
 }
 
-function isUniversityInstitutionType(rawValue) {
-    return normalizeString(rawValue).toLowerCase() === "university";
-}
-
 function validateCreateCreditHours(rawValue, institutionType) {
-    if (rawValue === undefined || rawValue === null) {
-        if (isUniversityInstitutionType(institutionType)) {
-            throw createError(400, "creditHours is required");
+    const normalizedInstitutionType = normalizeInstitutionType(institutionType);
+    if (normalizedInstitutionType === "school") {
+        if (rawValue !== undefined && rawValue !== null) {
+            throw createError(400, "creditHours is not supported for school subjects");
         }
 
         return null;
+    }
+
+    if (rawValue === undefined || rawValue === null) {
+        throw createError(400, "creditHours is required");
     }
 
     return validateCreditHours(rawValue);
 }
 
 function validateUpdateCreditHours(rawValue, institutionType) {
-    if (rawValue === null) {
-        if (isUniversityInstitutionType(institutionType)) {
-            throw createError(400, "creditHours is required");
+    const normalizedInstitutionType = normalizeInstitutionType(institutionType);
+    if (normalizedInstitutionType === "school") {
+        if (rawValue !== null) {
+            throw createError(400, "creditHours is not supported for school subjects");
         }
 
         return null;
+    }
+
+    if (rawValue === null) {
+        throw createError(400, "creditHours is required");
     }
 
     return validateCreditHours(rawValue);
@@ -150,6 +196,7 @@ function validateUpdateSubjectInput(payload, institutionType) {
         throw createError(400, "Invalid request body");
     }
 
+    const scopeConfig = resolveSubjectScopeConfig(institutionType);
     const updates = {};
 
     if (payload.name !== undefined) {
@@ -170,12 +217,32 @@ function validateUpdateSubjectInput(payload, institutionType) {
         updates.status = validateStatus(payload.status);
     }
 
-    if (payload.departmentId !== undefined) {
-        if (!payload.departmentId || !isValidObjectId(payload.departmentId)) {
-            throw createError(400, "Invalid department id");
+    if (scopeConfig.scopeField === "departmentId") {
+        if (payload.classLevelId !== undefined) {
+            throw createError(400, "classLevelId is not supported for university subjects");
         }
 
-        updates.departmentId = payload.departmentId;
+        if (payload.departmentId !== undefined) {
+            if (!payload.departmentId || !isValidObjectId(payload.departmentId)) {
+                throw createError(400, "Invalid department id");
+            }
+
+            updates.departmentId = payload.departmentId;
+            updates.classLevelId = null;
+        }
+    } else {
+        if (payload.departmentId !== undefined) {
+            throw createError(400, "departmentId is not supported for school subjects");
+        }
+
+        if (payload.classLevelId !== undefined) {
+            if (!payload.classLevelId || !isValidObjectId(payload.classLevelId)) {
+                throw createError(400, "Invalid class level id");
+            }
+
+            updates.classLevelId = payload.classLevelId;
+            updates.departmentId = null;
+        }
     }
 
     if (!Object.keys(updates).length) {
@@ -185,30 +252,74 @@ function validateUpdateSubjectInput(payload, institutionType) {
     return updates;
 }
 
-async function listSubjects({ institutionId, departmentId, active }) {
+async function loadAndValidateScopeRecord({
+    institutionId,
+    institutionType,
+    scopeId,
+    action,
+}) {
+    const scopeConfig = resolveSubjectScopeConfig(institutionType);
+    const scopeLabelLower = scopeConfig.scopeLabel.toLowerCase();
+
+    if (!scopeId || !isValidObjectId(scopeId)) {
+        throw createError(400, `Invalid ${scopeLabelLower} id`);
+    }
+
+    const scopeRecord = await scopeConfig.scopeModel.findOne({
+        _id: scopeId,
+        institutionId,
+    })
+        .select("_id status")
+        .lean();
+
+    if (!scopeRecord) {
+        throw createError(404, `${scopeConfig.scopeLabel} not found`);
+    }
+
+    if (action === "write" && scopeRecord.status !== "active") {
+        throw createError(400, `${scopeConfig.scopeLabel} is not active`);
+    }
+
+    return scopeRecord;
+}
+
+async function listSubjects({ institutionId, departmentId, classLevelId, active }) {
     if (!institutionId || !isValidObjectId(institutionId)) {
         throw createError(400, "Invalid institution context");
     }
 
+    const institution = await loadInstitution(institutionId);
+    const scopeConfig = resolveSubjectScopeConfig(institution.type);
     const query = { institutionId };
 
-    if (departmentId !== undefined) {
-        if (!departmentId || !isValidObjectId(departmentId)) {
-            throw createError(400, "Invalid department id");
+    if (scopeConfig.scopeField === "departmentId") {
+        if (classLevelId !== undefined) {
+            throw createError(400, "classLevelId is not supported for university subjects");
         }
 
-        const department = await Department.findOne({
-            _id: departmentId,
-            institutionId,
-        })
-            .select("_id")
-            .lean();
-
-        if (!department) {
-            throw createError(404, "Department not found");
+        if (departmentId !== undefined) {
+            await loadAndValidateScopeRecord({
+                institutionId,
+                institutionType: institution.type,
+                scopeId: departmentId,
+                action: "read",
+            });
+            query.departmentId = departmentId;
+        }
+    } else {
+        if (departmentId !== undefined) {
+            throw createError(400, "departmentId is not supported for school subjects");
         }
 
-        query.departmentId = departmentId;
+        if (classLevelId !== undefined) {
+            await loadAndValidateScopeRecord({
+                institutionId,
+                institutionType: institution.type,
+                scopeId: classLevelId,
+                action: "read",
+            });
+            query.classLevelId = classLevelId;
+        }
     }
 
     if (active === undefined || active === "true") {
@@ -220,7 +331,7 @@ async function listSubjects({ institutionId, departmentId, active }) {
     }
 
     const subjects = await Subject.find(query)
-        .select("_id institutionId departmentId name code creditHours status createdByUserId createdAt updatedAt")
+        .select("_id institutionId departmentId classLevelId name code creditHours status createdByUserId createdAt updatedAt")
         .sort({ name: 1 })
         .lean();
 
@@ -243,7 +354,7 @@ async function getSubjectById({ institutionId, subjectId }) {
         _id: subjectId,
         institutionId,
     })
-        .select("_id institutionId departmentId name code creditHours status createdByUserId createdAt updatedAt")
+        .select("_id institutionId departmentId classLevelId name code creditHours status createdByUserId createdAt updatedAt")
         .lean();
 
     if (!subject) {
@@ -255,53 +366,48 @@ async function getSubjectById({ institutionId, subjectId }) {
     };
 }
 
-async function createSubject({ institutionId, departmentId, createdByUserId, payload }) {
+async function createSubject({ institutionId, departmentId, classLevelId, createdByUserId, payload }) {
     if (!institutionId || !isValidObjectId(institutionId)) {
         throw createError(400, "Invalid institution context");
-    }
-
-    if (!departmentId || !isValidObjectId(departmentId)) {
-        throw createError(400, "Invalid department id");
     }
 
     if (!createdByUserId || !isValidObjectId(createdByUserId)) {
         throw createError(401, "Unauthorized");
     }
 
-    const [department, institution] = await Promise.all([
-        Department.findOne({
-            _id: departmentId,
-            institutionId,
-        })
-            .select("_id status")
-            .lean(),
-        Institution.findOne({
-            _id: institutionId,
-        })
-            .select("_id type")
-            .lean(),
-    ]);
+    const institution = await loadInstitution(institutionId);
+    const scopeConfig = resolveSubjectScopeConfig(institution.type);
+    const scopeId = scopeConfig.scopeField === "departmentId" ? departmentId : classLevelId;
 
-    if (!department) {
-        throw createError(404, "Department not found");
+    if (scopeConfig.scopeField === "departmentId" && classLevelId !== undefined) {
+        throw createError(400, "classLevelId is not supported for university subjects");
     }
 
-    if (!institution) {
-        throw createError(404, "Institution not found");
+    if (scopeConfig.scopeField === "classLevelId" && departmentId !== undefined) {
+        throw createError(400, "departmentId is not supported for school subjects");
     }
 
-    if (department.status !== "active") {
-        throw createError(400, "Department is not active");
-    }
+    await loadAndValidateScopeRecord({
+        institutionId,
+        institutionType: institution.type,
+        scopeId,
+        action: "write",
+    });
 
     const { name, nameNormalized, code, creditHours, status } = validateCreateSubjectInput(
         payload,
         institution.type
     );
 
+    const scopeQuery = {
+        institutionId,
+        [scopeConfig.scopeField]: scopeId,
+        nameNormalized,
+    };
+
     const [codeMatch, nameMatch] = await Promise.all([
         Subject.findOne({ institutionId, code }).select("_id").lean(),
-        Subject.findOne({ departmentId, nameNormalized }).select("_id").lean(),
+        Subject.findOne(scopeQuery).select("_id").lean(),
     ]);
 
     if (codeMatch) {
@@ -309,29 +415,33 @@ async function createSubject({ institutionId, departmentId, createdByUserId, pay
     }
 
     if (nameMatch) {
-        throw createError(409, "Subject name already exists in this department");
+        throw createError(409, `Subject name already exists in this ${scopeConfig.scopeLabel.toLowerCase()}`);
     }
+
+    const subjectPayload = {
+        institutionId,
+        departmentId: null,
+        classLevelId: null,
+        name,
+        nameNormalized,
+        code,
+        creditHours,
+        status,
+        createdByUserId,
+    };
+    subjectPayload[scopeConfig.scopeField] = scopeId;
 
     let subject;
     try {
-        subject = await Subject.create({
-            institutionId,
-            departmentId,
-            name,
-            nameNormalized,
-            code,
-            creditHours,
-            status,
-            createdByUserId,
-        });
+        subject = await Subject.create(subjectPayload);
     } catch (error) {
         if (isDuplicateKeyError(error)) {
-            if (error.keyPattern && error.keyPattern.code) {
+            if (error.keyPattern?.code) {
                 throw createError(409, "Subject code already exists in this institution");
             }
 
-            if (error.keyPattern && error.keyPattern.nameNormalized) {
-                throw createError(409, "Subject name already exists in this department");
+            if (error.keyPattern?.nameNormalized) {
+                throw createError(409, `Subject name already exists in this ${scopeConfig.scopeLabel.toLowerCase()}`);
             }
 
             throw createError(409, "Subject already exists");
@@ -359,41 +469,31 @@ async function updateSubject({ institutionId, subjectId, payload }) {
             _id: subjectId,
             institutionId,
         })
-            .select("_id departmentId nameNormalized")
+            .select("_id departmentId classLevelId nameNormalized")
             .lean(),
-        Institution.findOne({
-            _id: institutionId,
-        })
-            .select("_id type")
-            .lean(),
+        loadInstitution(institutionId),
     ]);
 
     if (!existingSubject) {
         throw createError(404, "Subject not found");
     }
 
-    if (!institution) {
-        throw createError(404, "Institution not found");
-    }
-
+    const scopeConfig = resolveSubjectScopeConfig(institution.type);
     const updates = validateUpdateSubjectInput(payload, institution.type);
-    const targetDepartmentId = updates.departmentId || existingSubject.departmentId.toString();
 
-    if (updates.departmentId) {
-        const department = await Department.findOne({
-            _id: updates.departmentId,
+    const existingScopeId =
+        scopeConfig.scopeField === "departmentId"
+            ? existingSubject.departmentId?.toString() || null
+            : existingSubject.classLevelId?.toString() || null;
+    const targetScopeId = updates[scopeConfig.scopeField] || existingScopeId;
+
+    if (updates[scopeConfig.scopeField]) {
+        await loadAndValidateScopeRecord({
             institutionId,
-        })
-            .select("_id status")
-            .lean();
-
-        if (!department) {
-            throw createError(404, "Department not found");
-        }
-
-        if (department.status !== "active") {
-            throw createError(400, "Department is not active");
-        }
+            institutionType: institution.type,
+            scopeId: updates[scopeConfig.scopeField],
+            action: "write",
+        });
     }
 
     if (updates.code) {
@@ -410,33 +510,19 @@ async function updateSubject({ institutionId, subjectId, payload }) {
         }
     }
 
-    if (updates.nameNormalized || updates.departmentId) {
-        const targetNameNormalized = updates.nameNormalized || null;
+    if (updates.nameNormalized || updates[scopeConfig.scopeField]) {
+        const targetNameNormalized = updates.nameNormalized || existingSubject.nameNormalized;
+        const nameMatch = await Subject.findOne({
+            institutionId,
+            [scopeConfig.scopeField]: targetScopeId,
+            nameNormalized: targetNameNormalized,
+            _id: { $ne: subjectId },
+        })
+            .select("_id")
+            .lean();
 
-        if (targetNameNormalized) {
-            const nameMatch = await Subject.findOne({
-                departmentId: targetDepartmentId,
-                nameNormalized: targetNameNormalized,
-                _id: { $ne: subjectId },
-            })
-                .select("_id")
-                .lean();
-
-            if (nameMatch) {
-                throw createError(409, "Subject name already exists in this department");
-            }
-        } else if (updates.departmentId) {
-            const nameMatch = await Subject.findOne({
-                departmentId: targetDepartmentId,
-                nameNormalized: existingSubject.nameNormalized,
-                _id: { $ne: subjectId },
-            })
-                .select("_id")
-                .lean();
-
-            if (nameMatch) {
-                throw createError(409, "Subject name already exists in this department");
-            }
+        if (nameMatch) {
+            throw createError(409, `Subject name already exists in this ${scopeConfig.scopeLabel.toLowerCase()}`);
         }
     }
 
@@ -450,16 +536,16 @@ async function updateSubject({ institutionId, subjectId, payload }) {
             { $set: updates },
             { returnDocument: "after", runValidators: true }
         )
-            .select("_id institutionId departmentId name code creditHours status createdByUserId createdAt updatedAt")
+            .select("_id institutionId departmentId classLevelId name code creditHours status createdByUserId createdAt updatedAt")
             .lean();
     } catch (error) {
         if (isDuplicateKeyError(error)) {
-            if (error.keyPattern && error.keyPattern.code) {
+            if (error.keyPattern?.code) {
                 throw createError(409, "Subject code already exists in this institution");
             }
 
-            if (error.keyPattern && error.keyPattern.nameNormalized) {
-                throw createError(409, "Subject name already exists in this department");
+            if (error.keyPattern?.nameNormalized) {
+                throw createError(409, `Subject name already exists in this ${scopeConfig.scopeLabel.toLowerCase()}`);
             }
 
             throw createError(409, "Subject already exists");

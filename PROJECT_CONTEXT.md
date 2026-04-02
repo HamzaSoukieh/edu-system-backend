@@ -32,9 +32,16 @@
   - personal/member info
 - `Department`
   - current university-facing academic grouping
+- `ClassLevel`
+  - school academic grouping for school-side subject scope
+- `SchoolClass`
+  - actual school cohort such as Grade 7 A
+- `ClassStudentAssignment`
+  - semester-scoped school roster membership
 - `Subject`
   - shared catalog item
-  - university currently links through `departmentId`
+  - university links through `departmentId`
+  - school links through `classLevelId`
 - `Semester`
   - semester calendar and teaching days
 - `Section`
@@ -56,6 +63,7 @@
   - signup OTP verify/resend
   - forgot/reset password
 - Institution
+  - create additional institution after login
   - current institution context
   - update
   - logo upload
@@ -135,22 +143,31 @@
 ## Next Likely Modules
 - Scoped responsibility routes
 - School class-level model / academic unit strategy
+  - school class-level support is now being implemented with:
+    - class levels
+    - school classes
+    - semester-scoped class roster assignments
+    - school roster -> section enrollment sync
 
 ## Current Priorities
 - Keep section design reusable for school later.
 - Avoid hard-linking Section to university-only structure.
 - Keep shared services where possible.
 - Prefer minimal safe changes over broad refactors.
+- Use status-only lifecycle for new school modules in MVP.
 
 ## Important Constraints
 - Tenant-owned data must always be filtered by `institutionId`.
 - `User`, `Membership`, and `MemberProfile` stay separate by responsibility.
+- One `User` may own or belong to multiple institutions.
 - Only one active semester per institution.
 - Keep `Subject` shared.
 - Keep `Section` shared.
 - Do not store `departmentId` directly on `Section`.
+- For school, store `schoolClassId` on `Section` and derive roster through class assignments plus synced enrollments.
 - For university filters, derive department through `Subject`.
 - Keep `Enrollment` shared.
+- For school, keep `Enrollment` as backend-managed technical participation data, not student self-enrollment.
 - Keep `SectionSession` shared.
 - `ResponsibilityAssignment` should be used only when a route has a real scope.
 

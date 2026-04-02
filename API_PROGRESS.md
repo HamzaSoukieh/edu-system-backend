@@ -11,6 +11,7 @@
 - `POST /auth/otp/resend`
 
 ### Institution
+- `POST /institutions`
 - `GET /institutions/me`
 - `PATCH /institutions/:institutionId`
 - `POST /institutions/:institutionId/logo`
@@ -24,6 +25,7 @@
 
 ### Subjects
 - `POST /institutions/:institutionId/departments/:departmentId/subjects`
+- `POST /institutions/:institutionId/class-levels/:classLevelId/subjects`
 - `GET /institutions/:institutionId/subjects`
 - `GET /institutions/:institutionId/subjects/:subjectId`
 - `PATCH /institutions/:institutionId/subjects/:subjectId`
@@ -161,6 +163,30 @@
   - broader attendance reporting beyond section-level finalized analytics
   - broader attendance oversight flows beyond the current safe scoped read/correction paths
 
+### School Structure
+- `POST /institutions/:institutionId/class-levels`
+- `GET /institutions/:institutionId/class-levels`
+- `GET /institutions/:institutionId/class-levels/:classLevelId`
+- `PATCH /institutions/:institutionId/class-levels/:classLevelId`
+- `POST /institutions/:institutionId/classes`
+- `GET /institutions/:institutionId/classes`
+- `GET /institutions/:institutionId/classes/:classId`
+- `PATCH /institutions/:institutionId/classes/:classId`
+- `POST /institutions/:institutionId/classes/:classId/students`
+- `GET /institutions/:institutionId/classes/:classId/students`
+- `GET /institutions/:institutionId/classes/:classId/students/:assignmentId`
+- `PATCH /institutions/:institutionId/classes/:classId/students/:assignmentId/status`
+- Current implemented rules:
+  - `ClassLevel` and `SchoolClass` are school-only and use status-based lifecycle with no delete routes
+  - class roster membership is semester-scoped through `ClassStudentAssignment`
+  - one roster row exists per institution + semester + student
+  - school class assignment create/reactivation syncs shared `Enrollment` rows into matching school sections
+  - school class assignment create/reactivation skips sections that are already at capacity
+  - assignment removal marks matching school enrollments as `dropped`
+  - school section creation backfills enrollments from active class assignments for the same class and semester, up to remaining section capacity
+- Still missing:
+  - broader class transfer/history policy beyond the current single-row-per-student-per-semester approach
+
 ### Latest Review Note - 2026-03-21
 - `SectionSession` now stores:
   - `statusNote`
@@ -181,11 +207,9 @@
 
 ## Planned Next
 - Scoped responsibility routes
-- School class-level support
 
 ## Endpoints / Modules To Verify
 - Verify whether section list should get pagination soon.
-- Verify subject scope strategy once school class-level model is introduced.
 - Verify delete guards for sections after enrollment exists.
 - Verify whether `lecture` / `lab` should stay the long-term shared `sessionType` enum for school support.
 - Verify responsibility flows before exposing them as active module features.

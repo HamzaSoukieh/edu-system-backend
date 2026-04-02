@@ -11,7 +11,13 @@ const subjectSchema = new mongoose.Schema(
         departmentId: {
             type: mongoose.Schema.Types.ObjectId,
             ref: "Department",
-            required: true,
+            default: null,
+            index: true,
+        },
+        classLevelId: {
+            type: mongoose.Schema.Types.ObjectId,
+            ref: "ClassLevel",
+            default: null,
             index: true,
         },
         name: {
@@ -52,7 +58,39 @@ const subjectSchema = new mongoose.Schema(
 );
 
 subjectSchema.index({ institutionId: 1, code: 1 }, { unique: true });
-subjectSchema.index({ departmentId: 1, nameNormalized: 1 }, { unique: true });
-subjectSchema.index({ institutionId: 1, departmentId: 1, status: 1 });
+subjectSchema.index(
+    { institutionId: 1, departmentId: 1, nameNormalized: 1 },
+    {
+        unique: true,
+        partialFilterExpression: {
+            departmentId: { $type: "objectId" },
+        },
+    }
+);
+subjectSchema.index(
+    { institutionId: 1, classLevelId: 1, nameNormalized: 1 },
+    {
+        unique: true,
+        partialFilterExpression: {
+            classLevelId: { $type: "objectId" },
+        },
+    }
+);
+subjectSchema.index(
+    { institutionId: 1, departmentId: 1, status: 1 },
+    {
+        partialFilterExpression: {
+            departmentId: { $type: "objectId" },
+        },
+    }
+);
+subjectSchema.index(
+    { institutionId: 1, classLevelId: 1, status: 1 },
+    {
+        partialFilterExpression: {
+            classLevelId: { $type: "objectId" },
+        },
+    }
+);
 
 module.exports = mongoose.model("Subject", subjectSchema);

@@ -24,6 +24,12 @@ const sectionSchema = new mongoose.Schema(
             required: true,
             index: true,
         },
+        schoolClassId: {
+            type: mongoose.Schema.Types.ObjectId,
+            ref: "SchoolClass",
+            default: null,
+            index: true,
+        },
         code: {
             type: String,
             required: true,
@@ -95,5 +101,6 @@ const sectionSchema = new mongoose.Schema(
 );
 
 sectionSchema.index({ institutionId: 1, semesterId: 1, subjectId: 1, code: 1 }, { unique: true });
+sectionSchema.index({ institutionId: 1, schoolClassId: 1, semesterId: 1, status: 1 });
 
 module.exports = mongoose.model("Section", sectionSchema);

@@ -3,6 +3,7 @@ const Enrollment = require("../models/Enrollment");
 const Institution = require("../models/Institution");
 const Membership = require("../models/Membership");
 const Section = require("../models/Section");
+const ClassStudentAssignment = require("../models/ClassStudentAssignment");
 
 const ENROLLMENT_STATUSES = ["enrolled", "dropped"];
 const ENROLLABLE_SECTION_STATUSES = ["draft", "active"];
@@ -106,12 +107,16 @@ function ensureSectionAllowsEnrollment(section) {
     }
 }
 
+async function loadInstitutionRecord(institutionId) {
+    return Institution.findOne({ _id: institutionId }).select("_id type").lean();
+}
+
 async function loadSectionRecord({ institutionId, sectionId }) {
     return Section.findOne({
         _id: sectionId,
         institutionId,
     })
-        .select("_id institutionId status capacity")
+        .select("_id institutionId semesterId schoolClassId status capacity")
         .lean();
 }
 
@@ -138,11 +143,7 @@ async function ensureStudentMemberCanBeEnrolled({ institutionId, studentMemberId
     return membership;
 }
 
-async function ensureSectionHasCapacity({ institutionId, sectionId, capacity, excludedEnrollmentId = null }) {
-    if (!Number.isInteger(capacity) || capacity < 1) {
-        return;
-    }
-
+async function countEnrolledSectionSeats({ institutionId, sectionId, excludedEnrollmentId = null }) {
     const enrollmentQuery = {
         institutionId,
         sectionId,
@@ -153,7 +154,19 @@ async function ensureSectionHasCapacity({ institutionId, sectionId, capacity, ex
         enrollmentQuery._id = { $ne: excludedEnrollmentId };
     }
 
-    const enrolledCount = await Enrollment.countDocuments(enrollmentQuery);
+    return Enrollment.countDocuments(enrollmentQuery);
+}
+
+async function ensureSectionHasCapacity({ institutionId, sectionId, capacity, excludedEnrollmentId = null }) {
+    if (!Number.isInteger(capacity) || capacity < 1) {
+        return;
+    }
+
+    const enrolledCount = await countEnrolledSectionSeats({
+        institutionId,
+        sectionId,
+        excludedEnrollmentId,
+    });
     if (enrolledCount >= capacity) {
         throw createError(409, "Section capacity is full");
     }
@@ -176,6 +189,192 @@ function mapDuplicateEnrollmentError(error) {
     return createError(409, "Enrollment already exists");
 }
 
+async function syncSchoolSectionEnrollmentsForAssignment({
+    institutionId,
+    semesterId,
+    schoolClassId,
+    studentMemberId,
+    nextStatus,
+    createdByUserId,
+}) {
+    const matchingSections = await Section.find({
+        institutionId,
+        semesterId,
+        schoolClassId,
+        status: { $in: ENROLLABLE_SECTION_STATUSES },
+    })
+        .select("_id capacity")
+        .lean();
+
+    if (!matchingSections.length) {
+        return;
+    }
+
+    const sectionIds = matchingSections.map((section) => section._id);
+
+    if (nextStatus === "removed") {
+        await Enrollment.updateMany(
+            {
+                institutionId,
+                sectionId: { $in: sectionIds },
+                studentMemberId,
+                status: "enrolled",
+            },
+            { $set: { status: "dropped" } }
+        );
+        return;
+    }
+
+    const existingEnrollments = await Enrollment.find({
+        institutionId,
+        sectionId: { $in: sectionIds },
+        studentMemberId,
+    })
+        .select("_id sectionId status")
+        .lean();
+
+    const existingEnrollmentBySectionId = new Map(
+        existingEnrollments.map((enrollment) => [enrollment.sectionId.toString(), enrollment])
+    );
+
+    const operations = [];
+    for (const section of matchingSections) {
+        const existingEnrollment = existingEnrollmentBySectionId.get(section._id.toString()) || null;
+        if (existingEnrollment?.status === "enrolled") {
+            continue;
+        }
+
+        try {
+            await ensureSectionHasCapacity({
+                institutionId,
+                sectionId: section._id,
+                capacity: section.capacity,
+                excludedEnrollmentId: existingEnrollment?._id || null,
+            });
+        } catch (error) {
+            if (error?.statusCode === 409 && error.message === "Section capacity is full") {
+                continue;
+            }
+
+            throw error;
+        }
+
+        operations.push({
+            updateOne: {
+                filter: {
+                    institutionId,
+                    sectionId: section._id,
+                    studentMemberId,
+                },
+                update: {
+                    $set: {
+                        status: "enrolled",
+                    },
+                    $setOnInsert: {
+                        institutionId,
+                        sectionId: section._id,
+                        studentMemberId,
+                        enrolledAt: new Date(),
+                        createdByUserId,
+                    },
+                },
+                upsert: true,
+            },
+        });
+    }
+
+    if (operations.length) {
+        await Enrollment.bulkWrite(operations, { ordered: true });
+    }
+}
+
+async function backfillSchoolSectionEnrollments({ institutionId, section, createdByUserId }) {
+    if (!section?.schoolClassId || !ENROLLABLE_SECTION_STATUSES.includes(section.status)) {
+        return;
+    }
+
+    const assignments = await ClassStudentAssignment.find({
+        institutionId,
+        classId: section.schoolClassId,
+        semesterId: section.semesterId,
+        status: "assigned",
+    })
+        .select("studentMemberId createdAt")
+        .sort({ createdAt: 1, _id: 1 })
+        .lean();
+
+    if (!assignments.length) {
+        return;
+    }
+
+    const studentMemberIds = assignments.map((assignment) => assignment.studentMemberId);
+    const existingEnrollments = await Enrollment.find({
+        institutionId,
+        sectionId: section._id,
+        studentMemberId: { $in: studentMemberIds },
+    })
+        .select("_id studentMemberId status")
+        .lean();
+
+    const existingEnrollmentByStudentMemberId = new Map(
+        existingEnrollments.map((enrollment) => [enrollment.studentMemberId.toString(), enrollment])
+    );
+
+    let remainingSeats = null;
+    if (Number.isInteger(section.capacity) && section.capacity >= 1) {
+        const enrolledCount = await countEnrolledSectionSeats({
+            institutionId,
+            sectionId: section._id,
+        });
+        remainingSeats = Math.max(section.capacity - enrolledCount, 0);
+    }
+
+    const operations = [];
+    for (const assignment of assignments) {
+        const existingEnrollment =
+            existingEnrollmentByStudentMemberId.get(assignment.studentMemberId.toString()) || null;
+
+        if (existingEnrollment?.status === "enrolled") {
+            continue;
+        }
+
+        if (remainingSeats !== null) {
+            if (remainingSeats < 1) {
+                break;
+            }
+
+            remainingSeats -= 1;
+        }
+
+        operations.push({
+            updateOne: {
+                filter: {
+                    institutionId,
+                    sectionId: section._id,
+                    studentMemberId: assignment.studentMemberId,
+                },
+                update: {
+                    $set: {
+                        status: "enrolled",
+                    },
+                    $setOnInsert: {
+                        institutionId,
+                        sectionId: section._id,
+                        studentMemberId: assignment.studentMemberId,
+                        enrolledAt: new Date(),
+                        createdByUserId,
+                    },
+                },
+                upsert: true,
+            },
+        });
+    }
+
+    if (operations.length) {
+        await Enrollment.bulkWrite(operations, { ordered: true });
+    }
+}
+
 async function createEnrollment({ institutionId, sectionId, createdByUserId, payload }) {
     if (!institutionId || !isValidObjectId(institutionId)) {
         throw createError(400, "Invalid institution context");
@@ -192,7 +391,7 @@ async function createEnrollment({ institutionId, sectionId, createdByUserId, pay
     const input = validateCreateEnrollmentInput(payload);
 
     const [institution, section] = await Promise.all([
-        Institution.findOne({ _id: institutionId }).select("_id").lean(),
+        loadInstitutionRecord(institutionId),
         loadSectionRecord({ institutionId, sectionId }),
     ]);
 
@@ -202,6 +401,10 @@ async function createEnrollment({ institutionId, sectionId, createdByUserId, pay
 
     if (!section) {
         throw createError(404, "Section not found");
+    }
+
+    if (institution.type === "school") {
+        throw createError(409, "School section enrollments are managed through class roster");
     }
 
     ensureSectionAllowsEnrollment(section);
@@ -329,7 +532,7 @@ async function updateEnrollmentStatus({ institutionId, sectionId, enrollmentId, 
     }
 
     const [institution, enrollment] = await Promise.all([
-        Institution.findOne({ _id: institutionId }).select("_id").lean(),
+        loadInstitutionRecord(institutionId),
         Enrollment.findOne({
             _id: enrollmentId,
             institutionId,
@@ -345,6 +548,10 @@ async function updateEnrollmentStatus({ institutionId, sectionId, enrollmentId, 
 
     if (!enrollment) {
         throw createError(404, "Enrollment not found");
+    }
+
+    if (institution.type === "school") {
+        throw createError(409, "School section enrollments are managed through class roster");
     }
 
     const { status } = validateUpdateEnrollmentStatusInput(payload);
@@ -394,6 +601,8 @@ module.exports = {
     validateUpdateEnrollmentStatusInput,
     toEnrollmentResponse,
     toEnrollmentListItem,
+    syncSchoolSectionEnrollmentsForAssignment,
+    backfillSchoolSectionEnrollments,
     createEnrollment,
     listEnrollments,
     getEnrollmentById,
