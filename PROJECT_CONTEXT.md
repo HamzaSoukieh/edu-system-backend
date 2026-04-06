@@ -52,6 +52,12 @@
 - `SectionSession`
   - one actual dated meeting of a section
   - foundation for future attendance and QR/barcode check-in
+- `Assessment`
+  - one section-scoped graded item
+  - may optionally link to a `SectionSession`
+- `AssessmentResult`
+  - one student result row for one assessment
+  - anchored through existing section `Enrollment`
 - `ResponsibilityAssignment`
   - scoped delegated access model
   - not yet a major active module
@@ -121,7 +127,11 @@
   - update
   - dedicated status update with note + metadata
   - session detail includes lightweight section + subject summaries
-  - status change authorization allows admin, parent section instructor, or derived department coordinator/head
+  - status change authorization allows:
+    - admin
+    - parent section instructor
+    - derived department coordinator/head for university sections
+    - derived class-level coordinator/head for school sections
   - generated sessions do not auto-resync later if semester dates or future plans change
 - Attendance
   - instructor opens attendance on a section session
@@ -135,22 +145,45 @@
   - closing attendance marks remaining enrolled students absent
   - logged-in students can fetch their own attendance history from final `AttendanceRecord` data with optional `sectionId`, `fromDate`, `toDate`, and `status` filters
   - authorized staff can fetch section-level attendance analytics for finalized attendance data
-  - attendance oversight reads/corrections that reuse section-session scoped authorization allow the same department-derived coordinator/head path
+  - attendance oversight reads/corrections that reuse section-session scoped authorization allow:
+    - the same department-derived coordinator/head path for university sections
+    - the matching class-level coordinator/head path for school sections
   - analytics include only closed, non-cancelled section sessions and use filtered finalized `AttendanceRecord` rows as the attendance-rate denominator
 - Not done yet:
   - broader attendance reporting beyond section-level finalized analytics
+- Assessments / Results
+  - create/list/get/update/status for section-scoped assessments
+  - optional assessment linkage to a section session
+  - assessment roster snapshot from current active enrollments at create time
+  - bulk partial result upsert by assessment snapshot rows
+  - student metadata-only assessment visibility for `announced` and `published` assessments through current active section enrollment
+  - best-effort email notification on `draft -> announced` for currently active enrolled students in the section
+  - best-effort email notification on `draft|announced -> published` for currently active enrolled students in the section
+  - published-only weighted section results for staff
+  - published-only self results for the logged-in student
+  - `announced` assessments are student-visible metadata only and do not expose scores/results
+  - archived assessments stay readable to staff but are excluded from student views and aggregate section results
+  - scoped staff access reuses the same safe section-derived oversight pattern:
+    - admin
+    - parent section instructor
+    - university department coordinator/head for the parent subject department
+    - school class-level coordinator/head for the parent section class level
+  - current remaining gap:
+    - broader grading/reporting beyond section-level assessment results, such as GPA/transcript/report-card flows
+- School Structure
+  - class level create/list/get/update
+  - school class create/list/get/update
+  - semester-scoped class roster assignment create/list/get/status update
+  - school roster -> section enrollment sync on assignment create/remove/reactivate
+  - school section backfill from active class assignments
+  - current remaining gap:
+    - broader class transfer/history policy beyond the current single-row-per-student-per-semester approach
 
 ## Next Likely Modules
 - Scoped responsibility routes
-- School class-level model / academic unit strategy
-  - school class-level support is now being implemented with:
-    - class levels
-    - school classes
-    - semester-scoped class roster assignments
-    - school roster -> section enrollment sync
 
 ## Current Priorities
-- Keep section design reusable for school later.
+- Keep section design reusable across school and university.
 - Avoid hard-linking Section to university-only structure.
 - Keep shared services where possible.
 - Prefer minimal safe changes over broad refactors.
@@ -170,11 +203,12 @@
 - For school, keep `Enrollment` as backend-managed technical participation data, not student self-enrollment.
 - Keep `SectionSession` shared.
 - `ResponsibilityAssignment` should be used only when a route has a real scope.
+- School scoped academic oversight may derive through `ResponsibilityAssignment.scopeType = classLevel` when the route is tied to a school section's class level.
 
 ## TODO / Verify
-- Verify long-term academic unit design for school support before adding class-level logic.
 - Verify when pagination should be added to section lists.
 - Verify when section delete should become blocked by linked enrollment/attendance data.
+- Verify long-term school class transfer/history policy beyond the current single-row-per-student-per-semester approach.
 - Verify whether `lecture` / `lab` should remain the long-term shared `sessionType` enum for school support.
 - Verify whether session cancellation should later support richer notification flows beyond basic email.
 - Verify whether attendance should later support coordinator/admin oversight after instructor-first flow is stable.

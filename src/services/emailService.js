@@ -205,6 +205,106 @@ function buildSectionSessionStatusUpdatedHtml({
 </div>`;
 }
 
+function buildAssessmentSectionLabel({ sectionCode, sectionTitle }) {
+    return [sectionCode, sectionTitle].filter(Boolean).join(" - ") || sectionCode || "N/A";
+}
+
+function buildAssessmentAnnouncementText({
+    subjectName,
+    subjectCode,
+    sectionCode,
+    sectionTitle,
+    assessmentTitle,
+    assessmentType,
+    assessmentDate,
+}) {
+    const sectionLabel = buildAssessmentSectionLabel({ sectionCode, sectionTitle });
+
+    return [
+        `A new assessment has been announced in ${sectionLabel}.`,
+        `Subject: ${subjectName}${subjectCode ? ` (${subjectCode})` : ""}`,
+        `Assessment: ${assessmentTitle}`,
+        `Type: ${assessmentType}`,
+        `Date: ${assessmentDate}`,
+    ].join("\n");
+}
+
+function buildAssessmentAnnouncementHtml({
+    subjectName,
+    subjectCode,
+    sectionCode,
+    sectionTitle,
+    assessmentTitle,
+    assessmentType,
+    assessmentDate,
+}) {
+    const sectionLabel = buildAssessmentSectionLabel({ sectionCode, sectionTitle });
+
+    return `
+<div style="margin:0;padding:24px;background:#f4f6fb;font-family:Arial,sans-serif;">
+  <div style="max-width:560px;margin:0 auto;background:#ffffff;border:1px solid #dbe2ee;border-radius:12px;overflow:hidden;">
+    <div style="background:#0f172a;color:#ffffff;padding:18px 24px;">
+      <h1 style="margin:0;font-size:20px;line-height:1.3;">Assessment Announced</h1>
+    </div>
+    <div style="padding:24px;">
+      <p style="margin:0 0 12px;color:#334155;font-size:15px;line-height:1.6;">A new assessment has been announced in <strong>${sectionLabel}</strong>.</p>
+      <p style="margin:0 0 10px;color:#475569;font-size:14px;line-height:1.6;">Subject: <strong>${subjectName}${subjectCode ? ` (${subjectCode})` : ""}</strong></p>
+      <p style="margin:0 0 10px;color:#475569;font-size:14px;line-height:1.6;">Assessment: <strong>${assessmentTitle}</strong></p>
+      <p style="margin:0 0 10px;color:#475569;font-size:14px;line-height:1.6;">Type: <strong>${assessmentType}</strong></p>
+      <p style="margin:0;color:#475569;font-size:14px;line-height:1.6;">Date: <strong>${assessmentDate}</strong></p>
+    </div>
+  </div>
+</div>`;
+}
+
+function buildAssessmentResultsPublishedText({
+    subjectName,
+    subjectCode,
+    sectionCode,
+    sectionTitle,
+    assessmentTitle,
+    assessmentType,
+    assessmentDate,
+}) {
+    const sectionLabel = buildAssessmentSectionLabel({ sectionCode, sectionTitle });
+
+    return [
+        `Results for ${assessmentTitle} are now available in ${sectionLabel}.`,
+        `Subject: ${subjectName}${subjectCode ? ` (${subjectCode})` : ""}`,
+        `Assessment type: ${assessmentType}`,
+        `Assessment date: ${assessmentDate}`,
+        "Check your student results to view your published result.",
+    ].join("\n");
+}
+
+function buildAssessmentResultsPublishedHtml({
+    subjectName,
+    subjectCode,
+    sectionCode,
+    sectionTitle,
+    assessmentTitle,
+    assessmentType,
+    assessmentDate,
+}) {
+    const sectionLabel = buildAssessmentSectionLabel({ sectionCode, sectionTitle });
+
+    return `
+<div style="margin:0;padding:24px;background:#f4f6fb;font-family:Arial,sans-serif;">
+  <div style="max-width:560px;margin:0 auto;background:#ffffff;border:1px solid #dbe2ee;border-radius:12px;overflow:hidden;">
+    <div style="background:#0f172a;color:#ffffff;padding:18px 24px;">
+      <h1 style="margin:0;font-size:20px;line-height:1.3;">Assessment Results Published</h1>
+    </div>
+    <div style="padding:24px;">
+      <p style="margin:0 0 12px;color:#334155;font-size:15px;line-height:1.6;">Results for <strong>${assessmentTitle}</strong> are now available in <strong>${sectionLabel}</strong>.</p>
+      <p style="margin:0 0 10px;color:#475569;font-size:14px;line-height:1.6;">Subject: <strong>${subjectName}${subjectCode ? ` (${subjectCode})` : ""}</strong></p>
+      <p style="margin:0 0 10px;color:#475569;font-size:14px;line-height:1.6;">Assessment type: <strong>${assessmentType}</strong></p>
+      <p style="margin:0 0 14px;color:#475569;font-size:14px;line-height:1.6;">Assessment date: <strong>${assessmentDate}</strong></p>
+      <p style="margin:0;color:#64748b;font-size:13px;line-height:1.6;">Check your student results to view your published result.</p>
+    </div>
+  </div>
+</div>`;
+}
+
 async function sendOtpEmail({ to, code, purpose, expiresInMinutes }) {
     const mailTransporter = getTransporter();
     const from = process.env.EMAIL_FROM || process.env.GMAIL_USER;
@@ -299,8 +399,92 @@ async function sendSectionSessionStatusUpdatedEmail({
     });
 }
 
+async function sendAssessmentAnnouncedEmail({
+    to,
+    subjectName,
+    subjectCode,
+    sectionCode,
+    sectionTitle,
+    assessmentTitle,
+    assessmentType,
+    assessmentDate,
+}) {
+    const mailTransporter = getTransporter();
+    const from = process.env.EMAIL_FROM || process.env.GMAIL_USER;
+    const subject = "New assessment announced";
+    const text = buildAssessmentAnnouncementText({
+        subjectName,
+        subjectCode,
+        sectionCode,
+        sectionTitle,
+        assessmentTitle,
+        assessmentType,
+        assessmentDate,
+    });
+    const html = buildAssessmentAnnouncementHtml({
+        subjectName,
+        subjectCode,
+        sectionCode,
+        sectionTitle,
+        assessmentTitle,
+        assessmentType,
+        assessmentDate,
+    });
+
+    await mailTransporter.sendMail({
+        from,
+        to,
+        subject,
+        text,
+        html,
+    });
+}
+
+async function sendAssessmentResultsPublishedEmail({
+    to,
+    subjectName,
+    subjectCode,
+    sectionCode,
+    sectionTitle,
+    assessmentTitle,
+    assessmentType,
+    assessmentDate,
+}) {
+    const mailTransporter = getTransporter();
+    const from = process.env.EMAIL_FROM || process.env.GMAIL_USER;
+    const subject = "Assessment results available";
+    const text = buildAssessmentResultsPublishedText({
+        subjectName,
+        subjectCode,
+        sectionCode,
+        sectionTitle,
+        assessmentTitle,
+        assessmentType,
+        assessmentDate,
+    });
+    const html = buildAssessmentResultsPublishedHtml({
+        subjectName,
+        subjectCode,
+        sectionCode,
+        sectionTitle,
+        assessmentTitle,
+        assessmentType,
+        assessmentDate,
+    });
+
+    await mailTransporter.sendMail({
+        from,
+        to,
+        subject,
+        text,
+        html,
+    });
+}
+
 module.exports = {
     sendOtpEmail,
     sendMemberAccountCreatedEmail,
     sendSectionSessionStatusUpdatedEmail,
+    sendAssessmentAnnouncedEmail,
+    sendAssessmentResultsPublishedEmail,
 };

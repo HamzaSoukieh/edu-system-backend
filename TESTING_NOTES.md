@@ -69,6 +69,17 @@
   - `POST /institutions/:institutionId/sections/:sectionId/sessions/:sectionSessionId/attendance/check-in`
   - `GET /institutions/:institutionId/sections/:sectionId/attendance/analytics`
   - `GET /institutions/:institutionId/students/me/attendance-history`
+- Current assessment/result routes:
+  - `POST /institutions/:institutionId/sections/:sectionId/assessments`
+  - `GET /institutions/:institutionId/sections/:sectionId/assessments`
+  - `GET /institutions/:institutionId/sections/:sectionId/assessments/:assessmentId`
+  - `PATCH /institutions/:institutionId/sections/:sectionId/assessments/:assessmentId`
+  - `PATCH /institutions/:institutionId/sections/:sectionId/assessments/:assessmentId/status`
+  - `PUT /institutions/:institutionId/sections/:sectionId/assessments/:assessmentId/results`
+  - `GET /institutions/:institutionId/sections/:sectionId/assessments/:assessmentId/results`
+  - `GET /institutions/:institutionId/sections/:sectionId/results`
+  - `GET /institutions/:institutionId/students/me/assessments`
+  - `GET /institutions/:institutionId/students/me/results`
 
 ## Common Things To Verify
 - Invalid ObjectId returns clean `400`
@@ -140,8 +151,10 @@
 - Section session status endpoint should allow:
   - admin
   - parent section instructor
-  - derived department coordinator
-  - derived department head
+  - derived university department coordinator
+  - derived university department head
+  - derived school class-level coordinator
+  - derived school class-level head
 - Session cancellation email should target only:
   - `Enrollment.status = enrolled`
   - `Membership.status = active`
@@ -267,7 +280,8 @@
   - allow:
     - admin
     - the parent section instructor
-    - the same safely-derived department coordinator/head path already used for section session status changes
+    - the same safely-derived university department coordinator/head path already used for section session status changes
+    - the same safely-derived school class-level coordinator/head path already used for section session status changes
   - reject students
   - reject unrelated staff from other departments/scopes
   - include only section sessions where:
@@ -287,6 +301,115 @@
     - stable `perSession` ordering by `sessionDate`, then `startTime`
     - stable `perStudent` ordering by student full name when available
   - avoid unnecessary duplicate fields in the analytics response
+
+## Assessment / Results Checks
+- Assessment create should:
+  - require tenant-owned parent section
+  - require at least one active enrolled student in the section
+  - require `title`
+  - require valid `type`
+  - require numeric `maxScore > 0`
+  - require numeric `weight > 0`
+  - reject `weight > 100`
+  - require `assessmentDate` when `sectionSessionId` is not provided
+  - default `assessmentDate` from the linked section session when `sectionSessionId` is provided and `assessmentDate` is omitted
+  - reject a linked `sectionSessionId` from another section or tenant
+  - snapshot current active enrolled section students into `AssessmentResult` rows with null scores
+- Assessment list should:
+  - stay scoped to the section and institution
+  - support `status=draft|announced|published|archived|all`
+  - stay lightweight by default
+- Assessment detail should:
+  - return fuller assessment shape
+  - include linked lightweight `sectionSession` summary when present
+- Assessment update should:
+  - allow only draft assessments
+  - reject archived assessments
+  - reject unknown patch fields
+  - reject empty patch payloads
+  - allow draft-safe edits only:
+    - `title`
+    - `description`
+    - `type`
+    - `assessmentDate`
+    - `sectionSessionId`
+    - `maxScore`
+    - `weight`
+- Assessment status update should:
+  - allow `draft -> announced`
+  - allow `announced -> published`
+  - allow `draft -> published`
+  - allow `draft -> archived`
+  - allow `announced -> archived`
+  - allow `published -> archived`
+  - reject unpublish
+  - reject publishing when any snapped result row still has null score
+  - reject publishing when total published section weight would exceed `100`
+  - set `publishedAt`
+  - set `publishedByUserId`
+  - keep publish metadata when later archiving
+  - send best-effort announcement email on `draft -> announced` to:
+    - `Enrollment.status = enrolled`
+    - `Membership.role = student`
+    - `Membership.status = active`
+    - users with a valid email
+  - send best-effort results-available email on `announced -> published` and `draft -> published` to the same current roster scope
+  - not send email for archive transitions
+- Assessment result upsert should:
+  - accept only snapshot rows already created for that assessment
+  - reject duplicate `enrollmentId` values in the same payload
+  - reject enrollment ids from another assessment/section/tenant
+  - accept partial bulk updates for only the provided rows
+  - reject archived assessment writes
+  - reject null score writes after an assessment is already published
+  - allow nullable note values and note clearing
+  - keep/update `recordedByUserId` as the last writer
+- Assessment results read should:
+  - return lightweight student info using the existing membership/profile/user pattern
+  - keep archived assessments readable to staff
+- Section results should:
+  - include only published, non-archived assessments
+  - exclude draft assessments
+  - exclude archived assessments
+  - return top-level `section`
+  - return top-level `subject`
+  - return `summary.publishedAssessmentCount`
+  - return `summary.publishedWeightTotal`
+  - return `summary.isFinalized`
+  - compute each student row using:
+    - `earnedWeightedScore = sum((score / maxScore) * weight)`
+    - `percentage = earnedWeightedScore / applicableWeightTotal * 100`
+- Student assessment visibility should:
+  - allow only the logged-in student membership in that institution
+  - reject non-student memberships
+  - return only `announced` and `published` assessments
+  - derive visibility from the student's current active `Enrollment.status = enrolled` section enrollments
+  - never leak `draft` assessments
+  - never leak `archived` assessments
+  - stay metadata-only without `score`, `note`, `weight`, `maxScore`, or aggregate result fields
+  - include lightweight `section`, `subject`, and optional `sectionSession` summaries
+- Student self results should:
+  - allow only the logged-in student membership in that institution
+  - reject non-student memberships
+  - return only published assessment data
+  - never leak draft assessments
+  - exclude archived assessments
+  - support optional `sectionId` and `semesterId` filters
+  - include the student’s own published notes
+- Assessment/results authorization should allow:
+  - admin
+  - parent section instructor
+  - derived university department coordinator/head for the parent subject department only
+  - derived school class-level coordinator/head for the parent section class level only
+  - reject unrelated coordinators/heads from other departments or class levels
+  - reject students on staff routes
+- Assessment notification delivery should:
+  - notify only active enrolled students in the same institution and section
+  - not notify dropped or non-enrolled students
+  - not notify students from another institution
+  - not expose raw scores in result-published emails
+  - not weaken tenant scoping or authorization if email delivery fails
+  - keep status changes successful even when best-effort email delivery logs failures
 
 ## Known Debugging Notes
 - If request body is unexpectedly `{}`, check content type first.
@@ -482,6 +605,54 @@
 ### Close Attendance
 ```json
 {}
+```
+
+### Create Assessment
+```json
+{
+  "title": "Midterm 1",
+  "description": "Written midterm exam",
+  "type": "midterm",
+  "assessmentDate": "2026-04-10",
+  "maxScore": 100,
+  "weight": 30
+}
+```
+
+### Create Session-Linked Assessment
+```json
+{
+  "title": "Quiz 3",
+  "type": "quiz",
+  "sectionSessionId": "SECTION_SESSION_ID",
+  "maxScore": 20,
+  "weight": 10
+}
+```
+
+### Update Assessment Status
+```json
+{
+  "status": "published"
+}
+```
+
+### Upsert Assessment Results
+```json
+{
+  "entries": [
+    {
+      "enrollmentId": "ENROLLMENT_ID",
+      "score": 18,
+      "note": "Strong work"
+    },
+    {
+      "enrollmentId": "ENROLLMENT_ID_2",
+      "score": 14,
+      "note": null
+    }
+  ]
+}
 ```
 
 ## Space For Session Notes

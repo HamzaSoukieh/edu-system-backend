@@ -61,7 +61,7 @@
   - lightweight list response
   - fuller detail response
 - Still missing:
-  - broader linked grading/reporting flows
+  - broader linked academic reporting beyond section-level assessments/results
 
 ### Enrollments
 - `POST /institutions/:institutionId/sections/:sectionId/enrollments`
@@ -77,7 +77,6 @@
 - Still missing:
   - student self-service enrollment
   - delete/withdraw flow
-  - attendance / grading linkage
 
 ### Section Sessions
 - `POST /institutions/:institutionId/sections/:sectionId/sessions`
@@ -101,7 +100,8 @@
   - status-change authorization allows:
     - admin
     - the parent section instructor
-    - department coordinator/head derived through `Section -> Subject -> Department`
+    - university department coordinator/head derived through `Section -> Subject -> Department`
+    - school class-level coordinator/head derived through the parent school section class level
   - cancellation emails go only to students who are both:
     - currently enrolled in the section
     - active in the same institution
@@ -130,7 +130,9 @@
   - same-day QR check-in is `present` before or within the 10-minute grace window after the later of the scheduled section session start time and `attendanceOpenedAt`, and `late` after that window
   - QR check-in remains blocked after attendance is closed
   - manual attendance can still correct a closed dated session for authorized instructor/admin/derived coordinator/head access
-  - scoped attendance oversight paths that reuse section-session authorization also allow the matching department `head`
+  - scoped attendance oversight paths that reuse section-session authorization also allow:
+    - the matching university department coordinator/head path
+    - the matching school class-level coordinator/head path
   - roster is enrollment-based and supports:
     - `all`
     - `attended`
@@ -147,7 +149,8 @@
   - section-level attendance analytics are available to:
     - admin
     - the parent section instructor
-    - derived department coordinator/head through the same safe scoped oversight path already used for section session status changes
+    - derived university department coordinator/head through the same safe scoped oversight path already used for section session status changes
+    - derived school class-level coordinator/head through the parent section class level
   - students cannot access attendance analytics
   - attendance analytics include only section sessions that are both:
     - `attendanceState = closed`
@@ -162,6 +165,48 @@
 - Still missing:
   - broader attendance reporting beyond section-level finalized analytics
   - broader attendance oversight flows beyond the current safe scoped read/correction paths
+
+### Assessments / Results
+- `POST /institutions/:institutionId/sections/:sectionId/assessments`
+- `GET /institutions/:institutionId/sections/:sectionId/assessments`
+- `GET /institutions/:institutionId/sections/:sectionId/assessments/:assessmentId`
+- `PATCH /institutions/:institutionId/sections/:sectionId/assessments/:assessmentId`
+- `PATCH /institutions/:institutionId/sections/:sectionId/assessments/:assessmentId/status`
+- `PUT /institutions/:institutionId/sections/:sectionId/assessments/:assessmentId/results`
+- `GET /institutions/:institutionId/sections/:sectionId/assessments/:assessmentId/results`
+- `GET /institutions/:institutionId/sections/:sectionId/results`
+- `GET /institutions/:institutionId/students/me/assessments`
+- `GET /institutions/:institutionId/students/me/results`
+- Current implemented rules:
+  - assessments are shared for university and school and stay anchored to `Section`
+  - assessment may optionally link to a same-section `SectionSession`
+  - `assessmentDate` is required unless a linked `sectionSessionId` is provided, in which case it defaults from the session date
+  - assessment create requires at least one active enrolled student in the section
+  - assessment create snapshots the current active section enrollments into `AssessmentResult` rows
+  - later enrollment or school class roster changes do not auto-resync old assessments
+  - generic assessment update is draft-only and separate from status updates
+  - assessment status now supports `draft|announced|published|archived`
+  - student metadata visibility uses only `announced` and `published` assessments from the logged-in student's current active section enrollments
+  - `GET /students/me/assessments` stays metadata-only and does not expose scores, notes, weight, maxScore, or result summaries
+  - `draft -> announced` sends best-effort assessment announcement emails to currently active enrolled students in the section
+  - `draft|announced -> published` sends best-effort results-available emails to currently active enrolled students in the section
+  - archive transitions do not send assessment emails
+  - archived assessments remain readable on staff routes but reject all writes
+  - publish requires:
+    - every snapped result row to have a non-null score
+    - total published assessment weight for the section to stay at or below `100`
+  - published assessments set `publishedAt` and `publishedByUserId`
+  - result upsert is partial for provided snapshot rows only, not full-roster replacement
+  - published section results are weighted numeric aggregates built from published, non-archived assessments only
+  - logged-in students can fetch only their own published results with optional `sectionId` and `semesterId` filters
+  - announced assessments do not expose scores/results and do not affect aggregate section results
+  - staff assessment/results access reuses the same safe scoped section oversight pattern:
+    - admin
+    - parent section instructor
+    - university department coordinator/head for the parent subject department
+    - school class-level coordinator/head for the parent section class level
+- Still missing:
+  - broader grading/reporting beyond section-level assessment results
 
 ### School Structure
 - `POST /institutions/:institutionId/class-levels`

@@ -17,7 +17,7 @@ const responsibilityAssignmentSchema = new mongoose.Schema(
         scopeType: {
             type: String,
             required: true,
-            enum: ["institution", "department", "class", "section"],
+            enum: ["institution", "department", "class", "classLevel", "section"],
             index: true,
         },
         scopeId: {

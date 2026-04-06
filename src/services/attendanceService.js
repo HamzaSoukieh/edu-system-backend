@@ -661,7 +661,7 @@ async function loadSubjectRecord({ institutionId, subjectId }) {
         _id: subjectId,
         institutionId,
     })
-        .select("_id departmentId name code")
+        .select("_id departmentId classLevelId name code")
         .lean();
 }
 

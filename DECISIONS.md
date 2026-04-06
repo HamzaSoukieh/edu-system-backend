@@ -41,7 +41,7 @@
 
 ## D007 - Section Stays Shared
 - Status: Confirmed
-- Decision: Keep one shared `Section` model and service for university now and school later.
+- Decision: Keep one shared `Section` model and service for both university and school.
 - Reason: Section is the semester offering concept in both flows.
 - Notes: Avoid separate school/university section systems.
 
@@ -142,3 +142,33 @@
 - Decision: Keep auth user identity separate from institution membership so the same `User` can create and belong to multiple institutions.
 - Reason: A single account may need to manage both university and school tenants without creating a second login.
 - Notes: Ownership stays on `Institution.ownerUserId`, while operational access still comes from a normal `admin|instructor|student` membership in each institution.
+
+## D024 - Assessments Stay Shared And Section-Scoped
+- Status: Confirmed
+- Decision: Keep one shared assessments/results flow for both universities and schools, anchored to `Section` with optional `sectionSessionId`.
+- Reason: Graded work belongs to one section offering in both institution types, and some assessments need an optional real dated-session link without splitting the model.
+- Notes: Avoid separate school/university assessment systems.
+
+## D025 - Assessment Results Snapshot Current Enrollments
+- Status: Confirmed
+- Decision: Creating an assessment snapshots the current active section enrollments into `AssessmentResult` rows and does not auto-resync later if enrollments or school class assignments change.
+- Reason: Results should preserve the roster context that existed when the assessment was created and avoid unsafe historical rewrites.
+- Notes: School assessments naturally rely on the shared enrollment rows that were already synced from class rosters.
+
+## D026 - Announced And Published Assessments Have Separate Student Purposes
+- Status: Confirmed
+- Decision: Staff manage `draft|announced|published|archived` assessments, student metadata visibility uses `announced|published`, and only `published` assessments expose actual results or affect weighted section result aggregation.
+- Reason: Students need upcoming assessment visibility without leaking draft grading data or blurring announcement and result-release moments.
+- Notes: `announced` is metadata-only for students, `published` remains the result-release state, and V1 stays numeric-only without GPA, transcript, letter-grade, or pass/fail policy.
+
+## D028 - Assessment Lifecycle Emails Are Best-Effort And Enrollment-Scoped
+- Status: Confirmed
+- Decision: On `draft -> announced`, send a lightweight announcement email to currently active enrolled section students; on `draft|announced -> published`, send a lightweight results-available email to that same current roster scope.
+- Reason: Students should know when an assessment becomes visible and when results become available, without introducing a queue system or exposing scores in email.
+- Notes: Notification sending is best-effort after a successful status change, uses the existing email helper pattern, and never blocks a valid status transition if delivery fails.
+
+## D027 - School Section Oversight Can Derive Through ClassLevel
+- Status: Confirmed
+- Decision: When a scoped academic route is tied to a school section, delegated coordinator/head oversight may derive through the parent school class level using `ResponsibilityAssignment.scopeType = classLevel`.
+- Reason: School sections do not derive through university departments, so scoped school oversight needs its own safe academic parent scope.
+- Notes: This is limited to routes that already use contextual section-derived authorization rather than broad institution-wide coordinator/head access.

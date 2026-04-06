@@ -14,6 +14,7 @@ const semesterController = require("../controllers/semesterController");
 const memberController = require("../controllers/memberController");
 const sectionController = require("../controllers/sectionController");
 const attendanceController = require("../controllers/attendanceController");
+const assessmentController = require("../controllers/assessmentController");
 const enrollmentController = require("../controllers/enrollmentController");
 const sectionSessionController = require("../controllers/sectionSessionController");
 
@@ -376,6 +377,20 @@ router.get(
     institutionAccess(),
     attendanceController.listMyAttendanceHistory
 );
+router.get(
+    "/:institutionId/students/me/assessments",
+    authJwt,
+    requireEmailVerified,
+    institutionAccess(),
+    assessmentController.listMyAssessments
+);
+router.get(
+    "/:institutionId/students/me/results",
+    authJwt,
+    requireEmailVerified,
+    institutionAccess(),
+    assessmentController.listMyResults
+);
 router.post(
     "/:institutionId/classes/:classId/students",
     authJwt,
@@ -431,6 +446,62 @@ router.get(
     institutionAccess(),
     requirePermission("section.manage"),
     enrollmentController.getEnrollmentById
+);
+router.post(
+    "/:institutionId/sections/:sectionId/assessments",
+    authJwt,
+    requireEmailVerified,
+    institutionAccess(),
+    assessmentController.createAssessment
+);
+router.get(
+    "/:institutionId/sections/:sectionId/assessments",
+    authJwt,
+    requireEmailVerified,
+    institutionAccess(),
+    assessmentController.listAssessments
+);
+router.get(
+    "/:institutionId/sections/:sectionId/assessments/:assessmentId",
+    authJwt,
+    requireEmailVerified,
+    institutionAccess(),
+    assessmentController.getAssessmentById
+);
+router.patch(
+    "/:institutionId/sections/:sectionId/assessments/:assessmentId",
+    authJwt,
+    requireEmailVerified,
+    institutionAccess(),
+    assessmentController.updateAssessment
+);
+router.patch(
+    "/:institutionId/sections/:sectionId/assessments/:assessmentId/status",
+    authJwt,
+    requireEmailVerified,
+    institutionAccess(),
+    assessmentController.updateAssessmentStatus
+);
+router.put(
+    "/:institutionId/sections/:sectionId/assessments/:assessmentId/results",
+    authJwt,
+    requireEmailVerified,
+    institutionAccess(),
+    assessmentController.upsertAssessmentResults
+);
+router.get(
+    "/:institutionId/sections/:sectionId/assessments/:assessmentId/results",
+    authJwt,
+    requireEmailVerified,
+    institutionAccess(),
+    assessmentController.listAssessmentResults
+);
+router.get(
+    "/:institutionId/sections/:sectionId/results",
+    authJwt,
+    requireEmailVerified,
+    institutionAccess(),
+    assessmentController.getSectionResults
 );
 router.patch(
     "/:institutionId/sections/:sectionId/enrollments/:enrollmentId/status",

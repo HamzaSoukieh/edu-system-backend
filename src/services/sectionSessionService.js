@@ -680,7 +680,7 @@ async function loadSubjectRecord({ institutionId, subjectId }) {
         _id: subjectId,
         institutionId,
     })
-        .select("_id departmentId name code")
+        .select("_id departmentId classLevelId name code")
         .lean();
 }
 
@@ -733,6 +733,7 @@ async function ensureCanChangeSectionSessionStatus({
     actorMembership,
     section,
     subject,
+    schoolClass = null,
 }) {
     if (!actorMembership || !actorMembership._id) {
         throw createError(500, "Membership context missing");
@@ -767,6 +768,29 @@ async function ensureCanChangeSectionSessionStatus({
         );
 
         if (hasActiveDepartmentOversightAssignment) {
+            return;
+        }
+    }
+
+    const classLevelId = normalizeId(schoolClass?.classLevelId || subject?.classLevelId);
+    if (classLevelId) {
+        const classLevelOversightAssignments = await ResponsibilityAssignment.find({
+            institutionId,
+            userId: actorUserId,
+            responsibilityType: { $in: ["coordinator", "head"] },
+            scopeType: "classLevel",
+            scopeId: classLevelId,
+            isActive: true,
+        })
+            .select("_id isActive startAt endAt")
+            .lean();
+
+        const now = new Date();
+        const hasActiveClassLevelOversightAssignment = classLevelOversightAssignments.some((assignment) =>
+            isResponsibilityAssignmentActiveNow(assignment, now)
+        );
+
+        if (hasActiveClassLevelOversightAssignment) {
             return;
         }
     }
