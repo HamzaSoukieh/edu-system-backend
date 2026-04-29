@@ -30,6 +30,11 @@
 - `GET /institutions/:institutionId/subjects/:subjectId`
 - `PATCH /institutions/:institutionId/subjects/:subjectId`
 - `DELETE /institutions/:institutionId/subjects/:subjectId`
+- Current implemented rules:
+  - university subjects require `creditHours`
+  - school subjects reject `creditHours`
+  - university subjects may store `prerequisiteSubjectIds`
+  - prerequisite ids are deduplicated, tenant-scoped, and reject direct self-reference
 
 ### Semesters
 - `POST /institutions/:institutionId/semesters`
@@ -68,14 +73,52 @@
 - `GET /institutions/:institutionId/sections/:sectionId/enrollments`
 - `GET /institutions/:institutionId/sections/:sectionId/enrollments/:enrollmentId`
 - `PATCH /institutions/:institutionId/sections/:sectionId/enrollments/:enrollmentId/status`
+- `GET /institutions/:institutionId/students/me/self-enrollment/sections`
+- `GET /institutions/:institutionId/students/me/self-enrollment/sections/:sectionId/eligibility`
+- `POST /institutions/:institutionId/students/me/self-enrollment/submissions`
 - Current implemented rules:
   - student-only enrollment records through `Membership`
   - section and student must belong to the same institution
   - section must be `draft` or `active` to accept enrollment
   - capacity validation against current `enrolled` records
   - one enrollment record per institution + section + studentMemberId
+  - read-only university self-enrollment browse now lists active-semester candidate sections that stay:
+    - tenant-scoped to the current institution
+    - university-only
+    - section-level enrollable by structural scope
+    - backed by active university subjects with valid `creditHours`
+  - browse rows stay lightweight and expose:
+    - section identity/code/title
+    - lightweight subject summary
+    - target credit hours
+    - capacity and remaining seats
+    - lightweight active-semester summary
+    - lightweight `eligibilitySummary` derived from the shared eligibility engine
+  - browse supports `availableOnly=true` as a capacity-only filter that hides full sections without hiding academically blocked sections that still have seats
+  - preview-only university student self-enrollment eligibility now checks:
+    - active student membership in the same institution
+    - target section belongs to the institution active semester
+    - target section stays in current enrollable section statuses
+    - target subject stays active and has university `creditHours`
+    - existing same-section enrollment record
+    - prerequisite satisfaction through policy-aware finalized academic outcomes
+    - prior same-subject `passed_final` outcome block
+    - current and projected active-semester credit load against resolved institution academic policy
+    - projected load below policy `minimumEnrollmentCreditHours` is now previewed as a warning and deferred to final submission validation
+  - core university self-enrollment write now:
+    - allows only active student membership in the same institution
+    - stays blocked for school institutions and school-linked sections
+    - accepts `sectionIds` as a non-empty array and deduplicates repeated ids in input order
+    - validates the full selected section set before any enrollment rows are created
+    - reuses the shared eligibility engine for per-section structural checks plus a selection-level load decision
+    - creates shared enrollment rows only when the full submitted decision is eligible
+    - validates final projected load against policy min/max using current counted load plus the submitted unique-subject selection
+    - rejects duplicate same-subject selections inside one submission
+    - re-checks duplicate enrollment and current capacity in the shared create path before each insert
+    - relies on the existing unique enrollment index for duplicate-row protection
+    - keeps near-graduation under-minimum exception explicitly deferred until a future graduation requirement source exists
+    - TODO/verify: submitted student schedule-overlap validation is deferred until a shared non-room-specific schedule helper exists
 - Still missing:
-  - student self-service enrollment
   - delete/withdraw flow
 
 ### Section Sessions
@@ -208,6 +251,201 @@
 - Still missing:
   - broader grading/reporting beyond section-level assessment results
 
+### Academic Policies / University Registration Foundation
+- `POST /institutions/:institutionId/academic-policies`
+- `GET /institutions/:institutionId/academic-policies`
+- `GET /institutions/:institutionId/academic-policies/:policyId`
+- `PATCH /institutions/:institutionId/academic-policies/:policyId`
+- Current implemented rules:
+  - university-only institution-level academic policy lives in a dedicated model
+  - implementation files are university-prefixed internally, but existing route URLs stay unchanged for API compatibility
+  - policy versions are effective by semester using `effectiveFromSemesterId` only in MVP
+  - a partial unique index allows only one `active` policy per institution + `effectiveFromSemesterId`
+  - resolvable `active|archived` policy resolution stays deterministic by start semester within the same institution
+  - policy configuration validates coherent outcome thresholds, contiguous GPA bands, overload max >= default max, and overload GPA within the configured scale
+  - policy stores blocking `minimumEnrollmentCreditHours` rather than warning-only `minCreditHours`
+  - `InstitutionAcademicPolicy` does not store graduation required credits; that is deferred to a future department/program requirement model
+  - dangerous academic-field edits are blocked once the policy is already used by finalized outcomes
+  - central resolver now loads the correct policy for a given institution + semester
+  - internal academic outcomes now derive from:
+    - closed sections
+    - published section assessment weight total = 100
+    - per-enrollment published assessment results
+    - resolved semester policy
+    - strict exclusion of incomplete or invalid finalized inputs for a student's closed-section outcome
+    - stable per-subject repeated-attempt summaries so eligibility can reuse consistent prior-subject meaning
+- the self-enrollment preview route now loads tenant-scoped context in `enrollmentService` and delegates shared rule evaluation to an internal reusable eligibility decision service
+- the self-enrollment browse route now reuses the same shared decision engine for lightweight per-row `eligibilitySummary` without forcing the full preview payload into every list item
+- the self-enrollment submission write route now reuses the same shared decision engine as a thin safe layer before creating shared `Enrollment` rows
+- the preview response now acts as the canonical explanation surface with:
+  - stable `blockingReasonCodes`
+  - structured `blockingReasons`, `warnings`, and `infos`
+  - grouped duplicate-enrollment, prerequisite, same-subject, capacity, and load-policy summaries
+- Still missing:
+  - public academic profile / transcript read APIs
+  - university academic report/finalization APIs, if needed separately from calculated outcome summaries
+  - repeat-grade replacement / forgiveness rules
+
+### School Academic Policy Foundation
+- `POST /institutions/:institutionId/academic-policies/school`
+- `GET /institutions/:institutionId/academic-policies/school`
+- `GET /institutions/:institutionId/academic-policies/school/:policyId`
+- `PATCH /institutions/:institutionId/academic-policies/school/:policyId`
+- `POST /institutions/:institutionId/academic-policies/school/:policyId/archive`
+- Current implemented rules:
+  - school-only institution-level academic policy lives in a dedicated model separate from university policy
+  - policy scope is tenant-scoped and supports academic-year default, school-stage fallback, and exact class-level resolution
+  - policy configuration is marks/percentage oriented and stores:
+    - grading rules
+    - semester aggregation rules
+    - critical-subject and failed-subject-count rules
+    - promotion decision configuration
+  - critical-subject fail actions currently support `warning`, `manual_review`, and `repeat_year`; `fail_semester` is excluded because school promotion decisions are year-based for now
+  - service validation enforces:
+    - valid status and enum values
+    - non-empty weighted semester configuration with total weight = `100`
+    - duplicate semester and duplicate critical-subject rejection
+    - positive scale and bounded pass thresholds
+    - tenant-scoped class-level, semester-weight, and critical-subject lookups
+    - request boolean fields must be real booleans, not string values like `"false"`
+    - conditional-promotion decisions require `allowConditionalPromotion = true`
+    - manual-review decisions require `allowManualReview = true`
+    - class-level scoped policies require critical subjects to belong to the same `classLevelId`
+  - only one `active` school policy is allowed for the same exact tenant + academicYearId + schoolStageId + classLevelId scope through service-level conflict checks
+  - resolver uses only `active` policies and prefers:
+    - exact class-level + stage scope
+    - then class-level scope with no stage
+    - then stage scope with no class level
+    - then academic-year default scope
+  - TODO/verify: semester weight academic-year membership validation will activate if `Semester.academicYearId` is added later
+- Still missing:
+  - first-class academic-year and school-stage models to replace the current validated scope-id placeholders
+
+### School Outcome Aggregation Foundation
+- Internal service only; no public routes yet
+- Current implemented functions:
+  - `calculateSchoolSubjectSemesterOutcome`
+  - `calculateSchoolSubjectYearOutcome`
+  - `calculateSchoolStudentYearOutcome`
+- Current implemented rules:
+  - school outcomes are marks/percentage based
+  - calculations use existing `Assessment` and `AssessmentResult` rows
+  - only `Assessment.status = published` contributes to calculations
+  - draft, announced, and archived assessments do not contribute
+  - tenant scoping is applied by `institutionId` on every query
+  - subject semester calculations first resolve the student's `Enrollment.status = enrolled` rows and only aggregate assessments/results from those enrolled section ids
+  - if no enrolled section exists for the student + subject + semester, the service returns a `no_enrolled_subject_section` missing-result warning
+  - subject semester percentage uses existing weighted assessment math:
+    - `earnedWeightedScore = sum((score / maxScore) * weight)`
+    - `percentage = earnedWeightedScore / applicableWeightTotal * 100`
+  - invalid published assessment configuration such as missing/non-positive `maxScore` or `weight` is skipped with an `invalid_assessment_configuration` warning instead of producing `NaN`
+  - subject yearly percentage uses `SchoolAcademicPolicy.aggregationRules.semesterWeights`
+  - student yearly average currently averages yearly subject percentages equally
+  - student yearly subject resolution prefers the student's enrolled sections for the policy semesters, with a helper fallback to active class-level subjects when called without enrollment context
+  - subject pass/fail uses `SchoolAcademicPolicy.gradingRules.subjectPassMinPercentage`
+  - student year average pass flag uses `SchoolAcademicPolicy.gradingRules.yearPassMinPercentage`
+  - critical failed subjects are detected through `SchoolAcademicPolicy.failureRules.criticalSubjectRules`
+  - missing section, missing published assessment, and missing score cases are returned in `missingResults`
+  - subject semester, subject year, and student year outputs include `complete` and `hasMissingResults`
+  - incomplete outcomes can still expose available percentages, but final clean pass/fail fields require `complete=true`
+- Still missing:
+  - automatic class promotion/class-placement writes
+  - configurable school subject weighting for yearly student average
+  - stricter finalization semantics for incomplete weighted semesters
+  - TODO/verify: `AssessmentResult` has no independent published/final status yet, so final visibility is controlled by `Assessment.status = published`
+  - TODO/verify: replace enrollment-derived yearly subject resolution with a first-class required-curriculum source if/when that model exists
+
+### School Promotion Decision Foundation
+- Internal service only; no public routes yet
+- Current implemented functions:
+  - `resolveSchoolPromotionDecision`
+- Current implemented rules:
+  - school-only promotion decisions are marks/percentage based
+  - consumes an already calculated `studentYearOutcome`
+  - applies resolved `SchoolAcademicPolicy` fields:
+    - `gradingRules.yearPassMinPercentage`
+    - `failureRules.failIfAnyCriticalSubjectFailed`
+    - `failureRules.criticalSubjectRules`
+    - `failureRules.failIfFailedSubjectCountAtLeast`
+    - `failureRules.countCriticalSubjectsInFailedSubjectTotal`
+    - `promotionRules.passDecision`
+    - `promotionRules.failDecision`
+  - returns explanation-style:
+    - `decision`
+    - `allowedToPromote`
+    - `reasonCodes`
+    - `reasons`
+    - `warnings`
+  - supported reason codes:
+    - `MISSING_REQUIRED_RESULTS`
+    - `CRITICAL_SUBJECT_FAILED`
+    - `FAILED_SUBJECT_COUNT_LIMIT_REACHED`
+    - `YEAR_AVERAGE_BELOW_MINIMUM`
+  - missing/incomplete outcomes return manual review when allowed, otherwise the configured fail decision
+  - critical-subject failures are detected by configured `subjectId`, never hardcoded subject names
+  - critical-subject `failAction` can drive the decision when it maps to a promotion decision; otherwise the configured `failDecision` is used
+  - no GPA, credit-hour, university outcome, report-card, finalization, or class-move behavior is used
+- Still missing:
+  - final-outcome cancellation/recompute workflow
+  - automatic class progression remains intentionally out of scope
+
+### School Report Card Read APIs
+- `GET /institutions/:institutionId/school-outcomes/students/:studentMembershipId/semesters/:semesterId/report-card`
+- `GET /institutions/:institutionId/school-outcomes/students/:studentMembershipId/academic-years/:academicYearId/report-card`
+- `GET /institutions/:institutionId/school-outcomes/classes/:schoolClassId/academic-years/:academicYearId/promotion-summary`
+- Current implemented rules:
+  - read-only school report-card routes are institution-scoped and guarded by `class.manage`
+  - service-level access also defensively requires:
+    - actor membership to include the same `institutionId`
+    - an actor role that has `class.manage` in `ROLE_PERMISSIONS`
+  - controllers stay thin and delegate report-card assembly to `schoolReportCardService`
+  - semester report cards:
+    - resolve the student's school class/class level from the semester `ClassStudentAssignment`
+    - resolve an active school policy by semester membership in `aggregationRules.semesterWeights`
+    - calculate one subject-semester outcome per active school subject offered to that class in the semester
+  - yearly report cards:
+    - infer the academic-year semester set from active `SchoolAcademicPolicy` semester weights
+    - resolve the student's school class/class level from assigned roster rows for those semesters
+    - require one class assignment context across the policy semesters to avoid silently mixing class transfers
+    - calculate the student yearly outcome and include the school promotion decision explanation
+  - class promotion summary:
+    - loads assigned students for the class across the resolved policy semesters
+    - uses the verified class-assignment active status from the `ClassStudentAssignment` schema default
+    - calculates each student's yearly outcome
+    - applies the same school promotion decision service per student
+  - school subject lookups use the verified active status from the `Subject` schema default
+  - missing results are returned as warnings and keep `complete=false` / `hasMissingResults=true`
+  - responses do not include GPA or credit-hour fields
+  - no final outcomes, promotion decisions, class levels, school classes, or roster assignments are written
+- Still missing:
+  - final-outcome read integration back into report-card responses
+  - student/parent report-card access
+  - first-class academic-year and school-stage models
+  - TODO/verify: semester report-card policy resolution ignores stage-scoped policy fallback until a real school-stage source exists
+  - TODO/verify: class promotion summaries are unpaginated for now, matching the current small-roster MVP assumption
+
+### School Final Outcome Foundation
+- `POST /institutions/:institutionId/school-outcomes/students/:studentMembershipId/academic-years/:academicYearId/finalize`
+- `PATCH /institutions/:institutionId/school-outcomes/final-outcomes/:outcomeId/override`
+- `GET /institutions/:institutionId/school-outcomes/students/:studentMembershipId/academic-years/:academicYearId/final-outcome`
+- Current implemented rules:
+  - school final outcomes are institution-scoped and guarded by `class.manage`
+  - service-level access defensively requires actor membership to include the same institutionId and a role with `class.manage`
+  - finalization resolves the student's school class/class level from active roster assignments across active policy semesters
+  - finalization resolves the active `SchoolAcademicPolicy`, recalculates yearly school outcome, applies the promotion decision service, and stores a `SchoolFinalOutcome`
+  - calculated decision/reasons/warnings are stored separately from final decision/reasons/warnings
+  - finalize-time override requires `override.finalDecision` plus `override.reason`
+  - later override requires `finalDecision` plus `reason`
+  - valid final decisions are `promoted`, `repeat_year`, `conditional_promotion`, and `manual_review`; `warning` is not a final decision
+  - one non-cancelled final outcome is allowed per institution + academicYearId + studentMembershipId through service-level conflict checks
+  - duplicate finalized outcomes for the same institution + academicYearId + studentMembershipId are also protected by a finalized-only unique partial index
+  - cancelled final outcomes cannot be overridden
+  - no `SchoolClass`, `ClassLevel`, roster assignment, GPA, or credit-hour writes are performed
+- Still missing:
+  - cancellation/recompute workflow for finalized records
+  - report-card responses that surface an existing final outcome beside calculated previews
+  - TODO/verify: automatic next-year placement remains deferred until final outcome review workflow is stable
+
 ### School Structure
 - `POST /institutions/:institutionId/class-levels`
 - `GET /institutions/:institutionId/class-levels`
@@ -251,6 +489,7 @@
   - plus users with a valid email
 
 ## Planned Next
+- School final outcome cancellation / recompute workflow and report-card final-outcome linking
 - Scoped responsibility routes
 
 ## Endpoints / Modules To Verify

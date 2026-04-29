@@ -172,3 +172,51 @@
 - Decision: When a scoped academic route is tied to a school section, delegated coordinator/head oversight may derive through the parent school class level using `ResponsibilityAssignment.scopeType = classLevel`.
 - Reason: School sections do not derive through university departments, so scoped school oversight needs its own safe academic parent scope.
 - Notes: This is limited to routes that already use contextual section-derived authorization rather than broad institution-wide coordinator/head access.
+
+## D029 - University Academic Policy Uses A Dedicated Institution-Level Semester-Effective Model
+- Status: Confirmed
+- Decision: Store university academic policy in a dedicated `InstitutionAcademicPolicy` model instead of scattering GPA, outcome, and load rules across unrelated models.
+- Reason: Future GPA, academic outcomes, prerequisite eligibility, and self-enrollment rules need one tenant-scoped source of truth that can change by semester without silently rewriting old history.
+- Notes: The first slice keeps this university-only, semester-effective, and resolved through one central helper. MVP uses `effectiveFromSemesterId` only; resolution moves forward until a later policy starts instead of storing `effectiveToSemesterId`.
+
+## D030 - Historical Academic Meaning Resolves Through Policy Versions, Not Inline Thresholds
+- Status: Confirmed
+- Decision: Academic outcomes and future self-enrollment eligibility must resolve the policy version for the relevant semester instead of using hardcoded thresholds inline in services.
+- Reason: Institutions can define different pass bands, GPA bands, and load rules, and those rules must remain stable for prior semesters.
+- Notes: Draft policies are editable; resolvable policy versions must stay deterministic by start semester, and graduation credit requirements belong in a future department/program requirement model rather than `InstitutionAcademicPolicy`.
+
+## D031 - University Self-Enrollment Finalization Is Multi-Section, While Preview Stays Per-Section
+- Status: Confirmed
+- Decision: Keep browse/list and detailed preview per section, but make the actual university student self-enrollment write flow a multi-section submission/finalization route.
+- Reason: Real registration needs the minimum and maximum load rules evaluated against the final submitted selection, not one target section in isolation.
+- Notes: The shared `Enrollment` model stays unchanged, school flows remain excluded, the final submission still reuses the shared single-enrollment create path underneath, and the near-graduation under-minimum exception stays explicitly deferred until a real graduation requirement source exists.
+
+## D032 - School Academic Policy Is A Separate School-Only Module
+- Status: Confirmed
+- Decision: Add a dedicated `SchoolAcademicPolicy` module for school promotion/result rule configuration instead of trying to reuse the university academic policy model directly.
+- Reason: School policy is percentage-based and promotion-oriented, while the university policy module is GPA, credit-hour, and self-enrollment oriented.
+- Notes: The school module currently stores only configurable grading, aggregation, failure, and promotion rules plus resolver logic; actual school outcome calculation, report cards, and promotion writes remain future work. Until first-class academic-year and school-stage models exist, those scope ids are validated as opaque tenant-scoped ObjectId inputs rather than resolved through dedicated models.
+
+## D033 - School Outcomes Reuse Published Assessment Results
+- Status: Confirmed
+- Decision: Build school outcome aggregation as a calculation-only service on top of existing `Assessment` and `AssessmentResult` data instead of creating a separate marks table.
+- Reason: Assessments/results already represent section-scoped school marks, publication state, weights, max scores, and student result rows.
+- Notes: The first slice calculates percentages, missing-result warnings, failed subjects, and critical failed subjects only. It does not write final promotion decisions, create report cards, or use GPA/credit-hour logic.
+
+## D034 - School Report Cards Are Read-Only Projections First
+- Status: Confirmed
+- Decision: Expose school semester/yearly report cards and class promotion summaries as read-only projections over roster assignments, school outcome aggregation, and school promotion decision services.
+- Reason: Admins need reviewable report-card and promotion-decision previews before any irreversible final promotion persistence or class movement exists.
+- Notes: These APIs do not write final outcomes, do not update class assignments, and do not automatically promote students. Missing results remain warnings with explicit incomplete state.
+
+## D035 - School Final Outcomes Are Explicit Confirmations, Not Class Movement
+- Status: Confirmed
+- Decision: Store school yearly final outcomes in a dedicated tenant-scoped `SchoolFinalOutcome` record that separates calculated decisions from final/overridden decisions.
+- Reason: Admins need an auditable confirmation/override step before any future class-placement automation exists.
+- Notes: Manual overrides require a reason, duplicate non-cancelled final outcomes are blocked in service logic, and finalization does not update `SchoolClass`, `ClassLevel`, roster assignments, GPA, or credit-hour data.
+
+## D036 - University Academic Implementation Files Use University Prefixes
+- Status: Confirmed
+- Decision: Rename clearly university-only academic implementation files to use `university` prefixes while keeping existing API route URLs unchanged.
+- Reason: School academic modules are explicitly school-prefixed and percentage-based, while the older academic policy/outcome/self-enrollment files are GPA, credit-hour, and university-registration specific.
+- Notes: Shared primitives such as `Subject`, `Section`, `Enrollment`, `Assessment`, and `AssessmentResult` remain shared. `InstitutionAcademicPolicy` keeps its model name for now to avoid unsafe persistence/collection churn.

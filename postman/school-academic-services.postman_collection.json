@@ -1,0 +1,620 @@
+{
+  "info": {
+    "_postman_id": "2f3bc2bc-0c2f-46e5-school-academic-services",
+    "name": "School Academic Services End-to-End",
+    "description": "Manual Postman flow for school academic policy, marks/outcomes, report cards, promotion summary, and final outcomes. Uses only routes wired in src/routes/institutionRoutes.js and src/routes/authRoutes.js.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "auth": {
+    "type": "bearer",
+    "bearer": [
+      { "key": "token", "value": "{{authToken}}", "type": "string" }
+    ]
+  },
+  "event": [
+    {
+      "listen": "prerequest",
+      "script": {
+        "type": "text/javascript",
+        "exec": [
+          "function makeObjectId() {",
+          "  const ts = Math.floor(Date.now() / 1000).toString(16);",
+          "  const rest = 'xxxxxxxxxxxxxxxx'.replace(/[x]/g, () => Math.floor(Math.random() * 16).toString(16));",
+          "  return (ts + rest).slice(0, 24);",
+          "}",
+          "if (!pm.environment.get('runSuffix')) { pm.environment.set('runSuffix', Date.now().toString()); }",
+          "if (!pm.environment.get('academicYearId')) { pm.environment.set('academicYearId', makeObjectId()); }",
+          "if (!pm.environment.get('studentEmail')) { pm.environment.set('studentEmail', 'student+' + pm.environment.get('runSuffix') + '@example.com'); }",
+          "if (!pm.environment.get('studentInitialPassword')) { pm.environment.set('studentInitialPassword', 'STU' + pm.environment.get('runSuffix')); }"
+        ]
+      }
+    }
+  ],
+  "item": [
+    {
+      "name": "00 Auth",
+      "item": [
+        {
+          "name": "Login Admin",
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{adminEmail}}\",\n  \"password\": \"{{adminPassword}}\"\n}"
+            },
+            "url": "{{baseUrl}}/auth/login",
+            "description": "Requires an existing verified admin user. Saves authToken and adminUserId."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('login succeeded', () => pm.response.to.have.status(200));",
+                  "const json = pm.response.json();",
+                  "if (json.accessToken) pm.environment.set('authToken', json.accessToken);",
+                  "if (json.user && json.user.id) pm.environment.set('adminUserId', json.user.id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Get My Institution Context",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/institutions/me",
+            "description": "Optional helper. If institutionId is blank, saves activeInstitutionId. This response currently does not expose membership id."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('context loaded', () => pm.response.to.have.status(200));",
+                  "const json = pm.response.json();",
+                  "if (!pm.environment.get('institutionId') && json.activeInstitutionId) pm.environment.set('institutionId', json.activeInstitutionId);"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "01 Institution And Members",
+      "item": [
+        {
+          "name": "Create School Institution",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Postman School {{runSuffix}}\",\n  \"type\": \"school\"\n}"
+            },
+            "url": "{{baseUrl}}/institutions",
+            "description": "Creates a school tenant for this run. Skip this if you already filled institutionId for an existing school."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('school institution created', () => pm.response.to.have.status(201));",
+                  "const json = pm.response.json();",
+                  "if (json.institution && json.institution.id) pm.environment.set('institutionId', json.institution.id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Create Instructor Member",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"teacher+{{runSuffix}}@example.com\",\n  \"role\": \"instructor\",\n  \"profile\": {\n    \"firstName\": \"Postman\",\n    \"lastName\": \"Teacher\",\n    \"fatherName\": \"Demo\",\n    \"motherName\": \"Demo\",\n    \"birthPlace\": \"Damascus\",\n    \"birthDate\": \"1990-01-01\",\n    \"gender\": \"female\",\n    \"nationality\": \"Syrian\",\n    \"nationalNumber\": \"STF{{runSuffix}}\",\n    \"mobile\": \"+963900000001\"\n  }\n}"
+            },
+            "url": "{{baseUrl}}/institutions/{{institutionId}}/members",
+            "description": "Creates an instructor membership. The repo has roles admin/instructor/student; report-card/final-outcome routes require class.manage, which admin has."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('instructor created', () => pm.response.to.have.status(201));",
+                  "const member = pm.response.json().member;",
+                  "if (member) { pm.environment.set('staffMembershipId', member.id); pm.environment.set('staffUserId', member.userId); }"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Create Student Member",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{studentEmail}}\",\n  \"role\": \"student\",\n  \"profile\": {\n    \"firstName\": \"Postman\",\n    \"lastName\": \"Student\",\n    \"fatherName\": \"Demo\",\n    \"motherName\": \"Demo\",\n    \"birthPlace\": \"Damascus\",\n    \"birthDate\": \"2011-09-01\",\n    \"gender\": \"male\",\n    \"nationality\": \"Syrian\",\n    \"nationalNumber\": \"{{studentInitialPassword}}\",\n    \"mobile\": \"+963900000002\"\n  }\n}"
+            },
+            "url": "{{baseUrl}}/institutions/{{institutionId}}/members",
+            "description": "Creates a student. The initial password is the nationalNumber saved as studentInitialPassword."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('student created', () => pm.response.to.have.status(201));",
+                  "const member = pm.response.json().member;",
+                  "if (member) { pm.environment.set('studentMembershipId', member.id); pm.environment.set('studentUserId', member.userId); }"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Login Student For Negative Access Test",
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{studentEmail}}\",\n  \"password\": \"{{studentInitialPassword}}\"\n}"
+            },
+            "url": "{{baseUrl}}/auth/login",
+            "description": "Member-created users use nationalNumber as their initial password."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('student login succeeded', () => pm.response.to.have.status(200));",
+                  "const json = pm.response.json();",
+                  "if (json.accessToken) pm.environment.set('studentAuthToken', json.accessToken);"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "02 School Setup",
+      "item": [
+        {
+          "name": "Create ClassLevel",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Grade 7 {{runSuffix}}\",\n  \"code\": \"G7{{runSuffix}}\",\n  \"description\": \"Postman test class level\",\n  \"status\": \"active\"\n}"
+            },
+            "url": "{{baseUrl}}/institutions/{{institutionId}}/class-levels"
+          },
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.test('class level created', () => pm.response.to.have.status(201));", "const item = pm.response.json().classLevel;", "if (item && item.id) pm.environment.set('classLevelId', item.id);"] } }]
+        },
+        {
+          "name": "Create SchoolClass",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"classLevelId\": \"{{classLevelId}}\",\n  \"name\": \"Grade 7 A {{runSuffix}}\",\n  \"code\": \"G7A{{runSuffix}}\",\n  \"status\": \"active\"\n}"
+            },
+            "url": "{{baseUrl}}/institutions/{{institutionId}}/classes"
+          },
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.test('school class created', () => pm.response.to.have.status(201));", "const item = pm.response.json().schoolClass;", "if (item && item.id) pm.environment.set('schoolClassId', item.id);"] } }]
+        },
+        {
+          "name": "Create Semester One",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Semester 1 {{runSuffix}}\",\n  \"startDate\": \"2026-09-01\",\n  \"endDate\": \"2026-12-20\",\n  \"teachingDays\": [\"monday\", \"tuesday\", \"wednesday\", \"thursday\"],\n  \"status\": \"archived\"\n}"
+            },
+            "url": "{{baseUrl}}/institutions/{{institutionId}}/semesters",
+            "description": "Uses archived to avoid one-active-semester conflicts in existing tenants. School outcome/report-card policy resolution uses policy semesterWeights, not active semester."
+          },
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.test('semester one created', () => pm.response.to.have.status(201));", "const item = pm.response.json().semester;", "if (item && item.id) pm.environment.set('semesterOneId', item.id);"] } }]
+        },
+        {
+          "name": "Create Semester Two",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Semester 2 {{runSuffix}}\",\n  \"startDate\": \"2027-01-10\",\n  \"endDate\": \"2027-05-25\",\n  \"teachingDays\": [\"monday\", \"tuesday\", \"wednesday\", \"thursday\"],\n  \"status\": \"archived\"\n}"
+            },
+            "url": "{{baseUrl}}/institutions/{{institutionId}}/semesters"
+          },
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.test('semester two created', () => pm.response.to.have.status(201));", "const item = pm.response.json().semester;", "if (item && item.id) pm.environment.set('semesterTwoId', item.id);"] } }]
+        },
+        {
+          "name": "Create Subject Arabic",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"name\": \"Arabic {{runSuffix}}\",\n  \"code\": \"ARB{{runSuffix}}\",\n  \"status\": \"active\"\n}" },
+            "url": "{{baseUrl}}/institutions/{{institutionId}}/class-levels/{{classLevelId}}/subjects",
+            "description": "Arabic is only critical later because its subjectId is configured in SchoolAcademicPolicy."
+          },
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.test('Arabic subject created', () => pm.response.to.have.status(201));", "const item = pm.response.json().subject;", "if (item && item.id) pm.environment.set('subjectArabicId', item.id);"] } }]
+        },
+        {
+          "name": "Create Subject Math",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"name\": \"Math {{runSuffix}}\",\n  \"code\": \"MTH{{runSuffix}}\",\n  \"status\": \"active\"\n}" },
+            "url": "{{baseUrl}}/institutions/{{institutionId}}/class-levels/{{classLevelId}}/subjects"
+          },
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.test('Math subject created', () => pm.response.to.have.status(201));", "const item = pm.response.json().subject;", "if (item && item.id) pm.environment.set('subjectMathId', item.id);"] } }]
+        },
+        {
+          "name": "Create Subject Science",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"name\": \"Science {{runSuffix}}\",\n  \"code\": \"SCI{{runSuffix}}\",\n  \"status\": \"active\"\n}" },
+            "url": "{{baseUrl}}/institutions/{{institutionId}}/class-levels/{{classLevelId}}/subjects"
+          },
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.test('Science subject created', () => pm.response.to.have.status(201));", "const item = pm.response.json().subject;", "if (item && item.id) pm.environment.set('subjectScienceId', item.id);"] } }]
+        }
+      ]
+    },
+    {
+      "name": "03 Sections And Roster Sync",
+      "item": [
+        {
+          "name": "Create Arabic Section Semester One",
+          "request": { "method": "POST", "header": [{ "key": "Content-Type", "value": "application/json" }], "body": { "mode": "raw", "raw": "{\n  \"semesterId\": \"{{semesterOneId}}\",\n  \"subjectId\": \"{{subjectArabicId}}\",\n  \"schoolClassId\": \"{{schoolClassId}}\",\n  \"code\": \"ARB-S1\",\n  \"title\": \"Arabic Semester 1\",\n  \"instructorMemberId\": \"{{staffMembershipId}}\",\n  \"capacity\": 40,\n  \"schedule\": [{ \"sessionType\": \"lecture\", \"day\": \"monday\", \"startTime\": \"08:00\", \"endTime\": \"09:00\", \"room\": \"A101\" }],\n  \"status\": \"active\"\n}" }, "url": "{{baseUrl}}/institutions/{{institutionId}}/sections" },
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.test('section created', () => pm.response.to.have.status(201));", "const item = pm.response.json().section;", "if (item && item.id) pm.environment.set('sectionArabicSemesterOneId', item.id);"] } }]
+        },
+        {
+          "name": "Create Math Section Semester One",
+          "request": { "method": "POST", "header": [{ "key": "Content-Type", "value": "application/json" }], "body": { "mode": "raw", "raw": "{\n  \"semesterId\": \"{{semesterOneId}}\",\n  \"subjectId\": \"{{subjectMathId}}\",\n  \"schoolClassId\": \"{{schoolClassId}}\",\n  \"code\": \"MTH-S1\",\n  \"title\": \"Math Semester 1\",\n  \"instructorMemberId\": \"{{staffMembershipId}}\",\n  \"capacity\": 40,\n  \"schedule\": [{ \"sessionType\": \"lecture\", \"day\": \"monday\", \"startTime\": \"09:10\", \"endTime\": \"10:10\", \"room\": \"A102\" }],\n  \"status\": \"active\"\n}" }, "url": "{{baseUrl}}/institutions/{{institutionId}}/sections" },
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.test('section created', () => pm.response.to.have.status(201));", "const item = pm.response.json().section;", "if (item && item.id) pm.environment.set('sectionMathSemesterOneId', item.id);"] } }]
+        },
+        {
+          "name": "Create Science Section Semester One",
+          "request": { "method": "POST", "header": [{ "key": "Content-Type", "value": "application/json" }], "body": { "mode": "raw", "raw": "{\n  \"semesterId\": \"{{semesterOneId}}\",\n  \"subjectId\": \"{{subjectScienceId}}\",\n  \"schoolClassId\": \"{{schoolClassId}}\",\n  \"code\": \"SCI-S1\",\n  \"title\": \"Science Semester 1\",\n  \"instructorMemberId\": \"{{staffMembershipId}}\",\n  \"capacity\": 40,\n  \"schedule\": [{ \"sessionType\": \"lecture\", \"day\": \"monday\", \"startTime\": \"10:20\", \"endTime\": \"11:20\", \"room\": \"A103\" }],\n  \"status\": \"active\"\n}" }, "url": "{{baseUrl}}/institutions/{{institutionId}}/sections" },
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.test('section created', () => pm.response.to.have.status(201));", "const item = pm.response.json().section;", "if (item && item.id) pm.environment.set('sectionScienceSemesterOneId', item.id);"] } }]
+        },
+        {
+          "name": "Create Arabic Section Semester Two",
+          "request": { "method": "POST", "header": [{ "key": "Content-Type", "value": "application/json" }], "body": { "mode": "raw", "raw": "{\n  \"semesterId\": \"{{semesterTwoId}}\",\n  \"subjectId\": \"{{subjectArabicId}}\",\n  \"schoolClassId\": \"{{schoolClassId}}\",\n  \"code\": \"ARB-S2\",\n  \"title\": \"Arabic Semester 2\",\n  \"instructorMemberId\": \"{{staffMembershipId}}\",\n  \"capacity\": 40,\n  \"schedule\": [{ \"sessionType\": \"lecture\", \"day\": \"tuesday\", \"startTime\": \"08:00\", \"endTime\": \"09:00\", \"room\": \"B101\" }],\n  \"status\": \"active\"\n}" }, "url": "{{baseUrl}}/institutions/{{institutionId}}/sections" },
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.test('section created', () => pm.response.to.have.status(201));", "const item = pm.response.json().section;", "if (item && item.id) pm.environment.set('sectionArabicSemesterTwoId', item.id);"] } }]
+        },
+        {
+          "name": "Create Math Section Semester Two",
+          "request": { "method": "POST", "header": [{ "key": "Content-Type", "value": "application/json" }], "body": { "mode": "raw", "raw": "{\n  \"semesterId\": \"{{semesterTwoId}}\",\n  \"subjectId\": \"{{subjectMathId}}\",\n  \"schoolClassId\": \"{{schoolClassId}}\",\n  \"code\": \"MTH-S2\",\n  \"title\": \"Math Semester 2\",\n  \"instructorMemberId\": \"{{staffMembershipId}}\",\n  \"capacity\": 40,\n  \"schedule\": [{ \"sessionType\": \"lecture\", \"day\": \"tuesday\", \"startTime\": \"09:10\", \"endTime\": \"10:10\", \"room\": \"B102\" }],\n  \"status\": \"active\"\n}" }, "url": "{{baseUrl}}/institutions/{{institutionId}}/sections" },
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.test('section created', () => pm.response.to.have.status(201));", "const item = pm.response.json().section;", "if (item && item.id) pm.environment.set('sectionMathSemesterTwoId', item.id);"] } }]
+        },
+        {
+          "name": "Create Science Section Semester Two",
+          "request": { "method": "POST", "header": [{ "key": "Content-Type", "value": "application/json" }], "body": { "mode": "raw", "raw": "{\n  \"semesterId\": \"{{semesterTwoId}}\",\n  \"subjectId\": \"{{subjectScienceId}}\",\n  \"schoolClassId\": \"{{schoolClassId}}\",\n  \"code\": \"SCI-S2\",\n  \"title\": \"Science Semester 2\",\n  \"instructorMemberId\": \"{{staffMembershipId}}\",\n  \"capacity\": 40,\n  \"schedule\": [{ \"sessionType\": \"lecture\", \"day\": \"tuesday\", \"startTime\": \"10:20\", \"endTime\": \"11:20\", \"room\": \"B103\" }],\n  \"status\": \"active\"\n}" }, "url": "{{baseUrl}}/institutions/{{institutionId}}/sections" },
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.test('section created', () => pm.response.to.have.status(201));", "const item = pm.response.json().section;", "if (item && item.id) pm.environment.set('sectionScienceSemesterTwoId', item.id);"] } }]
+        },
+        {
+          "name": "Assign Student To Class - Semester One",
+          "request": { "method": "POST", "header": [{ "key": "Content-Type", "value": "application/json" }], "body": { "mode": "raw", "raw": "{\n  \"semesterId\": \"{{semesterOneId}}\",\n  \"studentMemberId\": \"{{studentMembershipId}}\"\n}" }, "url": "{{baseUrl}}/institutions/{{institutionId}}/classes/{{schoolClassId}}/students", "description": "This syncs school Enrollment rows into matching class sections." },
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.test('assignment created', () => pm.response.to.have.status(201));", "const item = pm.response.json().assignment;", "if (item && item.id) pm.environment.set('assignmentSemesterOneId', item.id);"] } }]
+        },
+        {
+          "name": "Assign Student To Class - Semester Two",
+          "request": { "method": "POST", "header": [{ "key": "Content-Type", "value": "application/json" }], "body": { "mode": "raw", "raw": "{\n  \"semesterId\": \"{{semesterTwoId}}\",\n  \"studentMemberId\": \"{{studentMembershipId}}\"\n}" }, "url": "{{baseUrl}}/institutions/{{institutionId}}/classes/{{schoolClassId}}/students", "description": "This syncs school Enrollment rows into matching class sections." },
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.test('assignment created', () => pm.response.to.have.status(201));", "const item = pm.response.json().assignment;", "if (item && item.id) pm.environment.set('assignmentSemesterTwoId', item.id);"] } }]
+        },
+        {
+          "name": "Save Enrollment Arabic S1",
+          "request": { "method": "GET", "url": "{{baseUrl}}/institutions/{{institutionId}}/sections/{{sectionArabicSemesterOneId}}/enrollments" },
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["const e = (pm.response.json().enrollments || [])[0];", "pm.test('enrollment exists', () => pm.expect(e).to.exist);", "if (e) pm.environment.set('enrollmentArabicSemesterOneId', e.id);"] } }]
+        },
+        {
+          "name": "Save Enrollment Arabic S2",
+          "request": { "method": "GET", "url": "{{baseUrl}}/institutions/{{institutionId}}/sections/{{sectionArabicSemesterTwoId}}/enrollments" },
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["const e = (pm.response.json().enrollments || [])[0];", "pm.test('enrollment exists', () => pm.expect(e).to.exist);", "if (e) pm.environment.set('enrollmentArabicSemesterTwoId', e.id);"] } }]
+        },
+        {
+          "name": "Save Enrollment Math S1",
+          "request": { "method": "GET", "url": "{{baseUrl}}/institutions/{{institutionId}}/sections/{{sectionMathSemesterOneId}}/enrollments" },
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["const e = (pm.response.json().enrollments || [])[0];", "pm.test('enrollment exists', () => pm.expect(e).to.exist);", "if (e) pm.environment.set('enrollmentMathSemesterOneId', e.id);"] } }]
+        },
+        {
+          "name": "Save Enrollment Math S2",
+          "request": { "method": "GET", "url": "{{baseUrl}}/institutions/{{institutionId}}/sections/{{sectionMathSemesterTwoId}}/enrollments" },
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["const e = (pm.response.json().enrollments || [])[0];", "pm.test('enrollment exists', () => pm.expect(e).to.exist);", "if (e) pm.environment.set('enrollmentMathSemesterTwoId', e.id);"] } }]
+        },
+        {
+          "name": "Save Enrollment Science S1",
+          "request": { "method": "GET", "url": "{{baseUrl}}/institutions/{{institutionId}}/sections/{{sectionScienceSemesterOneId}}/enrollments" },
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["const e = (pm.response.json().enrollments || [])[0];", "pm.test('enrollment exists', () => pm.expect(e).to.exist);", "if (e) pm.environment.set('enrollmentScienceSemesterOneId', e.id);"] } }]
+        },
+        {
+          "name": "Save Enrollment Science S2",
+          "request": { "method": "GET", "url": "{{baseUrl}}/institutions/{{institutionId}}/sections/{{sectionScienceSemesterTwoId}}/enrollments" },
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["const e = (pm.response.json().enrollments || [])[0];", "pm.test('enrollment exists', () => pm.expect(e).to.exist);", "if (e) pm.environment.set('enrollmentScienceSemesterTwoId', e.id);"] } }]
+        }
+      ]
+    },
+    {
+      "name": "04 School Academic Policy",
+      "item": [
+        {
+          "name": "Create Active SchoolAcademicPolicy",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Grade 7 Policy {{runSuffix}}\",\n  \"status\": \"active\",\n  \"appliesTo\": {\n    \"academicYearId\": \"{{academicYearId}}\",\n    \"schoolStageId\": null,\n    \"classLevelId\": \"{{classLevelId}}\"\n  },\n  \"gradingRules\": {\n    \"gradingMode\": \"percentage\",\n    \"scaleMax\": 100,\n    \"subjectPassMinPercentage\": 60,\n    \"yearPassMinPercentage\": 60\n  },\n  \"aggregationRules\": {\n    \"yearCalculationMethod\": \"weighted_semesters\",\n    \"semesterWeights\": [\n      { \"semesterId\": \"{{semesterOneId}}\", \"weight\": 50 },\n      { \"semesterId\": \"{{semesterTwoId}}\", \"weight\": 50 }\n    ]\n  },\n  \"failureRules\": {\n    \"failIfAnyCriticalSubjectFailed\": true,\n    \"criticalSubjectRules\": [\n      { \"subjectId\": \"{{subjectArabicId}}\", \"failAction\": \"repeat_year\" }\n    ],\n    \"failIfFailedSubjectCountAtLeast\": 3,\n    \"countCriticalSubjectsInFailedSubjectTotal\": true\n  },\n  \"promotionRules\": {\n    \"enabled\": true,\n    \"passDecision\": \"promoted\",\n    \"failDecision\": \"repeat_year\",\n    \"allowConditionalPromotion\": true,\n    \"allowManualReview\": true\n  }\n}"
+            },
+            "url": "{{baseUrl}}/institutions/{{institutionId}}/academic-policies/school",
+            "description": "academicYearId is generated by Postman because there is no AcademicYear model/route yet."
+          },
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.test('policy created', () => pm.response.to.have.status(201));", "const item = pm.response.json().schoolAcademicPolicy;", "if (item && item.id) pm.environment.set('schoolAcademicPolicyId', item.id);"] } }]
+        },
+        {
+          "name": "List Active SchoolAcademicPolicies",
+          "request": { "method": "GET", "url": "{{baseUrl}}/institutions/{{institutionId}}/academic-policies/school?status=active&academicYearId={{academicYearId}}&classLevelId={{classLevelId}}" }
+        }
+      ]
+    },
+    {
+      "name": "05 Assessments And Results",
+      "item": [
+        {
+          "name": "Create Arabic Assessment S1",
+          "request": { "method": "POST", "header": [{ "key": "Content-Type", "value": "application/json" }], "body": { "mode": "raw", "raw": "{\n  \"title\": \"Arabic Exam S1\",\n  \"type\": \"final\",\n  \"assessmentDate\": \"2026-12-10\",\n  \"maxScore\": 100,\n  \"weight\": 100\n}" }, "url": "{{baseUrl}}/institutions/{{institutionId}}/sections/{{sectionArabicSemesterOneId}}/assessments" },
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["const item = pm.response.json().assessment;", "pm.test('assessment created', () => pm.response.to.have.status(201));", "if (item) pm.environment.set('assessmentArabicExamId', item.id);"] } }]
+        },
+        {
+          "name": "Create Arabic Assessment S2",
+          "request": { "method": "POST", "header": [{ "key": "Content-Type", "value": "application/json" }], "body": { "mode": "raw", "raw": "{\n  \"title\": \"Arabic Exam S2\",\n  \"type\": \"final\",\n  \"assessmentDate\": \"2027-05-10\",\n  \"maxScore\": 100,\n  \"weight\": 100\n}" }, "url": "{{baseUrl}}/institutions/{{institutionId}}/sections/{{sectionArabicSemesterTwoId}}/assessments" },
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["const item = pm.response.json().assessment;", "pm.test('assessment created', () => pm.response.to.have.status(201));", "if (item) pm.environment.set('assessmentArabicSemesterTwoExamId', item.id);"] } }]
+        },
+        {
+          "name": "Create Math Assessment S1",
+          "request": { "method": "POST", "header": [{ "key": "Content-Type", "value": "application/json" }], "body": { "mode": "raw", "raw": "{\n  \"title\": \"Math Exam S1\",\n  \"type\": \"final\",\n  \"assessmentDate\": \"2026-12-11\",\n  \"maxScore\": 100,\n  \"weight\": 100\n}" }, "url": "{{baseUrl}}/institutions/{{institutionId}}/sections/{{sectionMathSemesterOneId}}/assessments" },
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["const item = pm.response.json().assessment;", "pm.test('assessment created', () => pm.response.to.have.status(201));", "if (item) pm.environment.set('assessmentMathExamId', item.id);"] } }]
+        },
+        {
+          "name": "Create Math Assessment S2",
+          "request": { "method": "POST", "header": [{ "key": "Content-Type", "value": "application/json" }], "body": { "mode": "raw", "raw": "{\n  \"title\": \"Math Exam S2\",\n  \"type\": \"final\",\n  \"assessmentDate\": \"2027-05-11\",\n  \"maxScore\": 100,\n  \"weight\": 100\n}" }, "url": "{{baseUrl}}/institutions/{{institutionId}}/sections/{{sectionMathSemesterTwoId}}/assessments" },
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["const item = pm.response.json().assessment;", "pm.test('assessment created', () => pm.response.to.have.status(201));", "if (item) pm.environment.set('assessmentMathSemesterTwoExamId', item.id);"] } }]
+        },
+        {
+          "name": "Create Science Assessment S1",
+          "request": { "method": "POST", "header": [{ "key": "Content-Type", "value": "application/json" }], "body": { "mode": "raw", "raw": "{\n  \"title\": \"Science Exam S1\",\n  \"type\": \"final\",\n  \"assessmentDate\": \"2026-12-12\",\n  \"maxScore\": 100,\n  \"weight\": 100\n}" }, "url": "{{baseUrl}}/institutions/{{institutionId}}/sections/{{sectionScienceSemesterOneId}}/assessments" },
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["const item = pm.response.json().assessment;", "pm.test('assessment created', () => pm.response.to.have.status(201));", "if (item) pm.environment.set('assessmentScienceExamId', item.id);"] } }]
+        },
+        {
+          "name": "Create Science Assessment S2",
+          "request": { "method": "POST", "header": [{ "key": "Content-Type", "value": "application/json" }], "body": { "mode": "raw", "raw": "{\n  \"title\": \"Science Exam S2\",\n  \"type\": \"final\",\n  \"assessmentDate\": \"2027-05-12\",\n  \"maxScore\": 100,\n  \"weight\": 100\n}" }, "url": "{{baseUrl}}/institutions/{{institutionId}}/sections/{{sectionScienceSemesterTwoId}}/assessments" },
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["const item = pm.response.json().assessment;", "pm.test('assessment created', () => pm.response.to.have.status(201));", "if (item) pm.environment.set('assessmentScienceSemesterTwoExamId', item.id);"] } }]
+        },
+        {
+          "name": "Upsert Arabic Scores",
+          "request": { "method": "PUT", "header": [{ "key": "Content-Type", "value": "application/json" }], "body": { "mode": "raw", "raw": "{\n  \"entries\": [\n    { \"enrollmentId\": \"{{enrollmentArabicSemesterOneId}}\", \"score\": 92, \"note\": \"Complete happy-path score\" }\n  ]\n}" }, "url": "{{baseUrl}}/institutions/{{institutionId}}/sections/{{sectionArabicSemesterOneId}}/assessments/{{assessmentArabicExamId}}/results" },
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.test('score saved', () => pm.response.to.have.status(200));", "const r = (pm.response.json().assessmentResults || [])[0];", "if (r) pm.environment.set('assessmentResultArabicId', r.id);"] } }]
+        },
+        {
+          "name": "Upsert Arabic Scores S2",
+          "request": { "method": "PUT", "header": [{ "key": "Content-Type", "value": "application/json" }], "body": { "mode": "raw", "raw": "{\n  \"entries\": [\n    { \"enrollmentId\": \"{{enrollmentArabicSemesterTwoId}}\", \"score\": 90, \"note\": \"Complete happy-path score\" }\n  ]\n}" }, "url": "{{baseUrl}}/institutions/{{institutionId}}/sections/{{sectionArabicSemesterTwoId}}/assessments/{{assessmentArabicSemesterTwoExamId}}/results" }
+        },
+        {
+          "name": "Upsert Math Scores",
+          "request": { "method": "PUT", "header": [{ "key": "Content-Type", "value": "application/json" }], "body": { "mode": "raw", "raw": "{\n  \"entries\": [\n    { \"enrollmentId\": \"{{enrollmentMathSemesterOneId}}\", \"score\": 88, \"note\": \"Complete happy-path score\" }\n  ]\n}" }, "url": "{{baseUrl}}/institutions/{{institutionId}}/sections/{{sectionMathSemesterOneId}}/assessments/{{assessmentMathExamId}}/results" },
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.test('score saved', () => pm.response.to.have.status(200));", "const r = (pm.response.json().assessmentResults || [])[0];", "if (r) pm.environment.set('assessmentResultMathId', r.id);"] } }]
+        },
+        {
+          "name": "Upsert Math Scores S2",
+          "request": { "method": "PUT", "header": [{ "key": "Content-Type", "value": "application/json" }], "body": { "mode": "raw", "raw": "{\n  \"entries\": [\n    { \"enrollmentId\": \"{{enrollmentMathSemesterTwoId}}\", \"score\": 86, \"note\": \"Complete happy-path score\" }\n  ]\n}" }, "url": "{{baseUrl}}/institutions/{{institutionId}}/sections/{{sectionMathSemesterTwoId}}/assessments/{{assessmentMathSemesterTwoExamId}}/results" }
+        },
+        {
+          "name": "Publish Arabic S1",
+          "request": { "method": "PATCH", "header": [{ "key": "Content-Type", "value": "application/json" }], "body": { "mode": "raw", "raw": "{\n  \"status\": \"published\"\n}" }, "url": "{{baseUrl}}/institutions/{{institutionId}}/sections/{{sectionArabicSemesterOneId}}/assessments/{{assessmentArabicExamId}}/status" }
+        },
+        {
+          "name": "Publish Arabic S2",
+          "request": { "method": "PATCH", "header": [{ "key": "Content-Type", "value": "application/json" }], "body": { "mode": "raw", "raw": "{\n  \"status\": \"published\"\n}" }, "url": "{{baseUrl}}/institutions/{{institutionId}}/sections/{{sectionArabicSemesterTwoId}}/assessments/{{assessmentArabicSemesterTwoExamId}}/status" }
+        },
+        {
+          "name": "Publish Math S1",
+          "request": { "method": "PATCH", "header": [{ "key": "Content-Type", "value": "application/json" }], "body": { "mode": "raw", "raw": "{\n  \"status\": \"published\"\n}" }, "url": "{{baseUrl}}/institutions/{{institutionId}}/sections/{{sectionMathSemesterOneId}}/assessments/{{assessmentMathExamId}}/status" }
+        },
+        {
+          "name": "Publish Math S2",
+          "request": { "method": "PATCH", "header": [{ "key": "Content-Type", "value": "application/json" }], "body": { "mode": "raw", "raw": "{\n  \"status\": \"published\"\n}" }, "url": "{{baseUrl}}/institutions/{{institutionId}}/sections/{{sectionMathSemesterTwoId}}/assessments/{{assessmentMathSemesterTwoExamId}}/status" }
+        },
+        {
+          "name": "Missing Result Scenario - Yearly Report Before Science Published",
+          "request": { "method": "GET", "url": "{{baseUrl}}/institutions/{{institutionId}}/school-outcomes/students/{{studentMembershipId}}/academic-years/{{academicYearId}}/report-card", "description": "Expected: 200 with complete=false / hasMissingResults=true because Science has no published result yet." }
+        },
+        {
+          "name": "Upsert Science Scores",
+          "request": { "method": "PUT", "header": [{ "key": "Content-Type", "value": "application/json" }], "body": { "mode": "raw", "raw": "{\n  \"entries\": [\n    { \"enrollmentId\": \"{{enrollmentScienceSemesterOneId}}\", \"score\": 90, \"note\": \"Complete happy-path score\" }\n  ]\n}" }, "url": "{{baseUrl}}/institutions/{{institutionId}}/sections/{{sectionScienceSemesterOneId}}/assessments/{{assessmentScienceExamId}}/results" },
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.test('score saved', () => pm.response.to.have.status(200));", "const r = (pm.response.json().assessmentResults || [])[0];", "if (r) pm.environment.set('assessmentResultScienceId', r.id);"] } }]
+        },
+        {
+          "name": "Upsert Science Scores S2",
+          "request": { "method": "PUT", "header": [{ "key": "Content-Type", "value": "application/json" }], "body": { "mode": "raw", "raw": "{\n  \"entries\": [\n    { \"enrollmentId\": \"{{enrollmentScienceSemesterTwoId}}\", \"score\": 91, \"note\": \"Complete happy-path score\" }\n  ]\n}" }, "url": "{{baseUrl}}/institutions/{{institutionId}}/sections/{{sectionScienceSemesterTwoId}}/assessments/{{assessmentScienceSemesterTwoExamId}}/results" }
+        },
+        {
+          "name": "Publish Science S1",
+          "request": { "method": "PATCH", "header": [{ "key": "Content-Type", "value": "application/json" }], "body": { "mode": "raw", "raw": "{\n  \"status\": \"published\"\n}" }, "url": "{{baseUrl}}/institutions/{{institutionId}}/sections/{{sectionScienceSemesterOneId}}/assessments/{{assessmentScienceExamId}}/status" }
+        },
+        {
+          "name": "Publish Science S2",
+          "request": { "method": "PATCH", "header": [{ "key": "Content-Type", "value": "application/json" }], "body": { "mode": "raw", "raw": "{\n  \"status\": \"published\"\n}" }, "url": "{{baseUrl}}/institutions/{{institutionId}}/sections/{{sectionScienceSemesterTwoId}}/assessments/{{assessmentScienceSemesterTwoExamId}}/status" }
+        }
+      ]
+    },
+    {
+      "name": "06 Report Cards And Promotion Summary",
+      "item": [
+        {
+          "name": "Student Semester Report Card S1",
+          "request": { "method": "GET", "url": "{{baseUrl}}/institutions/{{institutionId}}/school-outcomes/students/{{studentMembershipId}}/semesters/{{semesterOneId}}/report-card" }
+        },
+        {
+          "name": "Student Yearly Report Card - Happy Promoted",
+          "request": { "method": "GET", "url": "{{baseUrl}}/institutions/{{institutionId}}/school-outcomes/students/{{studentMembershipId}}/academic-years/{{academicYearId}}/report-card" },
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.test('yearly report loaded', () => pm.response.to.have.status(200));", "const card = pm.response.json().reportCard;", "if (card && card.promotionDecision) { pm.test('has promotion decision', () => pm.expect(card.promotionDecision.decision).to.exist); }"] } }]
+        },
+        {
+          "name": "Class Promotion Summary",
+          "request": { "method": "GET", "url": "{{baseUrl}}/institutions/{{institutionId}}/school-outcomes/classes/{{schoolClassId}}/academic-years/{{academicYearId}}/promotion-summary" }
+        },
+        {
+          "name": "Student Token Blocked From Yearly Report Card",
+          "request": {
+            "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{studentAuthToken}}", "type": "string" }] },
+            "method": "GET",
+            "url": "{{baseUrl}}/institutions/{{institutionId}}/school-outcomes/students/{{studentMembershipId}}/academic-years/{{academicYearId}}/report-card",
+            "description": "Expected 403 because report-card routes require class.manage; student role does not have it."
+          }
+        },
+        {
+          "name": "Tenant Isolation Smoke - Wrong Institution",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/institutions/{{otherInstitutionId}}/school-outcomes/students/{{studentMembershipId}}/academic-years/{{academicYearId}}/report-card",
+            "description": "Fill otherInstitutionId manually. Expected 403/404; do not expect this to return another tenant's data."
+          }
+        }
+      ]
+    },
+    {
+      "name": "07 Optional Promotion Rule Scenarios",
+      "description": "These requests mutate published scores. Run them before finalization, and run Restore Happy Scores before final outcome tests if you want a promoted final outcome.",
+      "item": [
+        {
+          "name": "Critical Subject Failure - Lower Arabic Scores",
+          "request": { "method": "PUT", "header": [{ "key": "Content-Type", "value": "application/json" }], "body": { "mode": "raw", "raw": "{\n  \"entries\": [\n    { \"enrollmentId\": \"{{enrollmentArabicSemesterOneId}}\", \"score\": 40, \"note\": \"Critical failure scenario\" }\n  ]\n}" }, "url": "{{baseUrl}}/institutions/{{institutionId}}/sections/{{sectionArabicSemesterOneId}}/assessments/{{assessmentArabicExamId}}/results" }
+        },
+        {
+          "name": "Critical Subject Failure - Lower Arabic Scores S2",
+          "request": { "method": "PUT", "header": [{ "key": "Content-Type", "value": "application/json" }], "body": { "mode": "raw", "raw": "{\n  \"entries\": [\n    { \"enrollmentId\": \"{{enrollmentArabicSemesterTwoId}}\", \"score\": 40, \"note\": \"Critical failure scenario\" }\n  ]\n}" }, "url": "{{baseUrl}}/institutions/{{institutionId}}/sections/{{sectionArabicSemesterTwoId}}/assessments/{{assessmentArabicSemesterTwoExamId}}/results" }
+        },
+        {
+          "name": "Critical Subject Failure - Yearly Report",
+          "request": { "method": "GET", "url": "{{baseUrl}}/institutions/{{institutionId}}/school-outcomes/students/{{studentMembershipId}}/academic-years/{{academicYearId}}/report-card", "description": "Expected repeat_year because Arabic subjectId is configured as critical." }
+        },
+        {
+          "name": "Failed Subject Count Threshold - Lower Math S1",
+          "request": { "method": "PUT", "header": [{ "key": "Content-Type", "value": "application/json" }], "body": { "mode": "raw", "raw": "{\n  \"entries\": [\n    { \"enrollmentId\": \"{{enrollmentMathSemesterOneId}}\", \"score\": 40 }\n  ]\n}" }, "url": "{{baseUrl}}/institutions/{{institutionId}}/sections/{{sectionMathSemesterOneId}}/assessments/{{assessmentMathExamId}}/results" }
+        },
+        {
+          "name": "Failed Subject Count Threshold - Lower Math S2",
+          "request": { "method": "PUT", "header": [{ "key": "Content-Type", "value": "application/json" }], "body": { "mode": "raw", "raw": "{\n  \"entries\": [\n    { \"enrollmentId\": \"{{enrollmentMathSemesterTwoId}}\", \"score\": 40 }\n  ]\n}" }, "url": "{{baseUrl}}/institutions/{{institutionId}}/sections/{{sectionMathSemesterTwoId}}/assessments/{{assessmentMathSemesterTwoExamId}}/results" }
+        },
+        {
+          "name": "Failed Subject Count Threshold - Lower Science S1",
+          "request": { "method": "PUT", "header": [{ "key": "Content-Type", "value": "application/json" }], "body": { "mode": "raw", "raw": "{\n  \"entries\": [\n    { \"enrollmentId\": \"{{enrollmentScienceSemesterOneId}}\", \"score\": 40 }\n  ]\n}" }, "url": "{{baseUrl}}/institutions/{{institutionId}}/sections/{{sectionScienceSemesterOneId}}/assessments/{{assessmentScienceExamId}}/results" }
+        },
+        {
+          "name": "Failed Subject Count Threshold - Lower Science S2",
+          "request": { "method": "PUT", "header": [{ "key": "Content-Type", "value": "application/json" }], "body": { "mode": "raw", "raw": "{\n  \"entries\": [\n    { \"enrollmentId\": \"{{enrollmentScienceSemesterTwoId}}\", \"score\": 40 }\n  ]\n}" }, "url": "{{baseUrl}}/institutions/{{institutionId}}/sections/{{sectionScienceSemesterTwoId}}/assessments/{{assessmentScienceSemesterTwoExamId}}/results" }
+        },
+        {
+          "name": "Failed Subject Count Threshold - Yearly Report",
+          "request": { "method": "GET", "url": "{{baseUrl}}/institutions/{{institutionId}}/school-outcomes/students/{{studentMembershipId}}/academic-years/{{academicYearId}}/report-card", "description": "Expected repeat_year after all three configured subjects are below subjectPassMinPercentage." }
+        },
+        {
+          "name": "Year Average Below Minimum - Restore Arabic Passing S1",
+          "request": { "method": "PUT", "header": [{ "key": "Content-Type", "value": "application/json" }], "body": { "mode": "raw", "raw": "{\n  \"entries\": [\n    { \"enrollmentId\": \"{{enrollmentArabicSemesterOneId}}\", \"score\": 92 }\n  ]\n}" }, "url": "{{baseUrl}}/institutions/{{institutionId}}/sections/{{sectionArabicSemesterOneId}}/assessments/{{assessmentArabicExamId}}/results" }
+        },
+        {
+          "name": "Year Average Below Minimum - Restore Arabic Passing S2",
+          "request": { "method": "PUT", "header": [{ "key": "Content-Type", "value": "application/json" }], "body": { "mode": "raw", "raw": "{\n  \"entries\": [\n    { \"enrollmentId\": \"{{enrollmentArabicSemesterTwoId}}\", \"score\": 90 }\n  ]\n}" }, "url": "{{baseUrl}}/institutions/{{institutionId}}/sections/{{sectionArabicSemesterTwoId}}/assessments/{{assessmentArabicSemesterTwoExamId}}/results" }
+        },
+        {
+          "name": "Year Average Below Minimum - Yearly Report",
+          "request": { "method": "GET", "url": "{{baseUrl}}/institutions/{{institutionId}}/school-outcomes/students/{{studentMembershipId}}/academic-years/{{academicYearId}}/report-card", "description": "Expected YEAR_AVERAGE_BELOW_MINIMUM with Arabic passing and Math/Science still low." }
+        },
+        {
+          "name": "Restore Happy Arabic Score S1",
+          "request": { "method": "PUT", "header": [{ "key": "Content-Type", "value": "application/json" }], "body": { "mode": "raw", "raw": "{\n  \"entries\": [\n    { \"enrollmentId\": \"{{enrollmentArabicSemesterOneId}}\", \"score\": 92 }\n  ]\n}" }, "url": "{{baseUrl}}/institutions/{{institutionId}}/sections/{{sectionArabicSemesterOneId}}/assessments/{{assessmentArabicExamId}}/results" }
+        },
+        {
+          "name": "Restore Happy Arabic Score S2",
+          "request": { "method": "PUT", "header": [{ "key": "Content-Type", "value": "application/json" }], "body": { "mode": "raw", "raw": "{\n  \"entries\": [\n    { \"enrollmentId\": \"{{enrollmentArabicSemesterTwoId}}\", \"score\": 90 }\n  ]\n}" }, "url": "{{baseUrl}}/institutions/{{institutionId}}/sections/{{sectionArabicSemesterTwoId}}/assessments/{{assessmentArabicSemesterTwoExamId}}/results" }
+        },
+        {
+          "name": "Restore Happy Math Score S1",
+          "request": { "method": "PUT", "header": [{ "key": "Content-Type", "value": "application/json" }], "body": { "mode": "raw", "raw": "{\n  \"entries\": [\n    { \"enrollmentId\": \"{{enrollmentMathSemesterOneId}}\", \"score\": 88 }\n  ]\n}" }, "url": "{{baseUrl}}/institutions/{{institutionId}}/sections/{{sectionMathSemesterOneId}}/assessments/{{assessmentMathExamId}}/results" }
+        },
+        {
+          "name": "Restore Happy Math Score S2",
+          "request": { "method": "PUT", "header": [{ "key": "Content-Type", "value": "application/json" }], "body": { "mode": "raw", "raw": "{\n  \"entries\": [\n    { \"enrollmentId\": \"{{enrollmentMathSemesterTwoId}}\", \"score\": 86 }\n  ]\n}" }, "url": "{{baseUrl}}/institutions/{{institutionId}}/sections/{{sectionMathSemesterTwoId}}/assessments/{{assessmentMathSemesterTwoExamId}}/results" }
+        },
+        {
+          "name": "Restore Happy Science Score S1",
+          "request": { "method": "PUT", "header": [{ "key": "Content-Type", "value": "application/json" }], "body": { "mode": "raw", "raw": "{\n  \"entries\": [\n    { \"enrollmentId\": \"{{enrollmentScienceSemesterOneId}}\", \"score\": 90 }\n  ]\n}" }, "url": "{{baseUrl}}/institutions/{{institutionId}}/sections/{{sectionScienceSemesterOneId}}/assessments/{{assessmentScienceExamId}}/results" }
+        },
+        {
+          "name": "Restore Happy Science Score S2",
+          "request": { "method": "PUT", "header": [{ "key": "Content-Type", "value": "application/json" }], "body": { "mode": "raw", "raw": "{\n  \"entries\": [\n    { \"enrollmentId\": \"{{enrollmentScienceSemesterTwoId}}\", \"score\": 91 }\n  ]\n}" }, "url": "{{baseUrl}}/institutions/{{institutionId}}/sections/{{sectionScienceSemesterTwoId}}/assessments/{{assessmentScienceSemesterTwoExamId}}/results" }
+        }
+      ]
+    },
+    {
+      "name": "08 School Final Outcomes",
+      "item": [
+        {
+          "name": "Finalize Without Override",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{}" },
+            "url": "{{baseUrl}}/institutions/{{institutionId}}/school-outcomes/students/{{studentMembershipId}}/academic-years/{{academicYearId}}/finalize"
+          },
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.test('finalized', () => pm.response.to.have.status(201));", "const item = pm.response.json().schoolFinalOutcome;", "if (item && item.id) pm.environment.set('schoolFinalOutcomeId', item.id);"] } }]
+        },
+        {
+          "name": "Get Final Outcome",
+          "request": { "method": "GET", "url": "{{baseUrl}}/institutions/{{institutionId}}/school-outcomes/students/{{studentMembershipId}}/academic-years/{{academicYearId}}/final-outcome" }
+        },
+        {
+          "name": "Duplicate Finalize Should Fail",
+          "request": { "method": "POST", "header": [{ "key": "Content-Type", "value": "application/json" }], "body": { "mode": "raw", "raw": "{}" }, "url": "{{baseUrl}}/institutions/{{institutionId}}/school-outcomes/students/{{studentMembershipId}}/academic-years/{{academicYearId}}/finalize", "description": "Expected 409 duplicate finalized/non-cancelled outcome." }
+        },
+        {
+          "name": "Override Without Reason Should Fail",
+          "request": { "method": "PATCH", "header": [{ "key": "Content-Type", "value": "application/json" }], "body": { "mode": "raw", "raw": "{\n  \"finalDecision\": \"manual_review\"\n}" }, "url": "{{baseUrl}}/institutions/{{institutionId}}/school-outcomes/final-outcomes/{{schoolFinalOutcomeId}}/override", "description": "Expected 400 because reason is required." }
+        },
+        {
+          "name": "Override With Reason",
+          "request": { "method": "PATCH", "header": [{ "key": "Content-Type", "value": "application/json" }], "body": { "mode": "raw", "raw": "{\n  \"finalDecision\": \"manual_review\",\n  \"reason\": \"Manual review requested after administration check.\"\n}" }, "url": "{{baseUrl}}/institutions/{{institutionId}}/school-outcomes/final-outcomes/{{schoolFinalOutcomeId}}/override" }
+        },
+        {
+          "name": "Alternate Finalize With Override",
+          "request": { "method": "POST", "header": [{ "key": "Content-Type", "value": "application/json" }], "body": { "mode": "raw", "raw": "{\n  \"override\": {\n    \"finalDecision\": \"manual_review\",\n    \"reason\": \"Finalize-time manual review override.\"\n  }\n}" }, "url": "{{baseUrl}}/institutions/{{institutionId}}/school-outcomes/students/{{studentMembershipId}}/academic-years/{{academicYearId}}/finalize", "description": "Run this instead of Finalize Without Override on a fresh student/year; otherwise it should return 409 duplicate." }
+        }
+      ]
+    }
+  ]
+}

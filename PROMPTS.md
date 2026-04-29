@@ -144,6 +144,7 @@ Task:
 ## Session Close-Out Prompt
 ```text
 Before we end this session, update:
+- `PROJECT_CONTEXT.md` if the current module picture changed
 - `DECISIONS.md` if a real design decision changed
 - `API_PROGRESS.md` with current module status
 - `TESTING_NOTES.md` if testing steps changed
@@ -153,4 +154,115 @@ Then give me:
 - what is done
 - what is next
 - any TODO/verify notes
+```
+
+## Next Recommended Prompt
+```text
+You are working inside my existing backend repo.
+
+Before coding:
+1. Read `AGENT.md`
+2. Read `PROJECT_CONTEXT.md`
+3. Read `DECISIONS.md`
+4. Read `API_PROGRESS.md`
+5. Read `TESTING_NOTES.md`
+6. Read `PROMPTS.md`
+
+Then inspect:
+- universityAcademicPolicyService
+- universityAcademicOutcomeService
+- university self-enrollment eligibility/submission flow
+- Assessment / AssessmentResult result publishing behavior
+- Enrollment and Section routes/services
+- existing school report-card/final-outcome patterns only as reference
+
+Task:
+Design and implement the next small university academic read layer: a read-only student academic profile/transcript-style summary over finalized university academic outcomes.
+
+Constraints:
+- keep this university-only
+- use GPA, credit hours, and resolved university academic policy where appropriate
+- do not copy school percentage promotion/report-card rules into university
+- do not introduce final outcome overrides unless explicitly scoped
+- keep shared primitives shared
+- keep all reads tenant-scoped by `institutionId`
+- keep changes minimal, safe, local, and reviewable
+- run relevant tests before finishing
+```
+
+## Prompt 4 - School Outcome Preview API
+```text
+You are working inside my existing backend repo.
+
+Before coding:
+1. Read `AGENT.md`
+2. Read `PROJECT_CONTEXT.md`
+3. Read `DECISIONS.md`
+4. Read `API_PROGRESS.md`
+5. Read `TESTING_NOTES.md`
+6. Read `PROMPTS.md`
+
+Then inspect:
+- `schoolOutcomeService`
+- `schoolPromotionService`
+- `schoolAcademicPolicyService`
+- existing assessment/result authorization patterns
+- school class/class-level roster flows
+
+Task:
+Add a read-only admin/staff preview endpoint for school yearly outcome and promotion decision.
+
+Expected behavior:
+- resolve the applicable active `SchoolAcademicPolicy`
+- calculate the student's yearly school outcome
+- resolve the promotion decision explanation
+- return both outcome and decision in one response
+
+Constraints:
+- read-only
+- do not write final promotion records
+- do not move students between class levels
+- do not create PDFs
+- keep all reads tenant-scoped by `institutionId`
+- do not expose writes to students
+- reuse existing route/controller/service patterns
+- run focused tests before finishing
+```
+
+## Prompt 3 - School Promotion Decision Service
+```text
+You are working inside my existing backend repo.
+
+Before coding:
+1. Read `AGENT.md`
+2. Read `PROJECT_CONTEXT.md`
+3. Read `DECISIONS.md`
+4. Read `API_PROGRESS.md`
+5. Read `TESTING_NOTES.md`
+6. Read `PROMPTS.md`
+
+Then inspect:
+- `schoolOutcomeService`
+- `schoolAcademicPolicyService`
+- `SchoolAcademicPolicy` model
+- existing academic outcome decision/explanation patterns if any
+- school class/class-level roster flows only as needed for context
+
+Task:
+Build an internal school promotion decision service that uses the existing school outcome aggregation service and resolved `SchoolAcademicPolicy`.
+
+Expected behavior:
+- do not recalculate marks directly
+- use `calculateSchoolStudentYearOutcome`
+- evaluate year average, failed subject count, and critical failed subjects
+- return an explanation-only recommendation
+- keep `complete=false` outcomes from becoming clean final promotion decisions
+
+Constraints:
+- calculation/decision only
+- do not write final promotion records yet
+- do not create PDFs yet
+- keep all reads tenant-scoped by `institutionId`
+- do not add public routes unless explicitly requested
+- keep changes minimal and run focused tests
 ```

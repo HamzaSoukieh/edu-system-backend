@@ -1,0 +1,1600 @@
+{
+  "info": {
+    "_postman_id": "7c744946-2fc9-4cab-8448-6d31f4b4109f",
+    "name": "Edu SaaS - Self Enrollment Fixture + Tests",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+    "description": "Setup-and-test collection for the current university self-enrollment flow. Run the admin setup requests in order, then login as the created student and run the student self-enrollment requests. Member creation uses the live member flow and therefore requires email sending to be configured in this backend. If you already have student users/memberships, you can skip member creation and fill studentMemberId/studentToken manually."
+  },
+  "item": [
+    {
+      "name": "01 Admin Auth",
+      "item": [
+        {
+          "name": "01 Admin Login",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const json = pm.response.json();",
+                  "pm.test('admin token returned', function () {",
+                  "    pm.expect(json.accessToken).to.be.a('string');",
+                  "});",
+                  "pm.environment.set('adminToken', json.accessToken);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{adminEmail}}\",\n  \"password\": \"{{adminPassword}}\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/auth/login",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "auth",
+                "login"
+              ]
+            },
+            "description": "Login with an existing admin user that belongs to the target university institution."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "02 University Fixture Setup",
+      "auth": {
+        "type": "bearer",
+        "bearer": [
+          {
+            "key": "token",
+            "value": "{{adminToken}}",
+            "type": "string"
+          }
+        ]
+      },
+      "item": [
+        {
+          "name": "02 Create Department",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const json = pm.response.json();",
+                  "pm.environment.set('departmentId', json.department.id);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Self Enrollment Fixture Department {{fixtureTag}}\",\n  \"code\": \"SEFD{{fixtureTag}}\",\n  \"description\": \"Fixture department for self-enrollment Postman testing\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/institutions/{{institutionId}}/departments",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "institutions",
+                "{{institutionId}}",
+                "departments"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "03 Create Previous Semester",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const json = pm.response.json();",
+                  "pm.environment.set('previousSemesterId', json.semester.id);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Fixture Previous Semester {{fixtureTag}}\",\n  \"startDate\": \"2026-01-05\",\n  \"endDate\": \"2026-03-31\",\n  \"teachingDays\": [\"monday\", \"tuesday\", \"wednesday\", \"thursday\"],\n  \"status\": \"archived\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/institutions/{{institutionId}}/semesters",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "institutions",
+                "{{institutionId}}",
+                "semesters"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "04 Create Active Semester",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const json = pm.response.json();",
+                  "pm.environment.set('activeSemesterId', json.semester.id);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Fixture Active Semester {{fixtureTag}}\",\n  \"startDate\": \"2026-04-01\",\n  \"endDate\": \"2026-06-30\",\n  \"teachingDays\": [\"monday\", \"tuesday\", \"wednesday\", \"thursday\"],\n  \"status\": \"active\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/institutions/{{institutionId}}/semesters",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "institutions",
+                "{{institutionId}}",
+                "semesters"
+              ]
+            },
+            "description": "This assumes the target institution does not already have another active semester."
+          },
+          "response": []
+        },
+        {
+          "name": "05 Create Academic Policy",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const json = pm.response.json();",
+                  "pm.environment.set('academicPolicyId', json.academicPolicy.id);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Self Enrollment Fixture Policy {{fixtureTag}}\",\n  \"status\": \"active\",\n  \"effectiveFromSemesterId\": \"{{previousSemesterId}}\",\n  \"minimumEnrollmentCreditHours\": 5,\n  \"defaultMaxCreditHours\": 6,\n  \"overloadMinGpa\": 3.5,\n  \"overloadMaxCreditHours\": 9,\n  \"outcomeThresholds\": {\n    \"failedMaxPercentage\": 59.99,\n    \"improvableMinPercentage\": 60,\n    \"improvableMaxPercentage\": 69.99,\n    \"finalPassMinPercentage\": 70\n  },\n  \"gpaBands\": [\n    { \"minPercentage\": 0, \"maxPercentage\": 60, \"gradePoint\": 0 },\n    { \"minPercentage\": 60, \"maxPercentage\": 70, \"gradePoint\": 2 },\n    { \"minPercentage\": 70, \"maxPercentage\": 85, \"gradePoint\": 3 },\n    { \"minPercentage\": 85, \"maxPercentage\": 100, \"gradePoint\": 4 }\n  ]\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/institutions/{{institutionId}}/academic-policies",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "institutions",
+                "{{institutionId}}",
+                "academic-policies"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "06 Create Student Member",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const json = pm.response.json();",
+                  "pm.environment.set('studentMemberId', json.member.id);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{studentEmail}}\",\n  \"role\": \"student\",\n  \"profile\": {\n    \"firstName\": \"Self\",\n    \"lastName\": \"Student {{fixtureTag}}\",\n    \"nationalNumber\": \"{{studentPassword}}\"\n  }\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/institutions/{{institutionId}}/members",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "institutions",
+                "{{institutionId}}",
+                "members"
+              ]
+            },
+            "description": "Creates the student user/member. Initial login password is the same as profile.nationalNumber."
+          },
+          "response": []
+        },
+        {
+          "name": "07 Create Filler Student Member",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const json = pm.response.json();",
+                  "pm.environment.set('fillerStudentMemberId', json.member.id);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{fillerStudentEmail}}\",\n  \"role\": \"student\",\n  \"profile\": {\n    \"firstName\": \"Full\",\n    \"lastName\": \"Section {{fixtureTag}}\",\n    \"nationalNumber\": \"{{fillerStudentPassword}}\"\n  }\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/institutions/{{institutionId}}/members",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "institutions",
+                "{{institutionId}}",
+                "members"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "08 Create Prerequisite Subject",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const json = pm.response.json();",
+                  "pm.environment.set('prerequisiteSubjectId', json.subject.id);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Fixture Prerequisite {{fixtureTag}}\",\n  \"code\": \"PRQ{{fixtureTag}}\",\n  \"creditHours\": 3,\n  \"status\": \"active\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/institutions/{{institutionId}}/departments/{{departmentId}}/subjects",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "institutions",
+                "{{institutionId}}",
+                "departments",
+                "{{departmentId}}",
+                "subjects"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "09 Create Eligible Subject",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const json = pm.response.json();",
+                  "pm.environment.set('eligibleSubjectId', json.subject.id);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Fixture Eligible Subject {{fixtureTag}}\",\n  \"code\": \"ELG{{fixtureTag}}\",\n  \"creditHours\": 3,\n  \"status\": \"active\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/institutions/{{institutionId}}/departments/{{departmentId}}/subjects",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "institutions",
+                "{{institutionId}}",
+                "departments",
+                "{{departmentId}}",
+                "subjects"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "10 Create Below Minimum Subject",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const json = pm.response.json();",
+                  "pm.environment.set('belowMinimumSubjectId', json.subject.id);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Fixture Below Minimum Subject {{fixtureTag}}\",\n  \"code\": \"MIN{{fixtureTag}}\",\n  \"creditHours\": 1,\n  \"status\": \"active\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/institutions/{{institutionId}}/departments/{{departmentId}}/subjects",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "institutions",
+                "{{institutionId}}",
+                "departments",
+                "{{departmentId}}",
+                "subjects"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "11 Create Above Max Subject",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const json = pm.response.json();",
+                  "pm.environment.set('aboveMaxSubjectId', json.subject.id);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Fixture Above Max Subject {{fixtureTag}}\",\n  \"code\": \"MAX{{fixtureTag}}\",\n  \"creditHours\": 10,\n  \"status\": \"active\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/institutions/{{institutionId}}/departments/{{departmentId}}/subjects",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "institutions",
+                "{{institutionId}}",
+                "departments",
+                "{{departmentId}}",
+                "subjects"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "12 Create Already Enrolled Subject",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const json = pm.response.json();",
+                  "pm.environment.set('alreadyEnrolledSubjectId', json.subject.id);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Fixture Current Load Subject {{fixtureTag}}\",\n  \"code\": \"CUR{{fixtureTag}}\",\n  \"creditHours\": 3,\n  \"status\": \"active\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/institutions/{{institutionId}}/departments/{{departmentId}}/subjects",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "institutions",
+                "{{institutionId}}",
+                "departments",
+                "{{departmentId}}",
+                "subjects"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "13 Create Repeated Subject",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const json = pm.response.json();",
+                  "pm.environment.set('repeatedSubjectId', json.subject.id);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Fixture Repeated Subject {{fixtureTag}}\",\n  \"code\": \"REP{{fixtureTag}}\",\n  \"creditHours\": 3,\n  \"status\": \"active\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/institutions/{{institutionId}}/departments/{{departmentId}}/subjects",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "institutions",
+                "{{institutionId}}",
+                "departments",
+                "{{departmentId}}",
+                "subjects"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "14 Create Prereq Blocked Subject",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const json = pm.response.json();",
+                  "pm.environment.set('prereqBlockedSubjectId', json.subject.id);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Fixture Missing Prereq Subject {{fixtureTag}}\",\n  \"code\": \"REQ{{fixtureTag}}\",\n  \"creditHours\": 3,\n  \"prerequisiteSubjectIds\": [\"{{prerequisiteSubjectId}}\"],\n  \"status\": \"active\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/institutions/{{institutionId}}/departments/{{departmentId}}/subjects",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "institutions",
+                "{{institutionId}}",
+                "departments",
+                "{{departmentId}}",
+                "subjects"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "15 Create Eligible Section",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const json = pm.response.json();",
+                  "pm.environment.set('eligibleSectionId', json.section.id);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"semesterId\": \"{{activeSemesterId}}\",\n  \"subjectId\": \"{{eligibleSubjectId}}\",\n  \"code\": \"A\",\n  \"title\": \"Fixture Eligible Section {{fixtureTag}}\",\n  \"instructorMemberId\": null,\n  \"capacity\": 10,\n  \"schedule\": [\n    {\n      \"sessionType\": \"lecture\",\n      \"day\": \"monday\",\n      \"startTime\": \"09:00\",\n      \"endTime\": \"10:00\",\n      \"room\": \"SE-101\"\n    }\n  ],\n  \"status\": \"active\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/institutions/{{institutionId}}/sections",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "institutions",
+                "{{institutionId}}",
+                "sections"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "16 Create Below Minimum Section",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const json = pm.response.json();",
+                  "pm.environment.set('belowMinimumSectionId', json.section.id);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"semesterId\": \"{{activeSemesterId}}\",\n  \"subjectId\": \"{{belowMinimumSubjectId}}\",\n  \"code\": \"A\",\n  \"title\": \"Fixture Below Minimum Section {{fixtureTag}}\",\n  \"instructorMemberId\": null,\n  \"capacity\": 10,\n  \"schedule\": [\n    {\n      \"sessionType\": \"lecture\",\n      \"day\": \"monday\",\n      \"startTime\": \"10:15\",\n      \"endTime\": \"11:15\",\n      \"room\": \"SE-102\"\n    }\n  ],\n  \"status\": \"active\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/institutions/{{institutionId}}/sections",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "institutions",
+                "{{institutionId}}",
+                "sections"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "17 Create Above Max Section",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const json = pm.response.json();",
+                  "pm.environment.set('aboveMaxSectionId', json.section.id);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"semesterId\": \"{{activeSemesterId}}\",\n  \"subjectId\": \"{{aboveMaxSubjectId}}\",\n  \"code\": \"A\",\n  \"title\": \"Fixture Above Max Section {{fixtureTag}}\",\n  \"instructorMemberId\": null,\n  \"capacity\": 10,\n  \"schedule\": [\n    {\n      \"sessionType\": \"lecture\",\n      \"day\": \"monday\",\n      \"startTime\": \"11:30\",\n      \"endTime\": \"12:30\",\n      \"room\": \"SE-103\"\n    }\n  ],\n  \"status\": \"active\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/institutions/{{institutionId}}/sections",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "institutions",
+                "{{institutionId}}",
+                "sections"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "18 Create Prereq Blocked Section",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const json = pm.response.json();",
+                  "pm.environment.set('prereqBlockedSectionId', json.section.id);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"semesterId\": \"{{activeSemesterId}}\",\n  \"subjectId\": \"{{prereqBlockedSubjectId}}\",\n  \"code\": \"A\",\n  \"title\": \"Fixture Missing Prereq Section {{fixtureTag}}\",\n  \"instructorMemberId\": null,\n  \"capacity\": 10,\n  \"schedule\": [\n    {\n      \"sessionType\": \"lecture\",\n      \"day\": \"monday\",\n      \"startTime\": \"12:45\",\n      \"endTime\": \"13:45\",\n      \"room\": \"SE-104\"\n    }\n  ],\n  \"status\": \"active\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/institutions/{{institutionId}}/sections",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "institutions",
+                "{{institutionId}}",
+                "sections"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "19 Create Full Section",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const json = pm.response.json();",
+                  "pm.environment.set('fullSectionId', json.section.id);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"semesterId\": \"{{activeSemesterId}}\",\n  \"subjectId\": \"{{eligibleSubjectId}}\",\n  \"code\": \"B\",\n  \"title\": \"Fixture Full Section {{fixtureTag}}\",\n  \"instructorMemberId\": null,\n  \"capacity\": 1,\n  \"schedule\": [\n    {\n      \"sessionType\": \"lecture\",\n      \"day\": \"tuesday\",\n      \"startTime\": \"09:00\",\n      \"endTime\": \"10:00\",\n      \"room\": \"SE-105\"\n    }\n  ],\n  \"status\": \"active\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/institutions/{{institutionId}}/sections",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "institutions",
+                "{{institutionId}}",
+                "sections"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "20 Create Already Enrolled Section",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const json = pm.response.json();",
+                  "pm.environment.set('alreadyEnrolledSectionId', json.section.id);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"semesterId\": \"{{activeSemesterId}}\",\n  \"subjectId\": \"{{alreadyEnrolledSubjectId}}\",\n  \"code\": \"A\",\n  \"title\": \"Fixture Already Enrolled Section {{fixtureTag}}\",\n  \"instructorMemberId\": null,\n  \"capacity\": 10,\n  \"schedule\": [\n    {\n      \"sessionType\": \"lecture\",\n      \"day\": \"tuesday\",\n      \"startTime\": \"10:15\",\n      \"endTime\": \"11:15\",\n      \"room\": \"SE-106\"\n    }\n  ],\n  \"status\": \"active\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/institutions/{{institutionId}}/sections",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "institutions",
+                "{{institutionId}}",
+                "sections"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "21 Create Repeated Historical Section",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const json = pm.response.json();",
+                  "pm.environment.set('repeatedHistoricalSectionId', json.section.id);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"semesterId\": \"{{previousSemesterId}}\",\n  \"subjectId\": \"{{repeatedSubjectId}}\",\n  \"code\": \"A\",\n  \"title\": \"Fixture Historical Passed Section {{fixtureTag}}\",\n  \"instructorMemberId\": null,\n  \"capacity\": 10,\n  \"schedule\": [\n    {\n      \"sessionType\": \"lecture\",\n      \"day\": \"wednesday\",\n      \"startTime\": \"09:00\",\n      \"endTime\": \"10:00\",\n      \"room\": \"SE-107\"\n    }\n  ],\n  \"status\": \"active\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/institutions/{{institutionId}}/sections",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "institutions",
+                "{{institutionId}}",
+                "sections"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "22 Create Repeated Target Section",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const json = pm.response.json();",
+                  "pm.environment.set('repeatedTargetSectionId', json.section.id);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"semesterId\": \"{{activeSemesterId}}\",\n  \"subjectId\": \"{{repeatedSubjectId}}\",\n  \"code\": \"B\",\n  \"title\": \"Fixture Same Subject Target Section {{fixtureTag}}\",\n  \"instructorMemberId\": null,\n  \"capacity\": 10,\n  \"schedule\": [\n    {\n      \"sessionType\": \"lecture\",\n      \"day\": \"tuesday\",\n      \"startTime\": \"11:30\",\n      \"endTime\": \"12:30\",\n      \"room\": \"SE-108\"\n    }\n  ],\n  \"status\": \"active\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/institutions/{{institutionId}}/sections",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "institutions",
+                "{{institutionId}}",
+                "sections"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "23 Enroll Filler Student Into Full Section",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const json = pm.response.json();",
+                  "pm.environment.set('fullSectionFillerEnrollmentId', json.enrollment.id);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"studentMemberId\": \"{{fillerStudentMemberId}}\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/institutions/{{institutionId}}/sections/{{fullSectionId}}/enrollments",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "institutions",
+                "{{institutionId}}",
+                "sections",
+                "{{fullSectionId}}",
+                "enrollments"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "24 Enroll Student Into Already Enrolled Section",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const json = pm.response.json();",
+                  "pm.environment.set('alreadyEnrolledEnrollmentId', json.enrollment.id);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"studentMemberId\": \"{{studentMemberId}}\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/institutions/{{institutionId}}/sections/{{alreadyEnrolledSectionId}}/enrollments",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "institutions",
+                "{{institutionId}}",
+                "sections",
+                "{{alreadyEnrolledSectionId}}",
+                "enrollments"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "25 Enroll Student Into Repeated Historical Section",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const json = pm.response.json();",
+                  "pm.environment.set('repeatedHistoricalEnrollmentId', json.enrollment.id);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"studentMemberId\": \"{{studentMemberId}}\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/institutions/{{institutionId}}/sections/{{repeatedHistoricalSectionId}}/enrollments",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "institutions",
+                "{{institutionId}}",
+                "sections",
+                "{{repeatedHistoricalSectionId}}",
+                "enrollments"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "26 Create Historical Assessment",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const json = pm.response.json();",
+                  "pm.environment.set('historicalAssessmentId', json.assessment.id);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"title\": \"Historical Final Assessment {{fixtureTag}}\",\n  \"description\": \"Fixture assessment to produce a final-pass historical outcome\",\n  \"type\": \"final\",\n  \"assessmentDate\": \"2026-03-15\",\n  \"maxScore\": 100,\n  \"weight\": 100\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/institutions/{{institutionId}}/sections/{{repeatedHistoricalSectionId}}/assessments",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "institutions",
+                "{{institutionId}}",
+                "sections",
+                "{{repeatedHistoricalSectionId}}",
+                "assessments"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "27 Upsert Historical Assessment Result",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"entries\": [\n    {\n      \"enrollmentId\": \"{{repeatedHistoricalEnrollmentId}}\",\n      \"score\": 85,\n      \"note\": \"Fixture final-pass score\"\n    }\n  ]\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/institutions/{{institutionId}}/sections/{{repeatedHistoricalSectionId}}/assessments/{{historicalAssessmentId}}/results",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "institutions",
+                "{{institutionId}}",
+                "sections",
+                "{{repeatedHistoricalSectionId}}",
+                "assessments",
+                "{{historicalAssessmentId}}",
+                "results"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "28 Publish Historical Assessment",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"status\": \"published\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/institutions/{{institutionId}}/sections/{{repeatedHistoricalSectionId}}/assessments/{{historicalAssessmentId}}/status",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "institutions",
+                "{{institutionId}}",
+                "sections",
+                "{{repeatedHistoricalSectionId}}",
+                "assessments",
+                "{{historicalAssessmentId}}",
+                "status"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "29 Close Repeated Historical Section",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"status\": \"closed\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/institutions/{{institutionId}}/sections/{{repeatedHistoricalSectionId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "institutions",
+                "{{institutionId}}",
+                "sections",
+                "{{repeatedHistoricalSectionId}}"
+              ]
+            },
+            "description": "This is what makes the previous repeated attempt academically finalized for eligibility use."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "03 Student Auth",
+      "item": [
+        {
+          "name": "30 Student Login",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const json = pm.response.json();",
+                  "pm.test('student token returned', function () {",
+                  "    pm.expect(json.accessToken).to.be.a('string');",
+                  "});",
+                  "pm.environment.set('studentToken', json.accessToken);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{studentEmail}}\",\n  \"password\": \"{{studentPassword}}\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/auth/login",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "auth",
+                "login"
+              ]
+            },
+            "description": "Login as the created fixture student. The initial password is the same nationalNumber used at member creation."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "04 Self Enrollment - Student",
+      "auth": {
+        "type": "bearer",
+        "bearer": [
+          {
+            "key": "token",
+            "value": "{{studentToken}}",
+            "type": "string"
+          }
+        ]
+      },
+      "item": [
+        {
+          "name": "31 Browse All Candidate Sections",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/institutions/{{institutionId}}/students/me/self-enrollment/sections",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "institutions",
+                "{{institutionId}}",
+                "students",
+                "me",
+                "self-enrollment",
+                "sections"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "32 Browse availableOnly=true",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/institutions/{{institutionId}}/students/me/self-enrollment/sections?availableOnly=true",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "institutions",
+                "{{institutionId}}",
+                "students",
+                "me",
+                "self-enrollment",
+                "sections"
+              ],
+              "query": [
+                {
+                  "key": "availableOnly",
+                  "value": "true"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "33 Preview Eligible Section",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/institutions/{{institutionId}}/students/me/self-enrollment/sections/{{eligibleSectionId}}/eligibility",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "institutions",
+                "{{institutionId}}",
+                "students",
+                "me",
+                "self-enrollment",
+                "sections",
+                "{{eligibleSectionId}}",
+                "eligibility"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "34 Preview Below Minimum Section",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/institutions/{{institutionId}}/students/me/self-enrollment/sections/{{belowMinimumSectionId}}/eligibility",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "institutions",
+                "{{institutionId}}",
+                "students",
+                "me",
+                "self-enrollment",
+                "sections",
+                "{{belowMinimumSectionId}}",
+                "eligibility"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "35 Preview Above Max Section",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/institutions/{{institutionId}}/students/me/self-enrollment/sections/{{aboveMaxSectionId}}/eligibility",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "institutions",
+                "{{institutionId}}",
+                "students",
+                "me",
+                "self-enrollment",
+                "sections",
+                "{{aboveMaxSectionId}}",
+                "eligibility"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "36 Preview Missing Prerequisite Section",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/institutions/{{institutionId}}/students/me/self-enrollment/sections/{{prereqBlockedSectionId}}/eligibility",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "institutions",
+                "{{institutionId}}",
+                "students",
+                "me",
+                "self-enrollment",
+                "sections",
+                "{{prereqBlockedSectionId}}",
+                "eligibility"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "37 Preview Full Section",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/institutions/{{institutionId}}/students/me/self-enrollment/sections/{{fullSectionId}}/eligibility",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "institutions",
+                "{{institutionId}}",
+                "students",
+                "me",
+                "self-enrollment",
+                "sections",
+                "{{fullSectionId}}",
+                "eligibility"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "38 Preview Already Enrolled Section",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/institutions/{{institutionId}}/students/me/self-enrollment/sections/{{alreadyEnrolledSectionId}}/eligibility",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "institutions",
+                "{{institutionId}}",
+                "students",
+                "me",
+                "self-enrollment",
+                "sections",
+                "{{alreadyEnrolledSectionId}}",
+                "eligibility"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "39 Preview Same Subject Already Passed Final Section",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/institutions/{{institutionId}}/students/me/self-enrollment/sections/{{repeatedTargetSectionId}}/eligibility",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "institutions",
+                "{{institutionId}}",
+                "students",
+                "me",
+                "self-enrollment",
+                "sections",
+                "{{repeatedTargetSectionId}}",
+                "eligibility"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "40 Finalize Submission - Below Minimum Alone",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"sectionIds\": [\n    \"{{belowMinimumSectionId}}\"\n  ]\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/institutions/{{institutionId}}/students/me/self-enrollment/submissions",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "institutions",
+                "{{institutionId}}",
+                "students",
+                "me",
+                "self-enrollment",
+                "submissions"
+              ]
+            },
+            "description": "Should fail because the final combined projected load stays below minimumEnrollmentCreditHours."
+          },
+          "response": []
+        },
+        {
+          "name": "41 Finalize Submission - Above Max Alone",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"sectionIds\": [\n    \"{{aboveMaxSectionId}}\"\n  ]\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/institutions/{{institutionId}}/students/me/self-enrollment/submissions",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "institutions",
+                "{{institutionId}}",
+                "students",
+                "me",
+                "self-enrollment",
+                "submissions"
+              ]
+            },
+            "description": "Should fail because the final combined projected load exceeds the allowed maximum."
+          },
+          "response": []
+        },
+        {
+          "name": "42 Finalize Submission - Eligible + Below Minimum Together",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const json = pm.response.json();",
+                  "pm.test('submission created enrollments', function () {",
+                  "    pm.expect(pm.response.code).to.eql(201);",
+                  "    pm.expect(json.enrollments).to.be.an('array');",
+                  "    pm.expect(json.enrollments.length).to.eql(2);",
+                  "    pm.expect(json.submission).to.be.an('object');",
+                  "    pm.expect(json.submission.loadSummary.projectedCreditHours).to.be.a('number');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"sectionIds\": [\n    \"{{eligibleSectionId}}\",\n    \"{{belowMinimumSectionId}}\"\n  ]\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/institutions/{{institutionId}}/students/me/self-enrollment/submissions",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "institutions",
+                "{{institutionId}}",
+                "students",
+                "me",
+                "self-enrollment",
+                "submissions"
+              ]
+            },
+            "description": "Should succeed because final combined projected load is evaluated across the full submitted selection."
+          },
+          "response": []
+        }
+      ]
+    }
+  ],
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:3000"
+    },
+    {
+      "key": "institutionId",
+      "value": ""
+    },
+    {
+      "key": "fixtureTag",
+      "value": "SE01"
+    }
+  ]
+}

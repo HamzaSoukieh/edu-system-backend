@@ -58,6 +58,23 @@
 - `AssessmentResult`
   - one student result row for one assessment
   - anchored through existing section `Enrollment`
+- `InstitutionAcademicPolicy`
+  - institution-level university academic policy
+  - university-only semester-effective academic policy version
+  - MVP resolves forward from `effectiveFromSemesterId` until a later policy starts
+  - source of truth for outcome thresholds, GPA bands, and semester load rules
+  - graduation credit requirements are deferred to a future department/program requirement model
+- `SchoolAcademicPolicy`
+  - institution-level school academic policy
+  - school-only promotion/result rule configuration foundation
+  - supports academic-year / stage / class-level scoped resolution
+  - stores grading, aggregation, failure, and promotion-rule configuration only
+  - does not calculate outcomes itself; school outcome/report-card services consume the resolved policy
+- `SchoolFinalOutcome`
+  - school-only finalized yearly promotion/result decision record
+  - stores calculated outcome snapshots separately from final decisions
+  - supports manual override metadata with required reason
+  - does not automatically move students to the next class level
 - `ResponsibilityAssignment`
   - scoped delegated access model
   - not yet a major active module
@@ -170,6 +187,31 @@
     - school class-level coordinator/head for the parent section class level
   - current remaining gap:
     - broader grading/reporting beyond section-level assessment results, such as GPA/transcript/report-card flows
+- University Academic Policy / Self-Enrollment Foundation
+  - admin create/list/get/update for institution-level university academic policy
+  - implementation files use university-prefixed service/controller names while keeping existing public `/academic-policies` routes stable
+  - policy versions are semester-effective and resolved centrally per semester
+  - MVP keeps only `effectiveFromSemesterId`; there is no `effectiveToSemesterId`
+  - university subjects can now store `prerequisiteSubjectIds`
+  - internal academic outcomes can now derive per-enrollment finalized outcome status, grade point, quality points, earned credits, and cumulative GPA inputs from published section results plus resolved policy
+  - internal academic outcomes now also derive stable per-subject repeated-attempt summaries for eligibility reuse
+  - academically incomplete or non-finalized closed sections are excluded from finalized university outcome meaning
+  - student self-enrollment now exposes:
+    - a lightweight active-semester browse/list discovery route for university section candidates
+    - a detailed preview eligibility route that remains the canonical explanation surface
+    - a multi-section submission/finalization write route that validates the whole selected set before creating shared enrollment rows
+  - student self-enrollment foundation currently exposes browse, preview, and submission/finalization write routes for university students
+  - the preview route now delegates its shared university-only eligibility rule evaluation to an internal reusable decision service
+  - the final submission route stays thin and reuses the shared eligibility foundations plus a selection-level validation step before falling through to the shared enrollment create path
+  - the preview payload is now the canonical read-side explanation surface for self-enrollment rule evaluation, with stable blocking reason codes plus grouped prerequisite/capacity/load summaries
+  - per-section preview keeps structural/duplicate/prerequisite/capacity guidance, while minimum enrollment is now deferred to final multi-section submission validation
+  - policy now uses a blocking `minimumEnrollmentCreditHours` field for final registration validation
+  - current remaining gap:
+    - academic profile / transcript read layers
+    - university read-only academic report / transcript APIs comparable to school report-card projections
+    - university final academic outcome confirmation / override workflow, if product needs explicit administrative finalization
+    - repeat-grade replacement / forgiveness policy
+    - near-graduation exception logic backed by a future department/program graduation requirement model
 - School Structure
   - class level create/list/get/update
   - school class create/list/get/update
@@ -178,8 +220,46 @@
   - school section backfill from active class assignments
   - current remaining gap:
     - broader class transfer/history policy beyond the current single-row-per-student-per-semester approach
+- School Academic Policy Foundation
+  - admin/staff create/list/get/update/archive for school-only academic policy
+  - class-level / stage / academic-year fallback resolver
+  - percentage-based grading, semester aggregation, failure, and promotion rule configuration
+  - stays separate from university GPA, credit-hour, and self-enrollment policy behavior
+  - current remaining gap:
+    - first-class academic-year and school-stage models are not yet present
+- School Outcome Aggregation Foundation
+  - calculation-only school outcome service
+  - derives marks/percentage outcomes from existing published `Assessment` and `AssessmentResult` data
+  - subject-semester aggregation is scoped to the student's active enrolled section(s), not every section for the same subject
+  - can calculate subject semester outcome, subject yearly outcome, and student yearly outcome across class-level subjects
+  - detects failed subjects, critical failed subjects, and missing published assessment results
+  - returns explicit `complete` and `hasMissingResults` flags so incomplete outcomes are not presented as clean final pass/fail results
+  - does not write final outcomes
+- School Promotion Decision Foundation
+  - calculation-only school promotion decision service
+  - applies `SchoolAcademicPolicy` promotion/failure rules to a calculated `SchoolStudentYearOutcome`
+  - returns explanation-style decisions with reason codes, reasons, and warnings
+  - supports missing-result review, critical-subject failure, failed-subject-count threshold, and yearly-average threshold checks
+  - does not write final promotion records or move students between class levels
+- School Report Card Read APIs
+  - admin/staff read-only school report-card service and routes
+  - semester report cards resolve the student's class/class level from the semester roster assignment
+  - yearly report cards resolve the active school policy, calculate student yearly outcomes, and include the promotion decision explanation
+  - class promotion summary reads assigned students for the policy semesters and applies the same outcome + promotion decision services per student
+  - missing results are returned as warnings with explicit `complete` / `hasMissingResults` fields
+  - does not write final outcomes, move students, or update class assignments
+- School Final Outcome Foundation
+  - admin/staff can finalize one yearly school outcome per student + academic year
+  - finalization resolves the active `SchoolAcademicPolicy`, recalculates the student yearly outcome, applies the school promotion decision service, then stores a tenant-scoped `SchoolFinalOutcome`
+  - calculated decision/reasons/warnings are stored separately from final decision/reasons/warnings
+  - optional finalize-time override and later override both require a non-empty reason
+  - duplicate non-cancelled final outcomes for the same institution + academic year + student are rejected in service logic
+  - duplicate finalized outcomes are also protected by a finalized-only partial unique index
+  - cancelled outcomes cannot be overridden
+  - no class movement, next-year placement, GPA, or credit-hour behavior is introduced
 
 ## Next Likely Modules
+- School final outcome cancellation / recompute workflow and report-card final-outcome linking
 - Scoped responsibility routes
 
 ## Current Priorities
@@ -201,6 +281,8 @@
 - For university filters, derive department through `Subject`.
 - Keep `Enrollment` shared.
 - For school, keep `Enrollment` as backend-managed technical participation data, not student self-enrollment.
+- Schools do not use credit hours, GPA as the main result model, or student self-enrollment.
+- School marks/outcomes reuse shared `Assessment` / `AssessmentResult` as the result source, while school policy/outcome logic stays separate from university academic policy.
 - Keep `SectionSession` shared.
 - `ResponsibilityAssignment` should be used only when a route has a real scope.
 - School scoped academic oversight may derive through `ResponsibilityAssignment.scopeType = classLevel` when the route is tied to a school section's class level.
@@ -213,3 +295,13 @@
 - Verify whether session cancellation should later support richer notification flows beyond basic email.
 - Verify whether attendance should later support coordinator/admin oversight after instructor-first flow is stable.
 - Verify whether old section schedules without `schedule[].sessionType` should get a dedicated backfill path before bulk session generation is used broadly.
+- Verify whether school policy `academicYearId` and `schoolStageId` should later point to first-class tenant models instead of the current validated opaque ObjectId scope ids.
+- Verify whether school yearly subject aggregation should later require full semester coverage instead of averaging over available weighted semesters when some results are missing.
+- Verify whether school subjects need configurable subject weights for yearly student averages; current school outcome aggregation averages yearly subject percentages equally.
+- Verify whether `AssessmentResult` needs its own final/published lifecycle later; current school outcome aggregation relies on `Assessment.status = published`.
+- Verify whether a first-class school curriculum/required-subject source should replace enrollment-derived yearly subject resolution.
+- Verify first-class academic-year and school-stage models before allowing semester report cards to resolve stage-scoped policies from a semester alone.
+- Verify broader school class transfer/history behavior; yearly student report cards currently require one class assignment context across the policy semesters.
+- Verify pagination for class promotion summaries if school classes become large; current summary returns the assigned class roster in one response.
+- Verify student/parent report-card access later; current read-only report-card routes are admin/staff-only through `class.manage`.
+- Verify future automatic next-year placement/class assignment after final outcomes are reviewed; current finalization never moves students.

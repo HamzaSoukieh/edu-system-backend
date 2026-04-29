@@ -15,6 +15,10 @@ const memberController = require("../controllers/memberController");
 const sectionController = require("../controllers/sectionController");
 const attendanceController = require("../controllers/attendanceController");
 const assessmentController = require("../controllers/assessmentController");
+const universityAcademicPolicyController = require("../controllers/universityAcademicPolicyController");
+const schoolAcademicPolicyController = require("../controllers/schoolAcademicPolicyController");
+const schoolReportCardController = require("../controllers/schoolReportCardController");
+const schoolFinalOutcomeController = require("../controllers/schoolFinalOutcomeController");
 const enrollmentController = require("../controllers/enrollmentController");
 const sectionSessionController = require("../controllers/sectionSessionController");
 
@@ -39,6 +43,126 @@ router.post(
     requirePermission("institution.manage"),
     uploadInstitutionLogo,
     institutionController.uploadInstitutionLogo
+);
+router.post(
+    "/:institutionId/academic-policies",
+    authJwt,
+    requireEmailVerified,
+    institutionAccess(),
+    requirePermission("institution.manage"),
+    universityAcademicPolicyController.createAcademicPolicy
+);
+router.get(
+    "/:institutionId/academic-policies",
+    authJwt,
+    requireEmailVerified,
+    institutionAccess(),
+    requirePermission("institution.manage"),
+    universityAcademicPolicyController.listAcademicPolicies
+);
+router.post(
+    "/:institutionId/academic-policies/school",
+    authJwt,
+    requireEmailVerified,
+    institutionAccess(),
+    requirePermission("institution.manage"),
+    schoolAcademicPolicyController.createSchoolAcademicPolicy
+);
+router.get(
+    "/:institutionId/academic-policies/school",
+    authJwt,
+    requireEmailVerified,
+    institutionAccess(),
+    requirePermission("institution.manage"),
+    schoolAcademicPolicyController.listSchoolAcademicPolicies
+);
+router.get(
+    "/:institutionId/academic-policies/school/:policyId",
+    authJwt,
+    requireEmailVerified,
+    institutionAccess(),
+    requirePermission("institution.manage"),
+    schoolAcademicPolicyController.getSchoolAcademicPolicyById
+);
+router.patch(
+    "/:institutionId/academic-policies/school/:policyId",
+    authJwt,
+    requireEmailVerified,
+    institutionAccess(),
+    requirePermission("institution.manage"),
+    schoolAcademicPolicyController.updateSchoolAcademicPolicy
+);
+router.post(
+    "/:institutionId/academic-policies/school/:policyId/archive",
+    authJwt,
+    requireEmailVerified,
+    institutionAccess(),
+    requirePermission("institution.manage"),
+    schoolAcademicPolicyController.archiveSchoolAcademicPolicy
+);
+router.get(
+    "/:institutionId/school-outcomes/students/:studentMembershipId/semesters/:semesterId/report-card",
+    authJwt,
+    requireEmailVerified,
+    institutionAccess(),
+    requirePermission("class.manage"),
+    schoolReportCardController.getStudentSemesterReportCard
+);
+router.get(
+    "/:institutionId/school-outcomes/students/:studentMembershipId/academic-years/:academicYearId/report-card",
+    authJwt,
+    requireEmailVerified,
+    institutionAccess(),
+    requirePermission("class.manage"),
+    schoolReportCardController.getStudentYearlyReportCard
+);
+router.get(
+    "/:institutionId/school-outcomes/classes/:schoolClassId/academic-years/:academicYearId/promotion-summary",
+    authJwt,
+    requireEmailVerified,
+    institutionAccess(),
+    requirePermission("class.manage"),
+    schoolReportCardController.getClassPromotionSummary
+);
+router.post(
+    "/:institutionId/school-outcomes/students/:studentMembershipId/academic-years/:academicYearId/finalize",
+    authJwt,
+    requireEmailVerified,
+    institutionAccess(),
+    requirePermission("class.manage"),
+    schoolFinalOutcomeController.finalizeSchoolStudentYearOutcome
+);
+router.patch(
+    "/:institutionId/school-outcomes/final-outcomes/:outcomeId/override",
+    authJwt,
+    requireEmailVerified,
+    institutionAccess(),
+    requirePermission("class.manage"),
+    schoolFinalOutcomeController.overrideSchoolFinalOutcome
+);
+router.get(
+    "/:institutionId/school-outcomes/students/:studentMembershipId/academic-years/:academicYearId/final-outcome",
+    authJwt,
+    requireEmailVerified,
+    institutionAccess(),
+    requirePermission("class.manage"),
+    schoolFinalOutcomeController.getSchoolFinalOutcomeForStudentYear
+);
+router.get(
+    "/:institutionId/academic-policies/:policyId",
+    authJwt,
+    requireEmailVerified,
+    institutionAccess(),
+    requirePermission("institution.manage"),
+    universityAcademicPolicyController.getAcademicPolicyById
+);
+router.patch(
+    "/:institutionId/academic-policies/:policyId",
+    authJwt,
+    requireEmailVerified,
+    institutionAccess(),
+    requirePermission("institution.manage"),
+    universityAcademicPolicyController.updateAcademicPolicy
 );
 router.post(
     "/:institutionId/departments",
@@ -390,6 +514,30 @@ router.get(
     requireEmailVerified,
     institutionAccess(),
     assessmentController.listMyResults
+);
+router.get(
+    "/:institutionId/students/me/self-enrollment/sections",
+    authJwt,
+    requireEmailVerified,
+    institutionAccess(),
+    requirePermission("enrollment.self_manage"),
+    enrollmentController.listMySelfEnrollmentSections
+);
+router.get(
+    "/:institutionId/students/me/self-enrollment/sections/:sectionId/eligibility",
+    authJwt,
+    requireEmailVerified,
+    institutionAccess(),
+    requirePermission("enrollment.self_manage"),
+    enrollmentController.getSelfEnrollmentEligibility
+);
+router.post(
+    "/:institutionId/students/me/self-enrollment/submissions",
+    authJwt,
+    requireEmailVerified,
+    institutionAccess(),
+    requirePermission("enrollment.self_manage"),
+    enrollmentController.createMySelfEnrollmentSubmission
 );
 router.post(
     "/:institutionId/classes/:classId/students",

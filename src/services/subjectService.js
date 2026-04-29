@@ -47,6 +47,9 @@ function toSubjectResponse(subject) {
         name: subject.name,
         code: subject.code,
         creditHours: subject.creditHours,
+        prerequisiteSubjectIds: Array.isArray(subject.prerequisiteSubjectIds)
+            ? subject.prerequisiteSubjectIds.map((subjectId) => subjectId.toString())
+            : [],
         status: subject.status,
         createdByUserId: subject.createdByUserId?.toString() || null,
         createdAt: subject.createdAt,
@@ -142,6 +145,35 @@ function validateCreateCreditHours(rawValue, institutionType) {
     return validateCreditHours(rawValue);
 }
 
+function validatePrerequisiteSubjectIds(rawValue, institutionType, { allowUndefined = false } = {}) {
+    const normalizedInstitutionType = normalizeInstitutionType(institutionType);
+    if (rawValue === undefined) {
+        if (allowUndefined) {
+            return undefined;
+        }
+
+        return normalizedInstitutionType === "school" ? [] : [];
+    }
+
+    if (normalizedInstitutionType === "school") {
+        throw createError(400, "prerequisiteSubjectIds is not supported for school subjects");
+    }
+
+    if (!Array.isArray(rawValue)) {
+        throw createError(400, "prerequisiteSubjectIds must be an array");
+    }
+
+    const prerequisiteSubjectIds = rawValue.map((value, index) => {
+        if (!value || !isValidObjectId(value)) {
+            throw createError(400, `prerequisiteSubjectIds[${index}] is invalid`);
+        }
+
+        return value.toString();
+    });
+
+    return [...new Set(prerequisiteSubjectIds)];
+}
+
 function validateUpdateCreditHours(rawValue, institutionType) {
     const normalizedInstitutionType = normalizeInstitutionType(institutionType);
     if (normalizedInstitutionType === "school") {
@@ -180,6 +212,7 @@ function validateCreateSubjectInput(payload, institutionType) {
     const { name, nameNormalized } = validateName(payload.name);
     const code = validateCode(payload.code);
     const creditHours = validateCreateCreditHours(payload.creditHours, institutionType);
+    const prerequisiteSubjectIds = validatePrerequisiteSubjectIds(payload.prerequisiteSubjectIds, institutionType);
     const status = validateStatus(payload.status);
 
     return {
@@ -187,6 +220,7 @@ function validateCreateSubjectInput(payload, institutionType) {
         nameNormalized,
         code,
         creditHours,
+        prerequisiteSubjectIds,
         status,
     };
 }
@@ -211,6 +245,12 @@ function validateUpdateSubjectInput(payload, institutionType) {
 
     if (payload.creditHours !== undefined) {
         updates.creditHours = validateUpdateCreditHours(payload.creditHours, institutionType);
+    }
+
+    if (payload.prerequisiteSubjectIds !== undefined) {
+        updates.prerequisiteSubjectIds = validatePrerequisiteSubjectIds(payload.prerequisiteSubjectIds, institutionType, {
+            allowUndefined: true,
+        });
     }
 
     if (payload.status !== undefined) {
@@ -283,6 +323,38 @@ async function loadAndValidateScopeRecord({
     return scopeRecord;
 }
 
+async function ensurePrerequisiteSubjectsExist({
+    institutionId,
+    institutionType,
+    prerequisiteSubjectIds,
+    currentSubjectId = null,
+}) {
+    if (normalizeInstitutionType(institutionType) !== "university") {
+        return [];
+    }
+
+    if (!Array.isArray(prerequisiteSubjectIds) || !prerequisiteSubjectIds.length) {
+        return [];
+    }
+
+    if (currentSubjectId && prerequisiteSubjectIds.includes(currentSubjectId.toString())) {
+        throw createError(400, "Subject cannot reference itself as a prerequisite");
+    }
+
+    const subjects = await Subject.find({
+        _id: { $in: prerequisiteSubjectIds },
+        institutionId,
+    })
+        .select("_id")
+        .lean();
+
+    if (subjects.length !== prerequisiteSubjectIds.length) {
+        throw createError(404, "One or more prerequisite subjects were not found");
+    }
+
+    return prerequisiteSubjectIds;
+}
+
 async function listSubjects({ institutionId, departmentId, classLevelId, active }) {
     if (!institutionId || !isValidObjectId(institutionId)) {
         throw createError(400, "Invalid institution context");
@@ -331,7 +403,7 @@ async function listSubjects({ institutionId, departmentId, classLevelId, active 
     }
 
     const subjects = await Subject.find(query)
-        .select("_id institutionId departmentId classLevelId name code creditHours status createdByUserId createdAt updatedAt")
+        .select("_id institutionId departmentId classLevelId name code creditHours prerequisiteSubjectIds status createdByUserId createdAt updatedAt")
         .sort({ name: 1 })
         .lean();
 
@@ -354,7 +426,7 @@ async function getSubjectById({ institutionId, subjectId }) {
         _id: subjectId,
         institutionId,
     })
-        .select("_id institutionId departmentId classLevelId name code creditHours status createdByUserId createdAt updatedAt")
+        .select("_id institutionId departmentId classLevelId name code creditHours prerequisiteSubjectIds status createdByUserId createdAt updatedAt")
         .lean();
 
     if (!subject) {
@@ -394,10 +466,15 @@ async function createSubject({ institutionId, departmentId, classLevelId, create
         action: "write",
     });
 
-    const { name, nameNormalized, code, creditHours, status } = validateCreateSubjectInput(
+    const { name, nameNormalized, code, creditHours, prerequisiteSubjectIds, status } = validateCreateSubjectInput(
         payload,
         institution.type
     );
+    await ensurePrerequisiteSubjectsExist({
+        institutionId,
+        institutionType: institution.type,
+        prerequisiteSubjectIds,
+    });
 
     const scopeQuery = {
         institutionId,
@@ -426,6 +503,7 @@ async function createSubject({ institutionId, departmentId, classLevelId, create
         nameNormalized,
         code,
         creditHours,
+        prerequisiteSubjectIds,
         status,
         createdByUserId,
     };
@@ -469,7 +547,7 @@ async function updateSubject({ institutionId, subjectId, payload }) {
             _id: subjectId,
             institutionId,
         })
-            .select("_id departmentId classLevelId nameNormalized")
+            .select("_id departmentId classLevelId nameNormalized prerequisiteSubjectIds")
             .lean(),
         loadInstitution(institutionId),
     ]);
@@ -493,6 +571,15 @@ async function updateSubject({ institutionId, subjectId, payload }) {
             institutionType: institution.type,
             scopeId: updates[scopeConfig.scopeField],
             action: "write",
+        });
+    }
+
+    if (updates.prerequisiteSubjectIds !== undefined) {
+        await ensurePrerequisiteSubjectsExist({
+            institutionId,
+            institutionType: institution.type,
+            prerequisiteSubjectIds: updates.prerequisiteSubjectIds,
+            currentSubjectId: subjectId,
         });
     }
 
@@ -536,7 +623,7 @@ async function updateSubject({ institutionId, subjectId, payload }) {
             { $set: updates },
             { returnDocument: "after", runValidators: true }
         )
-            .select("_id institutionId departmentId classLevelId name code creditHours status createdByUserId createdAt updatedAt")
+            .select("_id institutionId departmentId classLevelId name code creditHours prerequisiteSubjectIds status createdByUserId createdAt updatedAt")
             .lean();
     } catch (error) {
         if (isDuplicateKeyError(error)) {
@@ -598,6 +685,7 @@ async function deleteSubject({ institutionId, subjectId }) {
 }
 
 module.exports = {
+    validatePrerequisiteSubjectIds,
     listSubjects,
     getSubjectById,
     createSubject,

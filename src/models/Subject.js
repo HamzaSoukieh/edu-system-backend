@@ -42,6 +42,15 @@ const subjectSchema = new mongoose.Schema(
             min: 1,
             default: null,
         },
+        prerequisiteSubjectIds: {
+            type: [
+                {
+                    type: mongoose.Schema.Types.ObjectId,
+                    ref: "Subject",
+                },
+            ],
+            default: [],
+        },
         status: {
             type: String,
             enum: ["active", "archived"],

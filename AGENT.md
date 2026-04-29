@@ -36,7 +36,7 @@
 - `Membership` = institution access + role only
 - `MemberProfile` = personal info only
 - `Subject` stays shared
-- `Section` stays shared for university now and school later
+- `Section` stays shared for university and school
 - Do not add `departmentId` directly to `Section`
 - For university filtering, derive department through `Subject`
 
@@ -110,6 +110,11 @@
 ## Current Module Focus
 - Sections and section-linked workflows are the active build area.
 - Current repo state:
+  - School Structure:
+    - class level create/list/get/update
+    - school class create/list/get/update
+    - semester-scoped class roster assignments
+    - school roster -> section enrollment sync
   - Section:
     - create
     - list
@@ -144,5 +149,4 @@
     - section-level attendance analytics for finalized closed sessions
 - Not done yet:
   - broader attendance reporting beyond section-level finalized analytics
-  - school class-level support
   - broader scoped responsibility flows
