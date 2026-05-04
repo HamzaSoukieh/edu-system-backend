@@ -220,3 +220,9 @@
 - Decision: Rename clearly university-only academic implementation files to use `university` prefixes while keeping existing API route URLs unchanged.
 - Reason: School academic modules are explicitly school-prefixed and percentage-based, while the older academic policy/outcome/self-enrollment files are GPA, credit-hour, and university-registration specific.
 - Notes: Shared primitives such as `Subject`, `Section`, `Enrollment`, `Assessment`, and `AssessmentResult` remain shared. `InstitutionAcademicPolicy` keeps its model name for now to avoid unsafe persistence/collection churn.
+
+## D037 - Shared Academic Profile Facade Delegates By Institution Type
+- Status: Confirmed
+- Decision: Expose shared academic profile routes through one facade service that loads `Institution.type` and delegates to school or university providers.
+- Reason: The platform needs one multi-tenant academic profile surface, but school and university academic meaning remains different.
+- Notes: The facade must stay read-only and must not become a mixed calculation engine. School calculations stay in school report-card/outcome/final-outcome services through `buildSchoolAcademicProfile`; university GPA/credit behavior stays in `universityAcademicOutcomeService` through `buildUniversityAcademicProfile`.

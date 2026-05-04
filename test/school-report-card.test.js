@@ -744,3 +744,22 @@ test("unsupported roles cannot access school report cards", async () => {
         }
     );
 });
+
+test("school report cards reject unsupported accessMode values", async () => {
+    await assert.rejects(
+        () =>
+            getStudentSemesterReportCard({
+                institutionId,
+                studentMembershipId,
+                semesterId: semesterOneId,
+                actorUserId,
+                actorMembership,
+                accessMode: "student",
+            }),
+        (error) => {
+            assert.equal(error.statusCode, 400);
+            assert.equal(error.message, "accessMode is invalid");
+            return true;
+        }
+    );
+});

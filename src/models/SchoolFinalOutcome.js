@@ -192,12 +192,6 @@ const schoolFinalOutcomeSchema = new mongoose.Schema(
     { timestamps: true }
 );
 
-schoolFinalOutcomeSchema.index({
-    institutionId: 1,
-    academicYearId: 1,
-    studentMembershipId: 1,
-    status: 1,
-});
 schoolFinalOutcomeSchema.index(
     {
         institutionId: 1,

@@ -10,6 +10,8 @@ const {
 } = require("./universityAcademicPolicyService");
 
 const FINALIZED_SECTION_WEIGHT_TOTAL = 100;
+const CLOSED_SECTION_STATUS = "closed";
+const PUBLISHED_ASSESSMENT_STATUS = "published";
 const ACADEMIC_OUTCOME_STATUS_PRIORITY = {
     failed: 1,
     passed_improvable: 2,
@@ -69,6 +71,91 @@ function normalizeComputedNumber(value, { digits = 12 } = {}) {
 
 function isFinalizedWeightTotal(weightTotal) {
     return Math.abs(weightTotal - FINALIZED_SECTION_WEIGHT_TOTAL) <= POLICY_EPSILON;
+}
+
+function buildExclusion({
+    reasonCode,
+    message,
+    enrollmentId = null,
+    sectionId = null,
+    semesterId = null,
+    subjectId = null,
+    assessmentId = null,
+    studentMembershipId = null,
+}) {
+    return {
+        reasonCode,
+        message,
+        ...(normalizeId(enrollmentId) ? { enrollmentId: normalizeId(enrollmentId) } : {}),
+        ...(normalizeId(sectionId) ? { sectionId: normalizeId(sectionId) } : {}),
+        ...(normalizeId(semesterId) ? { semesterId: normalizeId(semesterId) } : {}),
+        ...(normalizeId(subjectId) ? { subjectId: normalizeId(subjectId) } : {}),
+        ...(normalizeId(assessmentId) ? { assessmentId: normalizeId(assessmentId) } : {}),
+        ...(normalizeId(studentMembershipId) ? { studentMembershipId: normalizeId(studentMembershipId) } : {}),
+    };
+}
+
+function uniqueExclusions(exclusions = []) {
+    const seen = new Set();
+    return exclusions.filter((exclusion) => {
+        const key = [
+            exclusion.reasonCode,
+            exclusion.enrollmentId,
+            exclusion.sectionId,
+            exclusion.semesterId,
+            exclusion.subjectId,
+            exclusion.assessmentId,
+            exclusion.studentMembershipId,
+        ].join("|");
+        if (seen.has(key)) {
+            return false;
+        }
+
+        seen.add(key);
+        return true;
+    });
+}
+
+function hasInvalidPublishedAssessmentConfiguration(assessment) {
+    return (
+        !Number.isFinite(assessment?.maxScore) ||
+        assessment.maxScore <= 0 ||
+        !Number.isFinite(assessment?.weight) ||
+        assessment.weight <= 0
+    );
+}
+
+function collectMissingResultExclusions({
+    enrollment,
+    section,
+    sectionAssessments = [],
+    enrollmentResults = [],
+}) {
+    const resultsByAssessmentId = new Map(
+        enrollmentResults.map((result) => [normalizeId(result.assessmentId), result])
+    );
+
+    return sectionAssessments
+        .filter((assessment) => !hasInvalidPublishedAssessmentConfiguration(assessment))
+        .map((assessment) => {
+            const assessmentId = normalizeId(assessment._id);
+            const result = resultsByAssessmentId.get(assessmentId) || null;
+            if (result && Number.isFinite(result.score)) {
+                return null;
+            }
+
+            return buildExclusion({
+                reasonCode: "missing_assessment_result",
+                message: "A published assessment is missing a recorded score, so this enrollment is not included in official GPA.",
+                enrollmentId: enrollment._id,
+                sectionId: section._id,
+                semesterId: section.semesterId,
+                subjectId: section.subjectId,
+                assessmentId,
+                studentMembershipId: enrollment.studentMemberId,
+            });
+        })
+        .filter(Boolean);
 }
 
 function resolveGradePointFromBands({ percentage, gpaBands }) {
@@ -322,26 +409,53 @@ async function listStudentAcademicOutcomes({ institutionId, studentMemberId }) {
         return {
             outcomes: [],
             summary: buildOutcomeSummary([]),
+            subjectOutcomeSummaries: [],
+            excluded: [],
         };
     }
 
     const sections = await Section.find({
         institutionId,
         _id: { $in: enrollments.map((enrollment) => enrollment.sectionId) },
-        status: "closed",
     })
         .select("_id institutionId semesterId subjectId code title status")
         .lean();
+    const sectionById = new Map(sections.map((section) => [section._id.toString(), section]));
+    const excluded = [];
 
-    if (!sections.length) {
+    for (const enrollment of enrollments) {
+        const section = sectionById.get(normalizeId(enrollment.sectionId)) || null;
+        if (!section) {
+            continue;
+        }
+
+        if (section.status !== CLOSED_SECTION_STATUS) {
+            excluded.push(
+                buildExclusion({
+                    reasonCode: "section_not_closed",
+                    message: "This section is not finalized yet, so it is not included in official GPA.",
+                    enrollmentId: enrollment._id,
+                    sectionId: section._id,
+                    semesterId: section.semesterId,
+                    subjectId: section.subjectId,
+                    studentMembershipId: enrollment.studentMemberId,
+                })
+            );
+        }
+    }
+
+    const closedSections = sections.filter((section) => section.status === CLOSED_SECTION_STATUS);
+
+    if (!closedSections.length) {
         return {
             outcomes: [],
             summary: buildOutcomeSummary([]),
+            subjectOutcomeSummaries: [],
+            excluded: uniqueExclusions(excluded),
         };
     }
 
-    const sectionById = new Map(sections.map((section) => [section._id.toString(), section]));
-    const subjectIds = [...new Set(sections.map((section) => normalizeId(section.subjectId)).filter(Boolean))];
+    const subjectIds = [...new Set(closedSections.map((section) => normalizeId(section.subjectId)).filter(Boolean))];
     const subjects = await Subject.find({
         institutionId,
         _id: { $in: subjectIds },
@@ -350,18 +464,98 @@ async function listStudentAcademicOutcomes({ institutionId, studentMemberId }) {
         .lean();
     const subjectById = new Map(subjects.map((subject) => [subject._id.toString(), subject]));
 
-    const publishedAssessments = await Assessment.find({
+    const allSectionAssessments = await Assessment.find({
         institutionId,
-        sectionId: { $in: sections.map((section) => section._id) },
-        status: "published",
+        sectionId: { $in: closedSections.map((section) => section._id) },
     })
-        .select("_id institutionId sectionId maxScore weight")
+        .select("_id institutionId sectionId maxScore weight status")
         .lean();
+    const publishedAssessments = allSectionAssessments.filter(
+        (assessment) => assessment.status === PUBLISHED_ASSESSMENT_STATUS
+    );
+
+    const assessmentsBySectionId = new Map();
+    for (const assessment of allSectionAssessments) {
+        const sectionId = normalizeId(assessment.sectionId);
+        if (!assessmentsBySectionId.has(sectionId)) {
+            assessmentsBySectionId.set(sectionId, []);
+        }
+
+        assessmentsBySectionId.get(sectionId).push(assessment);
+    }
+
+    for (const section of closedSections) {
+        const sectionAssessments = assessmentsBySectionId.get(normalizeId(section._id)) || [];
+        const publishedSectionAssessments = sectionAssessments.filter(
+            (assessment) => assessment.status === PUBLISHED_ASSESSMENT_STATUS
+        );
+
+        for (const assessment of sectionAssessments) {
+            if (assessment.status !== PUBLISHED_ASSESSMENT_STATUS) {
+                excluded.push(
+                    buildExclusion({
+                        reasonCode: "assessment_not_published",
+                        message: "This assessment is not published, so it is not included in official GPA.",
+                        sectionId: section._id,
+                        semesterId: section.semesterId,
+                        subjectId: section.subjectId,
+                        assessmentId: assessment._id,
+                    })
+                );
+            }
+        }
+
+        if (!publishedSectionAssessments.length) {
+            excluded.push(
+                buildExclusion({
+                    reasonCode: "assessment_not_published",
+                    message: "No published assessments are available for this section, so it is not included in official GPA.",
+                    sectionId: section._id,
+                    semesterId: section.semesterId,
+                    subjectId: section.subjectId,
+                })
+            );
+            continue;
+        }
+
+        for (const assessment of publishedSectionAssessments) {
+            if (hasInvalidPublishedAssessmentConfiguration(assessment)) {
+                excluded.push(
+                    buildExclusion({
+                        reasonCode: "invalid_assessment_configuration",
+                        message: "A published assessment has invalid grading configuration, so the section is not included in official GPA.",
+                        sectionId: section._id,
+                        semesterId: section.semesterId,
+                        subjectId: section.subjectId,
+                        assessmentId: assessment._id,
+                    })
+                );
+            }
+        }
+
+        const publishedWeightTotal = publishedSectionAssessments.reduce(
+            (sum, assessment) => sum + assessment.weight,
+            0
+        );
+        if (!isFinalizedWeightTotal(publishedWeightTotal)) {
+            excluded.push(
+                buildExclusion({
+                    reasonCode: "incomplete_assessment_weight_total",
+                    message: "Published assessments do not total 100%, so this section is not included in official GPA.",
+                    sectionId: section._id,
+                    semesterId: section.semesterId,
+                    subjectId: section.subjectId,
+                })
+            );
+        }
+    }
 
     if (!publishedAssessments.length) {
         return {
             outcomes: [],
             summary: buildOutcomeSummary([]),
+            subjectOutcomeSummaries: [],
+            excluded: uniqueExclusions(excluded),
         };
     }
 
@@ -386,6 +580,8 @@ async function listStudentAcademicOutcomes({ institutionId, studentMemberId }) {
         return {
             outcomes: [],
             summary: buildOutcomeSummary([]),
+            subjectOutcomeSummaries: [],
+            excluded: uniqueExclusions(excluded),
         };
     }
 
@@ -413,13 +609,34 @@ async function listStudentAcademicOutcomes({ institutionId, studentMemberId }) {
     )];
 
     for (const semesterId of semesterIds) {
-        policyBySemesterId.set(
-            semesterId,
-            await resolveAcademicPolicyForSemester({
-                institutionId,
+        try {
+            policyBySemesterId.set(
                 semesterId,
-            })
-        );
+                await resolveAcademicPolicyForSemester({
+                    institutionId,
+                    semesterId,
+                })
+            );
+        } catch (error) {
+            if (error?.statusCode !== 409 || !String(error.message || "").includes("No academic policy")) {
+                throw error;
+            }
+
+            finalizedSectionIds
+                .map((sectionId) => sectionById.get(sectionId))
+                .filter((section) => section && normalizeId(section.semesterId) === semesterId)
+                .forEach((section) => {
+                    excluded.push(
+                        buildExclusion({
+                            reasonCode: "missing_academic_policy",
+                            message: "No academic policy is configured for this semester, so the section is not included in official GPA.",
+                            sectionId: section._id,
+                            semesterId: section.semesterId,
+                            subjectId: section.subjectId,
+                        })
+                    );
+                });
+        }
     }
 
     const resultsByEnrollmentId = new Map();
@@ -441,12 +658,36 @@ async function listStudentAcademicOutcomes({ institutionId, studentMemberId }) {
 
         const subject = subjectById.get(section.subjectId.toString()) || null;
         if (!subject || !Number.isInteger(subject.creditHours) || subject.creditHours < 1) {
+            excluded.push(
+                buildExclusion({
+                    reasonCode: "invalid_credit_hours",
+                    message: "The subject is missing valid credit hours, so this enrollment is not included in official GPA.",
+                    enrollmentId: enrollment._id,
+                    sectionId: section._id,
+                    semesterId: section.semesterId,
+                    subjectId: section.subjectId,
+                    studentMembershipId: enrollment.studentMemberId,
+                })
+            );
+            continue;
+        }
+
+        const policy = policyBySemesterId.get(section.semesterId.toString()) || null;
+        if (!policy) {
             continue;
         }
 
         const sectionAssessments = publishedAssessmentsBySectionId.get(section._id.toString()) || [];
         const enrollmentResults = resultsByEnrollmentId.get(enrollment._id.toString()) || [];
         if (!sectionAssessments.length || enrollmentResults.length !== sectionAssessments.length) {
+            excluded.push(
+                ...collectMissingResultExclusions({
+                    enrollment,
+                    section,
+                    sectionAssessments,
+                    enrollmentResults,
+                })
+            );
             continue;
         }
 
@@ -456,11 +697,18 @@ async function listStudentAcademicOutcomes({ institutionId, studentMemberId }) {
             assessmentById,
         });
         if (!finalizedMetrics) {
+            excluded.push(
+                ...collectMissingResultExclusions({
+                    enrollment,
+                    section,
+                    sectionAssessments,
+                    enrollmentResults,
+                })
+            );
             continue;
         }
 
         const percentage = finalizedMetrics.percentage;
-        const policy = policyBySemesterId.get(section.semesterId.toString()) || null;
         const outcomeStatus = classifyAcademicOutcome({
             percentage,
             outcomeThresholds: policy.outcomeThresholds,
@@ -491,6 +739,7 @@ async function listStudentAcademicOutcomes({ institutionId, studentMemberId }) {
         outcomes,
         summary: buildOutcomeSummary(outcomes),
         subjectOutcomeSummaries: buildSubjectOutcomeSummaries(outcomes),
+        excluded: uniqueExclusions(excluded),
     };
 }
 

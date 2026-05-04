@@ -658,6 +658,25 @@ test("actor membership without institutionId cannot access final outcomes", asyn
     );
 });
 
+test("school final outcome reads reject unsupported accessMode values", async () => {
+    await assert.rejects(
+        () =>
+            getSchoolFinalOutcomeForStudentYear({
+                institutionId,
+                studentMembershipId,
+                academicYearId,
+                actorUserId,
+                actorMembership,
+                accessMode: "student",
+            }),
+        (error) => {
+            assert.equal(error.statusCode, 400);
+            assert.equal(error.message, "accessMode is invalid");
+            return true;
+        }
+    );
+});
+
 test("unsupported roles cannot finalize final outcomes", async () => {
     await assert.rejects(
         () =>

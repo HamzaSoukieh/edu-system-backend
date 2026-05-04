@@ -274,6 +274,11 @@
     - resolved semester policy
     - strict exclusion of incomplete or invalid finalized inputs for a student's closed-section outcome
     - stable per-subject repeated-attempt summaries so eligibility can reuse consistent prior-subject meaning
+    - structured `excluded` explanations for safely detectable non-official inputs such as open sections, unpublished or incomplete assessments, missing results, missing policy, and invalid credit hours
+  - internal university academic profile provider now composes the existing academic outcome summary into a transcript-style read model for the shared academic profile facade
+  - the internal provider remains read-only, university-only, tenant-scoped, staff-readable through current `section.manage` access, and self-readable only through the shared facade's target-student check
+  - university academic profile responses surface deduped/sanitized outcome-service `excluded` explanations without changing official GPA or credit calculations
+  - TODO/verify: `semesterId` is accepted and validated by the provider, but filtering is documented as not applied until the university outcome service supports a semester-scoped source contract
 - the self-enrollment preview route now loads tenant-scoped context in `enrollmentService` and delegates shared rule evaluation to an internal reusable eligibility decision service
 - the self-enrollment browse route now reuses the same shared decision engine for lightweight per-row `eligibilitySummary` without forcing the full preview payload into every list item
 - the self-enrollment submission write route now reuses the same shared decision engine as a thin safe layer before creating shared `Enrollment` rows
@@ -282,9 +287,36 @@
   - structured `blockingReasons`, `warnings`, and `infos`
   - grouped duplicate-enrollment, prerequisite, same-subject, capacity, and load-policy summaries
 - Still missing:
-  - public academic profile / transcript read APIs
   - university academic report/finalization APIs, if needed separately from calculated outcome summaries
   - repeat-grade replacement / forgiveness rules
+
+### Shared Academic Profile Facade
+- `GET /institutions/:institutionId/students/me/academic-profile`
+- `GET /institutions/:institutionId/students/:studentMembershipId/academic-profile`
+- Current implemented rules:
+  - one shared route/controller/service facade dispatches by `Institution.type`
+  - school institutions delegate to `buildSchoolAcademicProfile`
+  - university institutions delegate to `buildUniversityAcademicProfile`
+  - response uses `{ academicProfile: ... }` as the common envelope
+  - providers may include `warnings` and deduped/sanitized `excluded` arrays inside the envelope for incomplete or excluded academic data explanations
+  - the facade is read-only and does not calculate marks, promotion decisions, GPA, credits, final outcomes, or self-enrollment eligibility itself
+  - student self route:
+    - uses the authenticated active membership from `institutionAccess()`
+    - allows only student memberships
+    - only returns the actor student's own academic profile
+  - admin/staff target route:
+    - uses `membership.manage` at the route layer as the safest current shared student-record permission
+    - delegates to provider-level school `class.manage` and university `section.manage` checks
+    - TODO/verify: replace the route-level `membership.manage` guard with a conditional institution-type-aware academic read permission if/when one exists
+  - query params are passed through safely:
+    - school: `academicYearId` is required by the school provider and `semesterId` is optional
+    - university: `semesterId` is optional and `academicYearId` is not required
+    - TODO/verify: until a first-class `AcademicYear` / current-year resolver exists, school academic profile callers must pass `academicYearId` explicitly
+  - tenant scoping is preserved through `institutionId` and provider-owned target-student validation
+- Still missing:
+  - parent/guardian access
+  - university semester-scoped profile source support
+  - first-class school academic-year resolver
 
 ### School Academic Policy Foundation
 - `POST /institutions/:institutionId/academic-policies/school`
@@ -445,6 +477,27 @@
   - cancellation/recompute workflow for finalized records
   - report-card responses that surface an existing final outcome beside calculated previews
   - TODO/verify: automatic next-year placement remains deferred until final outcome review workflow is stable
+
+### School Academic Profile Provider
+- Internal provider used by the shared academic profile facade
+- Current implemented function:
+  - `buildSchoolAcademicProfile`
+- Current implemented rules:
+  - school-only provider for shared academic-profile facade reuse
+  - supports staff access through the same `class.manage` role-permission expectation as school report-card/final-outcome reads
+  - supports student self access only when the actor is the target student membership
+  - requires caller-provided `academicYearId` until a first-class `AcademicYear` / current-year resolver exists
+  - validates target `studentMembershipId` as an active same-institution student membership before delegating to report-card logic
+  - yearly report-card output is assembled through existing `schoolReportCardService` yearly logic
+  - optional semester report-card output is assembled through existing `schoolReportCardService` semester logic when `semesterId` is provided
+  - optional final outcome is read through existing school final-outcome read behavior and returned as `null` on the expected not-found case
+  - final outcome data is sanitized to a decision/outcome summary and does not expose audit or actor ids through the provider
+  - response preserves report-card completion flags, warnings, promotion decision, reason codes, and reason details
+  - response now includes top-level `excluded` explanations normalized from existing report-card warnings and incomplete year/semester completion flags
+  - read-only; does not finalize outcomes, override outcomes, or update school class/class-level/assignment/assessment/result/final-outcome records
+- Still missing:
+  - parent self-service access
+  - first-class academic-year resolver
 
 ### School Structure
 - `POST /institutions/:institutionId/class-levels`

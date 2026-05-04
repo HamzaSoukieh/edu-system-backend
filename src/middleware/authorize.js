@@ -3,6 +3,8 @@ const Membership = require("../models/Membership");
 const ResponsibilityAssignment = require("../models/ResponsibilityAssignment");
 const { ROLE_PERMISSIONS, RESPONSIBILITY_PERMISSIONS } = require("../auth/permissions");
 
+const ACTIVE_MEMBERSHIP_STATUS = Membership.schema.path("status").defaultValue;
+
 function getUserId(req) {
     return req.user?.id || req.user?._id || null;
 }
@@ -78,7 +80,7 @@ function institutionAccess() {
             const membership = await Membership.findOne({
                 userId,
                 institutionId,
-                status: "active",
+                status: ACTIVE_MEMBERSHIP_STATUS,
             }).lean();
 
             if (!membership) {

@@ -10,6 +10,7 @@
   - `node --test test/school-promotion.test.js`
   - `node --test test/school-report-card.test.js`
   - `node --test test/school-final-outcome.test.js`
+  - `node --test test/school-academic-profile.test.js`
   - `node --test test/university-academic-outcome-foundation.test.js`
   - `node --test test/self-enrollment-eligibility.test.js`
   - `node --test test/self-enrollment-browse.test.js`
@@ -18,6 +19,7 @@
   - `node --test test/school-academic-policy.test.js test/school-outcome.test.js`
   - `node --test test/school-academic-policy.test.js test/school-outcome.test.js test/school-promotion.test.js test/school-report-card.test.js`
   - `node --test test/school-academic-policy.test.js test/school-outcome.test.js test/school-promotion.test.js test/school-report-card.test.js test/school-final-outcome.test.js`
+  - `node --test test/school-academic-policy.test.js test/school-outcome.test.js test/school-promotion.test.js test/school-report-card.test.js test/school-final-outcome.test.js test/school-academic-profile.test.js`
   - `node --test test/university-academic-policy-foundation.test.js test/university-academic-outcome-foundation.test.js test/self-enrollment-eligibility.test.js test/self-enrollment-browse.test.js test/self-enrollment-write.test.js`
 - After backend changes, verify:
   - auth works
@@ -118,6 +120,12 @@
   - `POST /institutions/:institutionId/school-outcomes/students/:studentMembershipId/academic-years/:academicYearId/finalize`
   - `PATCH /institutions/:institutionId/school-outcomes/final-outcomes/:outcomeId/override`
   - `GET /institutions/:institutionId/school-outcomes/students/:studentMembershipId/academic-years/:academicYearId/final-outcome`
+- Current shared academic profile routes:
+  - `GET /institutions/:institutionId/students/me/academic-profile`
+  - `GET /institutions/:institutionId/students/:studentMembershipId/academic-profile`
+- Current academic profile providers:
+  - school: `buildSchoolAcademicProfile`
+  - university: `buildUniversityAcademicProfile`
 - Current self-enrollment preview route:
   - `GET /institutions/:institutionId/students/me/self-enrollment/sections/:sectionId/eligibility`
 - Current self-enrollment submission route:
@@ -323,6 +331,34 @@
   - finalization does not update `SchoolClass`, `ClassLevel`, or class roster assignments
   - no GPA or credit-hour fields should appear in final outcome responses
   - TODO/verify: future automatic next-year placement remains deferred and should be a separate explicit workflow
+- School academic profile provider checks:
+  - returns a school-only profile shape with student, academicYear, summary, reportCards, finalOutcome, and warnings
+  - requires `academicYearId`
+  - rejects invalid `academicYearId`
+  - rejects invalid `studentMembershipId`
+  - rejects cross-tenant `studentMembershipId`
+  - rejects non-student target memberships
+  - rejects non-active target student memberships
+  - stays admin/staff-only through `class.manage` for now
+  - rejects non-school institutions
+  - uses existing school yearly report-card logic as the main source
+  - includes optional semester report-card data only when `semesterId` is provided
+  - returns `finalOutcome: null` when the final-outcome read returns the expected `404`
+  - includes sanitized final outcome summary data when finalized
+  - does not expose final-outcome audit fields, actor ids, tenant ids, class ids, or policy snapshots through the profile provider
+  - preserves `complete`, `hasMissingResults`, warnings, reason codes, reasons, and decision fields
+  - remains read-only and must not write final outcomes, assignments, classes, assessments, or results
+- Shared academic profile facade checks:
+  - self route dispatches school students to the school provider
+  - self route dispatches university students to the university provider
+  - admin/staff target route dispatches same-institution school students to the school provider
+  - admin/staff target route dispatches same-institution university students to the university provider
+  - student actors cannot use the target-student route to read another student's profile
+  - cross-tenant actor membership is rejected before provider dispatch
+  - school `academicYearId` requirement is preserved from the school provider
+  - university profiles do not require `academicYearId`
+  - shared facade response is `{ academicProfile: ... }`
+  - facade must not implement school calculations, university GPA logic, or finalization behavior
 - Class roster create should:
   - require `semesterId`
   - require `studentMemberId`
@@ -930,6 +966,113 @@
   - kept `InstitutionAcademicPolicy` model name unchanged to avoid unsafe persistence/collection churn
   - ran `node --test test/university-academic-policy-foundation.test.js test/university-academic-outcome-foundation.test.js test/self-enrollment-eligibility.test.js test/self-enrollment-browse.test.js test/self-enrollment-write.test.js test/school-academic-policy.test.js test/school-outcome.test.js test/school-promotion.test.js test/school-report-card.test.js test/school-final-outcome.test.js`
   - result: 113 passing
+- 2026-05-01 internal school academic profile provider:
+  - added read-only internal `buildSchoolAcademicProfile`
+  - ran `node --test test/school-academic-profile.test.js`
+  - result: 10 passing
+  - ran `node --test test/school-academic-policy.test.js test/school-outcome.test.js test/school-promotion.test.js test/school-report-card.test.js test/school-final-outcome.test.js test/school-academic-profile.test.js`
+  - result: 78 passing
+- 2026-05-01 school academic profile provider hardening:
+  - added active target-student membership validation
+  - made optional final-outcome not-found handling independent of exact error message text
+  - sanitized provider final-outcome summary to omit audit and actor/internal ids
+  - ran `node --test test/school-academic-profile.test.js`
+  - result: 11 passing
+  - ran `node --test test/school-academic-policy.test.js test/school-outcome.test.js test/school-promotion.test.js test/school-report-card.test.js test/school-final-outcome.test.js test/school-academic-profile.test.js`
+  - result: 79 passing
+- 2026-05-01 internal university academic profile provider:
+  - added read-only internal `buildUniversityAcademicProfile`
+  - provider reuses `universityAcademicOutcomeService.listStudentAcademicOutcomes` for GPA, credits, finalized attempt status, and repeated-attempt summaries
+  - provider returns an empty transcript profile with a warning when no finalized academic outcomes exist
+  - provider keeps `semesterId` as a validated-but-not-applied TODO until the outcome service supports a semester-scoped source contract
+  - ran `node --test test/university-academic-profile.test.js`
+  - result: 9 passing
+  - ran `node --test test/university-academic-policy-foundation.test.js test/university-academic-outcome-foundation.test.js test/self-enrollment-eligibility.test.js test/self-enrollment-browse.test.js test/self-enrollment-write.test.js test/university-academic-profile.test.js`
+  - result: 54 passing
+  - ran `node --test test/school-academic-profile.test.js`
+  - result: 11 passing
+- 2026-05-01 shared academic profile facade:
+  - added shared read-only facade routes:
+    - `GET /institutions/:institutionId/students/me/academic-profile`
+    - `GET /institutions/:institutionId/students/:studentMembershipId/academic-profile`
+  - added `academicProfileService` dispatcher and thin controller
+  - route-level admin/staff target guard uses `membership.manage` as the safest current shared student-record permission
+  - provider-level guards still enforce school `class.manage` and university `section.manage`
+  - added provider self-access mode for the authenticated target student only
+  - ran `node --test test/academic-profile.test.js`
+  - result: 8 passing
+  - ran `node --test test/school-academic-profile.test.js test/university-academic-profile.test.js test/academic-profile.test.js`
+  - result: 28 passing
+  - ran `node --test test/school-report-card.test.js test/school-final-outcome.test.js test/school-academic-profile.test.js test/academic-profile.test.js`
+  - result: 42 passing
+  - ran `node --test test/school-academic-policy.test.js test/school-outcome.test.js test/school-promotion.test.js test/school-report-card.test.js test/school-final-outcome.test.js test/school-academic-profile.test.js test/university-academic-policy-foundation.test.js test/university-academic-outcome-foundation.test.js test/self-enrollment-eligibility.test.js test/self-enrollment-browse.test.js test/self-enrollment-write.test.js test/university-academic-profile.test.js test/academic-profile.test.js`
+  - result: 141 passing
+- 2026-05-04 shared academic profile facade hardening:
+  - aligned facade self-access and `institutionAccess()` active membership checks with `Membership` schema default status instead of hardcoded `"active"`
+  - verified `accessMode` remains internal (`self` / `staff`) and providers/services reject unsupported values
+  - verified school profile self access forwards `accessMode: self` into report-card and final-outcome reads
+  - documented that school academic profiles require explicit `academicYearId` until a first-class `AcademicYear` / current-year resolver exists
+  - ran `node --test test/academic-profile.test.js test/school-academic-profile.test.js test/university-academic-profile.test.js test/school-report-card.test.js test/school-final-outcome.test.js`
+  - result: 58 passing
+- 2026-05-04 academic profile excluded/incomplete explanations:
+  - added top-level profile `excluded` explanation assertions for school report-card warning/completion data and university outcome-service exclusions
+  - added university outcome-service checks for open section, missing finalized assessment result, and invalid credit-hour explanations without counting them in official GPA
+  - ran `node --test test/school-academic-profile.test.js`
+  - result: 13 passing
+  - ran `node --test test/university-academic-profile.test.js`
+  - result: 12 passing
+  - ran `node --test test/university-academic-outcome-foundation.test.js`
+  - result: 9 passing
+  - ran `node --test test/academic-profile.test.js`
+  - result: 9 passing
+  - ran `node --test test/school-report-card.test.js`
+  - result: 9 passing
+  - ran `node --test test/school-promotion.test.js`
+  - result: 10 passing
+  - ran `node --test test/self-enrollment-eligibility.test.js`
+  - result: 15 passing
+  - ran `node --test test/university-academic-policy-foundation.test.js`
+  - result: 11 passing
+  - attempted `node --test test/university-academic-policy.test.js`, but that file does not exist in this repo
+- 2026-05-04 AP5 shared academic profile test hardening:
+  - added shared facade route-wiring, unsupported institution type, and missing actor-membership context checks
+  - added school academic profile semester-level excluded explanation coverage
+  - added university academic profile excluded-explanation dedupe/sanitization and same-institution decoration coverage
+  - added university outcome-service explanation coverage for unpublished assessments, invalid published assessment configuration, incomplete published weight totals, missing academic policy, and duplicate explanation dedupe
+  - small bug fix: university academic profile provider now deduplicates sanitized `excluded` explanations returned by the outcome source
+  - ran `node --test test/academic-profile.test.js`
+  - result: 12 passing
+  - ran `node --test test/school-academic-profile.test.js`
+  - result: 14 passing
+  - ran `node --test test/university-academic-profile.test.js`
+  - result: 14 passing
+  - ran `node --test test/university-academic-outcome-foundation.test.js`
+  - result: 14 passing
+  - ran `node --test test/school-report-card.test.js`
+  - result: 9 passing
+  - ran `node --test test/school-final-outcome.test.js`
+  - result: 16 passing
+  - ran `node --test test/school-promotion.test.js`
+  - result: 10 passing
+  - ran `node --test test/school-outcome.test.js`
+  - result: 13 passing
+  - ran `node --test test/university-academic-policy-foundation.test.js`
+  - result: 11 passing
+  - ran `node --test test/self-enrollment-eligibility.test.js`
+  - result: 15 passing
+  - ran `node --test test/self-enrollment-browse.test.js`
+  - result: 7 passing
+  - ran `node --test test/self-enrollment-write.test.js`
+  - result: 6 passing
+  - ran `node --test test/school-academic-policy.test.js`
+  - result: 22 passing
+  - ran `node --test test/academic-profile.test.js test/school-academic-profile.test.js test/university-academic-profile.test.js test/university-academic-outcome-foundation.test.js test/school-academic-policy.test.js test/school-outcome.test.js test/school-promotion.test.js test/school-report-card.test.js test/school-final-outcome.test.js test/university-academic-policy-foundation.test.js test/self-enrollment-eligibility.test.js test/self-enrollment-browse.test.js test/self-enrollment-write.test.js`
+  - result: 163 passing
+- 2026-05-04 academic profile Postman testing artifacts:
+  - added `postman/academic-profile.postman_collection.json`
+  - added `postman/academic-profile.local.postman_environment.json`
+  - added `postman/ACADEMIC_PROFILE_POSTMAN_GUIDE.md`
+  - validated collection and environment JSON with Node
 - TODO:
   - add real sample responses when helpful
   - add attendance response examples after first manual Postman pass

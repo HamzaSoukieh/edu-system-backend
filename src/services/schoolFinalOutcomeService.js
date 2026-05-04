@@ -1,6 +1,7 @@
 const mongoose = require("mongoose");
 const ClassLevel = require("../models/ClassLevel");
 const ClassStudentAssignment = require("../models/ClassStudentAssignment");
+const Membership = require("../models/Membership");
 const SchoolAcademicPolicy = require("../models/SchoolAcademicPolicy");
 const SchoolClass = require("../models/SchoolClass");
 const SchoolFinalOutcome = require("../models/SchoolFinalOutcome");
@@ -13,7 +14,12 @@ const { ensureSchoolInstitution } = require("./classLevelService");
 const SCHOOL_FINAL_OUTCOME_STATUSES = ["draft", "finalized", "cancelled"];
 const SCHOOL_FINAL_OUTCOME_MANAGE_PERMISSION = "class.manage";
 const ACTIVE_CLASS_ASSIGNMENT_STATUS = ClassStudentAssignment.schema.path("status").defaultValue;
+const ACTIVE_MEMBERSHIP_STATUS = Membership.schema.path("status").defaultValue;
 const MANUAL_OVERRIDE_REASON_CODE = "MANUAL_OVERRIDE";
+const ACADEMIC_PROFILE_ACCESS_MODES = {
+    self: "self",
+    staff: "staff",
+};
 const SCHOOL_FINAL_OUTCOME_SELECT_FIELDS =
     "_id institutionId academicYearId classLevelId schoolClassId studentMembershipId policy outcomeSnapshot calculatedDecision calculatedReasons calculatedReasonCodes calculatedWarnings finalDecision finalReasons finalReasonCodes finalWarnings override status finalizedBy finalizedAt audit createdAt updatedAt";
 
@@ -76,7 +82,21 @@ function hasRolePermission(role, permission) {
     return (ROLE_PERMISSIONS[role] || []).includes(permission);
 }
 
-function ensureStaffFinalOutcomeAccess({ institutionId, actorUserId, actorMembership }) {
+function validateAccessMode(accessMode) {
+    if (!Object.values(ACADEMIC_PROFILE_ACCESS_MODES).includes(accessMode)) {
+        throw createError(400, "accessMode is invalid");
+    }
+
+    return accessMode;
+}
+
+function ensureFinalOutcomeReadAccess({
+    institutionId,
+    studentMembershipId,
+    actorUserId,
+    actorMembership,
+    accessMode = ACADEMIC_PROFILE_ACCESS_MODES.staff,
+}) {
     if (!actorUserId || !isValidObjectId(actorUserId)) {
         throw createError(401, "Unauthorized");
     }
@@ -90,9 +110,35 @@ function ensureStaffFinalOutcomeAccess({ institutionId, actorUserId, actorMember
         throw createError(403, "Institution access denied");
     }
 
+    const normalizedAccessMode = validateAccessMode(accessMode);
+    if (normalizedAccessMode === ACADEMIC_PROFILE_ACCESS_MODES.self) {
+        if (actorMembership.role !== "student") {
+            throw createError(403, "Only students can view their own final outcome");
+        }
+
+        if (actorMembership.status !== undefined && actorMembership.status !== ACTIVE_MEMBERSHIP_STATUS) {
+            throw createError(403, "Only active students can view their own final outcome");
+        }
+
+        if (normalizeId(actorMembership._id) !== normalizeId(studentMembershipId)) {
+            throw createError(403, "Students can only view their own final outcome");
+        }
+
+        return;
+    }
+
     if (!hasRolePermission(actorMembership.role, SCHOOL_FINAL_OUTCOME_MANAGE_PERMISSION)) {
         throw createError(403, "Permission denied");
     }
+}
+
+function ensureStaffFinalOutcomeAccess({ institutionId, actorUserId, actorMembership }) {
+    ensureFinalOutcomeReadAccess({
+        institutionId,
+        actorUserId,
+        actorMembership,
+        accessMode: ACADEMIC_PROFILE_ACCESS_MODES.staff,
+    });
 }
 
 function getPolicySemesterIds(policy) {
@@ -570,15 +616,18 @@ async function getSchoolFinalOutcomeForStudentYear({
     academicYearId,
     actorUserId,
     actorMembership,
+    accessMode = ACADEMIC_PROFILE_ACCESS_MODES.staff,
 }) {
     const normalizedInstitutionId = validateObjectId(institutionId, "institutionId");
     const normalizedStudentMembershipId = validateObjectId(studentMembershipId, "studentMembershipId");
     const normalizedAcademicYearId = validateObjectId(academicYearId, "academicYearId");
     const normalizedActorUserId = validateActorUserId(actorUserId);
-    ensureStaffFinalOutcomeAccess({
+    ensureFinalOutcomeReadAccess({
         institutionId: normalizedInstitutionId,
+        studentMembershipId: normalizedStudentMembershipId,
         actorUserId: normalizedActorUserId,
         actorMembership,
+        accessMode,
     });
     await ensureSchoolInstitution(normalizedInstitutionId);
 

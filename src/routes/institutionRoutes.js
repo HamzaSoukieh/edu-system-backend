@@ -15,6 +15,7 @@ const memberController = require("../controllers/memberController");
 const sectionController = require("../controllers/sectionController");
 const attendanceController = require("../controllers/attendanceController");
 const assessmentController = require("../controllers/assessmentController");
+const academicProfileController = require("../controllers/academicProfileController");
 const universityAcademicPolicyController = require("../controllers/universityAcademicPolicyController");
 const schoolAcademicPolicyController = require("../controllers/schoolAcademicPolicyController");
 const schoolReportCardController = require("../controllers/schoolReportCardController");
@@ -493,6 +494,21 @@ router.get(
     requireEmailVerified,
     institutionAccess(),
     attendanceController.getSectionAttendanceAnalytics
+);
+router.get(
+    "/:institutionId/students/me/academic-profile",
+    authJwt,
+    requireEmailVerified,
+    institutionAccess(),
+    academicProfileController.getMyAcademicProfile
+);
+router.get(
+    "/:institutionId/students/:studentMembershipId/academic-profile",
+    authJwt,
+    requireEmailVerified,
+    institutionAccess(),
+    requirePermission("membership.manage"),
+    academicProfileController.getStudentAcademicProfile
 );
 router.get(
     "/:institutionId/students/me/attendance-history",

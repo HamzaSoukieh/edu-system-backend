@@ -1,0 +1,1074 @@
+{
+  "info": {
+    "_postman_id": "15e451e3-academic-profile-ap1-ap5",
+    "name": "Academic Profile AP1-AP5 Tests",
+    "description": "Manual Postman checks for the shared academic profile facade, school/university academic profile providers, and AP4 excluded/incomplete explanation response fields. Uses only routes wired in src/app.js, src/routes/authRoutes.js, and src/routes/institutionRoutes.js.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "event": [
+    {
+      "listen": "prerequest",
+      "script": {
+        "type": "text/javascript",
+        "exec": [
+          "function makeObjectId() {",
+          "  const ts = Math.floor(Date.now() / 1000).toString(16).padStart(8, '0');",
+          "  const rest = 'xxxxxxxxxxxxxxxx'.replace(/x/g, () => Math.floor(Math.random() * 16).toString(16));",
+          "  return (ts + rest).slice(0, 24);",
+          "}",
+          "if (!pm.environment.get('academicYearId')) {",
+          "  pm.environment.set('academicYearId', makeObjectId());",
+          "}"
+        ]
+      }
+    }
+  ],
+  "item": [
+    {
+      "name": "00 Auth And Context",
+      "item": [
+        {
+          "name": "Login Admin Or Staff",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('admin login returns 200', () => pm.response.to.have.status(200));",
+                  "const json = pm.response.json();",
+                  "pm.test('admin accessToken returned', () => pm.expect(json.accessToken).to.be.a('string'));",
+                  "if (json.accessToken) pm.environment.set('adminToken', json.accessToken);",
+                  "if (json.user && json.user.id) pm.environment.set('adminUserId', json.user.id);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{adminEmail}}\",\n  \"password\": \"{{adminPassword}}\"\n}"
+            },
+            "url": "{{baseUrl}}/auth/login",
+            "description": "Requires an existing verified user whose membership has the route/provider permissions needed for the target request. For staff target academic-profile route, admin currently needs membership.manage at the route layer plus class.manage or section.manage at provider layer."
+          }
+        },
+        {
+          "name": "Login Student",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('student login returns 200', () => pm.response.to.have.status(200));",
+                  "const json = pm.response.json();",
+                  "pm.test('student accessToken returned', () => pm.expect(json.accessToken).to.be.a('string'));",
+                  "if (json.accessToken) pm.environment.set('studentToken', json.accessToken);",
+                  "if (json.user && json.user.id) pm.environment.set('studentUserId', json.user.id);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{studentEmail}}\",\n  \"password\": \"{{studentPassword}}\"\n}"
+            },
+            "url": "{{baseUrl}}/auth/login",
+            "description": "Requires an existing verified student user. For self-profile requests, this user must have an active student membership in the target institution."
+          }
+        },
+        {
+          "name": "Get My Institution Context - Admin",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('context request succeeds', () => pm.response.to.have.status(200));",
+                  "const json = pm.response.json();",
+                  "if (!pm.environment.get('activeInstitutionId') && json.activeInstitutionId) pm.environment.set('activeInstitutionId', json.activeInstitutionId);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [{ "key": "token", "value": "{{adminToken}}", "type": "string" }]
+            },
+            "method": "GET",
+            "url": "{{baseUrl}}/institutions/me",
+            "description": "Optional sanity check for the admin token and institution context."
+          }
+        },
+        {
+          "name": "List School Members - Optional ID Helper",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('member list request does not crash', () => pm.expect([200, 403, 404]).to.include(pm.response.code));",
+                  "if (pm.response.code !== 200) return;",
+                  "const json = pm.response.json();",
+                  "const rows = json.members || json.memberships || json.data || [];",
+                  "if (Array.isArray(rows)) {",
+                  "  const student = rows.find((row) => row.role === 'student' || row.membership?.role === 'student');",
+                  "  if (student && !pm.environment.get('schoolStudentMembershipId')) {",
+                  "    pm.environment.set('schoolStudentMembershipId', student.id || student._id || student.membershipId || student.membership?.id || student.membership?._id);",
+                  "  }",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [{ "key": "token", "value": "{{adminToken}}", "type": "string" }]
+            },
+            "method": "GET",
+            "url": "{{baseUrl}}/institutions/{{schoolInstitutionId}}/members",
+            "description": "Optional helper. Fill schoolStudentMembershipId manually if the response shape or data does not expose the intended student."
+          }
+        },
+        {
+          "name": "List University Members - Optional ID Helper",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('member list request does not crash', () => pm.expect([200, 403, 404]).to.include(pm.response.code));",
+                  "if (pm.response.code !== 200) return;",
+                  "const json = pm.response.json();",
+                  "const rows = json.members || json.memberships || json.data || [];",
+                  "if (Array.isArray(rows)) {",
+                  "  const student = rows.find((row) => row.role === 'student' || row.membership?.role === 'student');",
+                  "  if (student && !pm.environment.get('universityStudentMembershipId')) {",
+                  "    pm.environment.set('universityStudentMembershipId', student.id || student._id || student.membershipId || student.membership?.id || student.membership?._id);",
+                  "  }",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [{ "key": "token", "value": "{{adminToken}}", "type": "string" }]
+            },
+            "method": "GET",
+            "url": "{{baseUrl}}/institutions/{{universityInstitutionId}}/members",
+            "description": "Optional helper. Fill universityStudentMembershipId manually if the response shape or data does not expose the intended student."
+          }
+        }
+      ]
+    },
+    {
+      "name": "01 Shared Academic Profile - Self Access",
+      "item": [
+        {
+          "name": "School Student Self Profile With academicYearId",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('school self profile returns 200', () => pm.response.to.have.status(200));",
+                  "const json = pm.response.json();",
+                  "pm.test('has academicProfile envelope', () => pm.expect(json.academicProfile).to.be.an('object'));",
+                  "const p = json.academicProfile || {};",
+                  "pm.test('institutionType is school', () => pm.expect(p.institutionType).to.eql('school'));",
+                  "pm.test('warnings is array', () => pm.expect(p.warnings).to.be.an('array'));",
+                  "pm.test('excluded is array', () => pm.expect(p.excluded).to.be.an('array'));",
+                  "pm.test('academicYear id matches env', () => pm.expect(p.academicYear && p.academicYear.id).to.eql(pm.environment.get('academicYearId')));",
+                  "pm.test('student id is present', () => pm.expect(p.student && p.student.studentMembershipId).to.be.a('string'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [{ "key": "token", "value": "{{studentToken}}", "type": "string" }]
+            },
+            "method": "GET",
+            "url": "{{baseUrl}}/institutions/{{schoolInstitutionId}}/students/me/academic-profile?academicYearId={{academicYearId}}",
+            "description": "Self route. The logged-in student must have an active student membership in schoolInstitutionId."
+          }
+        },
+        {
+          "name": "School Student Self Profile With Semester",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('school self semester profile returns 200', () => pm.response.to.have.status(200));",
+                  "const p = pm.response.json().academicProfile || {};",
+                  "pm.test('semester report card is present', () => pm.expect(p.reportCards && p.reportCards.semester).to.be.an('object'));",
+                  "pm.test('warnings is array', () => pm.expect(p.warnings).to.be.an('array'));",
+                  "pm.test('excluded is array', () => pm.expect(p.excluded).to.be.an('array'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [{ "key": "token", "value": "{{studentToken}}", "type": "string" }]
+            },
+            "method": "GET",
+            "url": "{{baseUrl}}/institutions/{{schoolInstitutionId}}/students/me/academic-profile?academicYearId={{academicYearId}}&semesterId={{semesterId}}",
+            "description": "Self route with optional semester report card included."
+          }
+        },
+        {
+          "name": "University Student Self Profile Without academicYearId",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('university self profile returns 200', () => pm.response.to.have.status(200));",
+                  "const json = pm.response.json();",
+                  "pm.test('has academicProfile envelope', () => pm.expect(json.academicProfile).to.be.an('object'));",
+                  "const p = json.academicProfile || {};",
+                  "pm.test('institutionType is university', () => pm.expect(p.institutionType).to.eql('university'));",
+                  "pm.test('warnings is array', () => pm.expect(p.warnings).to.be.an('array'));",
+                  "pm.test('excluded is array', () => pm.expect(p.excluded).to.be.an('array'));",
+                  "pm.test('summary exists', () => pm.expect(p.summary).to.be.an('object'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [{ "key": "token", "value": "{{studentToken}}", "type": "string" }]
+            },
+            "method": "GET",
+            "url": "{{baseUrl}}/institutions/{{universityInstitutionId}}/students/me/academic-profile",
+            "description": "University profile does not require academicYearId."
+          }
+        },
+        {
+          "name": "Student Cannot Use Staff Target Route",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('student staff-style access is forbidden', () => pm.response.to.have.status(403));",
+                  "const json = pm.response.json();",
+                  "pm.test('error message is returned', () => pm.expect(json.message).to.be.a('string'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [{ "key": "token", "value": "{{studentToken}}", "type": "string" }]
+            },
+            "method": "GET",
+            "url": "{{baseUrl}}/institutions/{{schoolInstitutionId}}/students/{{schoolOtherStudentMembershipId}}/academic-profile?academicYearId={{academicYearId}}",
+            "description": "Negative self-access check. Set schoolOtherStudentMembershipId to a different same-institution student."
+          }
+        }
+      ]
+    },
+    {
+      "name": "02 Shared Academic Profile - Staff Access",
+      "item": [
+        {
+          "name": "School Staff Gets Target Student Profile",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('school staff profile returns 200', () => pm.response.to.have.status(200));",
+                  "const p = pm.response.json().academicProfile || {};",
+                  "pm.test('institutionType is school', () => pm.expect(p.institutionType).to.eql('school'));",
+                  "pm.test('student id matches target', () => pm.expect(p.student.studentMembershipId).to.eql(pm.environment.get('schoolStudentMembershipId')));",
+                  "pm.test('summary includes school fields', () => { pm.expect(p.summary).to.have.property('yearlyAveragePercentage'); pm.expect(p.summary).to.have.property('failedSubjectCount'); });",
+                  "pm.test('warnings and excluded arrays exist', () => { pm.expect(p.warnings).to.be.an('array'); pm.expect(p.excluded).to.be.an('array'); });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [{ "key": "token", "value": "{{adminToken}}", "type": "string" }]
+            },
+            "method": "GET",
+            "url": "{{baseUrl}}/institutions/{{schoolInstitutionId}}/students/{{schoolStudentMembershipId}}/academic-profile?academicYearId={{academicYearId}}",
+            "description": "Staff route. Requires membership.manage at route layer and school class.manage at provider layer."
+          }
+        },
+        {
+          "name": "University Staff Gets Target Student Profile",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('university staff profile returns 200', () => pm.response.to.have.status(200));",
+                  "const p = pm.response.json().academicProfile || {};",
+                  "pm.test('institutionType is university', () => pm.expect(p.institutionType).to.eql('university'));",
+                  "pm.test('student id matches target', () => pm.expect(p.student.studentMembershipId).to.eql(pm.environment.get('universityStudentMembershipId')));",
+                  "pm.test('summary includes university fields', () => { pm.expect(p.summary).to.have.property('cumulativeGpa'); pm.expect(p.summary).to.have.property('totalAttemptedCreditHours'); });",
+                  "pm.test('warnings and excluded arrays exist', () => { pm.expect(p.warnings).to.be.an('array'); pm.expect(p.excluded).to.be.an('array'); });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [{ "key": "token", "value": "{{adminToken}}", "type": "string" }]
+            },
+            "method": "GET",
+            "url": "{{baseUrl}}/institutions/{{universityInstitutionId}}/students/{{universityStudentMembershipId}}/academic-profile",
+            "description": "Staff route. Requires membership.manage at route layer and university section.manage at provider layer."
+          }
+        },
+        {
+          "name": "School Staff Profile With Semester",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('school staff semester profile returns 200', () => pm.response.to.have.status(200));",
+                  "const p = pm.response.json().academicProfile || {};",
+                  "pm.test('semester report-card shape exists', () => pm.expect(p.reportCards.semester).to.be.an('object'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [{ "key": "token", "value": "{{adminToken}}", "type": "string" }]
+            },
+            "method": "GET",
+            "url": "{{baseUrl}}/institutions/{{schoolInstitutionId}}/students/{{schoolStudentMembershipId}}/academic-profile?academicYearId={{academicYearId}}&semesterId={{semesterId}}",
+            "description": "School staff profile including optional semester report card."
+          }
+        },
+        {
+          "name": "University Staff Profile With semesterId Warning",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('university semester query returns 200', () => pm.response.to.have.status(200));",
+                  "const p = pm.response.json().academicProfile || {};",
+                  "pm.test('university still returns profile', () => pm.expect(p.institutionType).to.eql('university'));",
+                  "pm.test('semester filter warning is present', () => pm.expect((p.warnings || []).map(w => w.code)).to.include('semester_filter_not_applied'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [{ "key": "token", "value": "{{adminToken}}", "type": "string" }]
+            },
+            "method": "GET",
+            "url": "{{baseUrl}}/institutions/{{universityInstitutionId}}/students/{{universityStudentMembershipId}}/academic-profile?semesterId={{semesterId}}",
+            "description": "University validates semesterId but does not apply semester filtering yet."
+          }
+        }
+      ]
+    },
+    {
+      "name": "03 School Academic Profile Checks",
+      "item": [
+        {
+          "name": "School Profile Requires academicYearId",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('missing academicYearId returns 400', () => pm.response.to.have.status(400));",
+                  "pm.test('clear error message', () => pm.expect(pm.response.json().message).to.eql('academicYearId is required'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [{ "key": "token", "value": "{{adminToken}}", "type": "string" }]
+            },
+            "method": "GET",
+            "url": "{{baseUrl}}/institutions/{{schoolInstitutionId}}/students/{{schoolStudentMembershipId}}/academic-profile",
+            "description": "School profiles currently require explicit academicYearId because there is no AcademicYear/current-year resolver yet."
+          }
+        },
+        {
+          "name": "School Profile Yearly Shape And Optional finalOutcome Null",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('school profile returns 200', () => pm.response.to.have.status(200));",
+                  "const p = pm.response.json().academicProfile || {};",
+                  "pm.test('school response shape', () => {",
+                  "  pm.expect(p.institutionType).to.eql('school');",
+                  "  pm.expect(p.student).to.be.an('object');",
+                  "  pm.expect(p.academicYear.id).to.eql(pm.environment.get('academicYearId'));",
+                  "  pm.expect(p.summary).to.have.property('yearlyAveragePercentage');",
+                  "  pm.expect(p.summary).to.have.property('failedSubjectCount');",
+                  "  pm.expect(p.summary).to.have.property('decision');",
+                  "  pm.expect(p.summary).to.have.property('complete');",
+                  "  pm.expect(p.summary).to.have.property('hasMissingResults');",
+                  "  pm.expect(p.reportCards.yearly).to.be.an('object');",
+                  "  pm.expect(p.warnings).to.be.an('array');",
+                  "  pm.expect(p.excluded).to.be.an('array');",
+                  "});",
+                  "if (p.finalOutcome && p.finalOutcome.id) pm.environment.set('schoolFinalOutcomeId', p.finalOutcome.id);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [{ "key": "token", "value": "{{adminToken}}", "type": "string" }]
+            },
+            "method": "GET",
+            "url": "{{baseUrl}}/institutions/{{schoolInstitutionId}}/students/{{schoolStudentMembershipId}}/academic-profile?academicYearId={{academicYearId}}",
+            "description": "Happy-path school academic profile shape. finalOutcome may be null before finalization."
+          }
+        },
+        {
+          "name": "School AP4 Missing Or Incomplete Explanations",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('school profile request succeeds', () => pm.response.to.have.status(200));",
+                  "const p = pm.response.json().academicProfile || {};",
+                  "const codes = (p.excluded || []).map((item) => item.reasonCode);",
+                  "pm.test('warnings remain backward-compatible array', () => pm.expect(p.warnings).to.be.an('array'));",
+                  "pm.test('excluded entries use reasonCode/message', () => {",
+                  "  (p.excluded || []).forEach((item) => {",
+                  "    pm.expect(item.reasonCode).to.be.a('string');",
+                  "    pm.expect(item).to.have.property('message');",
+                  "  });",
+                  "});",
+                  "pm.test('missing_assessment_result present when fixture expects it', () => {",
+                  "  if (pm.environment.get('expectSchoolMissingAssessmentResult') === 'true') pm.expect(codes).to.include('missing_assessment_result');",
+                  "});",
+                  "pm.test('incomplete_school_year_outcome present when complete=false', () => {",
+                  "  if (p.summary && p.summary.complete === false) pm.expect(codes).to.include('incomplete_school_year_outcome');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [{ "key": "token", "value": "{{adminToken}}", "type": "string" }]
+            },
+            "method": "GET",
+            "url": "{{baseUrl}}/institutions/{{schoolInstitutionId}}/students/{{schoolStudentMembershipId}}/academic-profile?academicYearId={{academicYearId}}&semesterId={{semesterId}}",
+            "description": "Use a fixture with missing school assessment results to verify missing_assessment_result and incomplete_school_year_outcome."
+          }
+        },
+        {
+          "name": "Finalize School Year Outcome",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('finalize returns created or existing conflict', () => pm.expect([201, 409]).to.include(pm.response.code));",
+                  "if (pm.response.code === 201) {",
+                  "  const json = pm.response.json();",
+                  "  if (json.schoolFinalOutcome && json.schoolFinalOutcome.id) pm.environment.set('schoolFinalOutcomeId', json.schoolFinalOutcome.id);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [{ "key": "token", "value": "{{adminToken}}", "type": "string" }]
+            },
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{}"
+            },
+            "url": "{{baseUrl}}/institutions/{{schoolInstitutionId}}/school-outcomes/students/{{schoolStudentMembershipId}}/academic-years/{{academicYearId}}/finalize",
+            "description": "Uses existing final-outcome route. Requires valid school policy/roster/results for the academicYearId."
+          }
+        },
+        {
+          "name": "School Profile After Finalization - Sanitized finalOutcome",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('school profile returns 200', () => pm.response.to.have.status(200));",
+                  "const p = pm.response.json().academicProfile || {};",
+                  "const fo = p.finalOutcome;",
+                  "pm.test('finalOutcome is present after finalization', () => pm.expect(fo).to.be.an('object'));",
+                  "if (fo && fo.id) pm.environment.set('schoolFinalOutcomeId', fo.id);",
+                  "pm.test('finalOutcome is sanitized', () => {",
+                  "  pm.expect(fo).to.not.have.property('institutionId');",
+                  "  pm.expect(fo).to.not.have.property('studentMembershipId');",
+                  "  pm.expect(fo).to.not.have.property('classLevelId');",
+                  "  pm.expect(fo).to.not.have.property('schoolClassId');",
+                  "  pm.expect(fo).to.not.have.property('policy');",
+                  "  pm.expect(fo).to.not.have.property('finalizedBy');",
+                  "  pm.expect(fo).to.not.have.property('audit');",
+                  "  pm.expect(fo).to.not.have.property('createdAt');",
+                  "  pm.expect(fo).to.not.have.property('updatedAt');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [{ "key": "token", "value": "{{adminToken}}", "type": "string" }]
+            },
+            "method": "GET",
+            "url": "{{baseUrl}}/institutions/{{schoolInstitutionId}}/students/{{schoolStudentMembershipId}}/academic-profile?academicYearId={{academicYearId}}",
+            "description": "Verifies the academic profile provider returns a sanitized finalOutcome summary."
+          }
+        },
+        {
+          "name": "Override School Final Outcome - Optional",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('override succeeds when finalOutcome exists', () => pm.expect([200, 400, 404, 409]).to.include(pm.response.code));",
+                  "if (pm.response.code === 200) {",
+                  "  const fo = pm.response.json().schoolFinalOutcome;",
+                  "  pm.test('override flag is true', () => pm.expect(fo.override.isOverridden).to.eql(true));",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [{ "key": "token", "value": "{{adminToken}}", "type": "string" }]
+            },
+            "method": "PATCH",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"finalDecision\": \"manual_review\",\n  \"reason\": \"Postman AP4 profile verification override.\"\n}"
+            },
+            "url": "{{baseUrl}}/institutions/{{schoolInstitutionId}}/school-outcomes/final-outcomes/{{schoolFinalOutcomeId}}/override",
+            "description": "Optional destructive-ish review action: it changes the final decision. Run only on throwaway data."
+          }
+        },
+        {
+          "name": "Direct School Yearly Report Card Still Works",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('yearly report card returns 200', () => pm.response.to.have.status(200));",
+                  "const json = pm.response.json();",
+                  "pm.test('reportCard exists', () => pm.expect(json.reportCard).to.be.an('object'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [{ "key": "token", "value": "{{adminToken}}", "type": "string" }]
+            },
+            "method": "GET",
+            "url": "{{baseUrl}}/institutions/{{schoolInstitutionId}}/school-outcomes/students/{{schoolStudentMembershipId}}/academic-years/{{academicYearId}}/report-card",
+            "description": "Regression check for the existing school report-card route."
+          }
+        }
+      ]
+    },
+    {
+      "name": "04 University Academic Profile Checks",
+      "item": [
+        {
+          "name": "University Profile Shape And GPA Fields",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('university profile returns 200', () => pm.response.to.have.status(200));",
+                  "const p = pm.response.json().academicProfile || {};",
+                  "pm.test('university response shape', () => {",
+                  "  pm.expect(p.institutionType).to.eql('university');",
+                  "  pm.expect(p.student).to.be.an('object');",
+                  "  pm.expect(p.summary).to.have.property('cumulativeGpa');",
+                  "  pm.expect(p.summary).to.have.property('totalEarnedCreditHours');",
+                  "  pm.expect(p.summary).to.have.property('totalAttemptedCreditHours');",
+                  "  pm.expect(p.summary).to.have.property('totalPassedSubjects');",
+                  "  pm.expect(p.summary).to.have.property('totalFailedSubjects');",
+                  "  pm.expect(p.semesters).to.be.an('array');",
+                  "  pm.expect(p.subjectAttempts).to.be.an('array');",
+                  "  pm.expect(p.subjectOutcomeSummaries).to.be.an('array');",
+                  "  pm.expect(p.warnings).to.be.an('array');",
+                  "  pm.expect(p.excluded).to.be.an('array');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [{ "key": "token", "value": "{{adminToken}}", "type": "string" }]
+            },
+            "method": "GET",
+            "url": "{{baseUrl}}/institutions/{{universityInstitutionId}}/students/{{universityStudentMembershipId}}/academic-profile",
+            "description": "University profile works without academicYearId."
+          }
+        },
+        {
+          "name": "University No Finalized Outcomes Safe Empty Profile",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('no-outcome profile returns 200', () => pm.response.to.have.status(200));",
+                  "const p = pm.response.json().academicProfile || {};",
+                  "pm.test('safe empty summary if no outcomes fixture is used', () => {",
+                  "  pm.expect(p.summary).to.be.an('object');",
+                  "  if ((p.subjectAttempts || []).length === 0) {",
+                  "    pm.expect(p.summary.cumulativeGpa).to.eql(null);",
+                  "    pm.expect((p.warnings || []).map(w => w.code)).to.include('no_finalized_academic_outcomes');",
+                  "  }",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [{ "key": "token", "value": "{{adminToken}}", "type": "string" }]
+            },
+            "method": "GET",
+            "url": "{{baseUrl}}/institutions/{{universityNoOutcomeInstitutionId}}/students/{{universityNoOutcomeStudentMembershipId}}/academic-profile",
+            "description": "Optional fixture-specific check. Fill universityNoOutcomeInstitutionId and universityNoOutcomeStudentMembershipId with a student that has no finalized eligible outcomes."
+          }
+        },
+        {
+          "name": "University Repeated Attempts If Data Exists",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('profile request succeeds', () => pm.response.to.have.status(200));",
+                  "const p = pm.response.json().academicProfile || {};",
+                  "pm.test('subjectOutcomeSummaries is present', () => pm.expect(p.subjectOutcomeSummaries).to.be.an('array'));",
+                  "pm.test('repeated attempt summary when fixture expects it', () => {",
+                  "  if (pm.environment.get('expectRepeatedAttempts') === 'true') {",
+                  "    pm.expect((p.subjectOutcomeSummaries || []).some(s => s.attemptCount > 1)).to.eql(true);",
+                  "  }",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [{ "key": "token", "value": "{{adminToken}}", "type": "string" }]
+            },
+            "method": "GET",
+            "url": "{{baseUrl}}/institutions/{{universityInstitutionId}}/students/{{universityStudentMembershipId}}/academic-profile",
+            "description": "Repeated-attempt data is exposed only if existing outcome service already calculates it. No repeat-policy behavior is added."
+          }
+        }
+      ]
+    },
+    {
+      "name": "05 AP4 Excluded Explanation Scenarios",
+      "description": "These requests are data-dependent. Set the corresponding expect* environment flag to true only after preparing fixture data for that reason code.",
+      "item": [
+        {
+          "name": "Check Excluded Object Shape",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('profile request succeeds', () => pm.response.to.have.status(200));",
+                  "const p = pm.response.json().academicProfile || {};",
+                  "pm.test('excluded is an array', () => pm.expect(p.excluded).to.be.an('array'));",
+                  "pm.test('excluded entries use stable shape', () => {",
+                  "  (p.excluded || []).forEach((item) => {",
+                  "    pm.expect(item.reasonCode).to.be.a('string');",
+                  "    pm.expect(item).to.have.property('message');",
+                  "  });",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [{ "key": "token", "value": "{{adminToken}}", "type": "string" }]
+            },
+            "method": "GET",
+            "url": "{{baseUrl}}/institutions/{{universityInstitutionId}}/students/{{universityStudentMembershipId}}/academic-profile",
+            "description": "General AP4 shape check: excluded[].reasonCode, excluded[].message, and optional ids."
+          }
+        },
+        {
+          "name": "Check section_not_closed",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('profile request succeeds', () => pm.response.to.have.status(200));",
+                  "const codes = ((pm.response.json().academicProfile || {}).excluded || []).map(e => e.reasonCode);",
+                  "pm.test('section_not_closed present when fixture expects it', () => { if (pm.environment.get('expectSectionNotClosed') === 'true') pm.expect(codes).to.include('section_not_closed'); });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [{ "key": "token", "value": "{{adminToken}}", "type": "string" }]
+            },
+            "method": "GET",
+            "url": "{{baseUrl}}/institutions/{{universityInstitutionId}}/students/{{universityStudentMembershipId}}/academic-profile",
+            "description": "Prepare an enrollment in a non-closed section, then set expectSectionNotClosed=true."
+          }
+        },
+        {
+          "name": "Check assessment_not_published",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('profile request succeeds', () => pm.response.to.have.status(200));",
+                  "const codes = ((pm.response.json().academicProfile || {}).excluded || []).map(e => e.reasonCode);",
+                  "pm.test('assessment_not_published present when fixture expects it', () => { if (pm.environment.get('expectAssessmentNotPublished') === 'true') pm.expect(codes).to.include('assessment_not_published'); });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [{ "key": "token", "value": "{{adminToken}}", "type": "string" }]
+            },
+            "method": "GET",
+            "url": "{{baseUrl}}/institutions/{{universityInstitutionId}}/students/{{universityStudentMembershipId}}/academic-profile",
+            "description": "Prepare a closed section with draft/announced or no published assessments, then set expectAssessmentNotPublished=true."
+          }
+        },
+        {
+          "name": "Check missing_assessment_result",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('profile request succeeds', () => pm.response.to.have.status(200));",
+                  "const codes = ((pm.response.json().academicProfile || {}).excluded || []).map(e => e.reasonCode);",
+                  "pm.test('missing_assessment_result present when fixture expects it', () => { if (pm.environment.get('expectMissingAssessmentResult') === 'true') pm.expect(codes).to.include('missing_assessment_result'); });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [{ "key": "token", "value": "{{adminToken}}", "type": "string" }]
+            },
+            "method": "GET",
+            "url": "{{baseUrl}}/institutions/{{universityInstitutionId}}/students/{{universityStudentMembershipId}}/academic-profile",
+            "description": "Prepare a closed section with published weight total 100 and at least one missing/null score, then set expectMissingAssessmentResult=true."
+          }
+        },
+        {
+          "name": "Check invalid_assessment_configuration",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('profile request succeeds', () => pm.response.to.have.status(200));",
+                  "const codes = ((pm.response.json().academicProfile || {}).excluded || []).map(e => e.reasonCode);",
+                  "pm.test('invalid_assessment_configuration present when fixture expects it', () => { if (pm.environment.get('expectInvalidAssessmentConfiguration') === 'true') pm.expect(codes).to.include('invalid_assessment_configuration'); });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [{ "key": "token", "value": "{{adminToken}}", "type": "string" }]
+            },
+            "method": "GET",
+            "url": "{{baseUrl}}/institutions/{{universityInstitutionId}}/students/{{universityStudentMembershipId}}/academic-profile",
+            "description": "Prepare a published assessment with invalid maxScore or weight, then set expectInvalidAssessmentConfiguration=true."
+          }
+        },
+        {
+          "name": "Check incomplete_assessment_weight_total",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('profile request succeeds', () => pm.response.to.have.status(200));",
+                  "const codes = ((pm.response.json().academicProfile || {}).excluded || []).map(e => e.reasonCode);",
+                  "pm.test('incomplete_assessment_weight_total present when fixture expects it', () => { if (pm.environment.get('expectIncompleteAssessmentWeightTotal') === 'true') pm.expect(codes).to.include('incomplete_assessment_weight_total'); });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [{ "key": "token", "value": "{{adminToken}}", "type": "string" }]
+            },
+            "method": "GET",
+            "url": "{{baseUrl}}/institutions/{{universityInstitutionId}}/students/{{universityStudentMembershipId}}/academic-profile",
+            "description": "Prepare published assessments whose weight total is not 100, then set expectIncompleteAssessmentWeightTotal=true."
+          }
+        },
+        {
+          "name": "Check invalid_credit_hours",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('profile request succeeds', () => pm.response.to.have.status(200));",
+                  "const codes = ((pm.response.json().academicProfile || {}).excluded || []).map(e => e.reasonCode);",
+                  "pm.test('invalid_credit_hours present when fixture expects it', () => { if (pm.environment.get('expectInvalidCreditHours') === 'true') pm.expect(codes).to.include('invalid_credit_hours'); });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [{ "key": "token", "value": "{{adminToken}}", "type": "string" }]
+            },
+            "method": "GET",
+            "url": "{{baseUrl}}/institutions/{{universityInstitutionId}}/students/{{universityStudentMembershipId}}/academic-profile",
+            "description": "Prepare an otherwise finalized university section whose subject has invalid creditHours, then set expectInvalidCreditHours=true."
+          }
+        },
+        {
+          "name": "Check missing_academic_policy",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('profile request succeeds', () => pm.response.to.have.status(200));",
+                  "const codes = ((pm.response.json().academicProfile || {}).excluded || []).map(e => e.reasonCode);",
+                  "pm.test('missing_academic_policy present when fixture expects it', () => { if (pm.environment.get('expectMissingAcademicPolicy') === 'true') pm.expect(codes).to.include('missing_academic_policy'); });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [{ "key": "token", "value": "{{adminToken}}", "type": "string" }]
+            },
+            "method": "GET",
+            "url": "{{baseUrl}}/institutions/{{universityInstitutionId}}/students/{{universityStudentMembershipId}}/academic-profile",
+            "description": "Prepare a closed/published/finalized section in a semester with no resolvable university academic policy, then set expectMissingAcademicPolicy=true."
+          }
+        }
+      ]
+    },
+    {
+      "name": "06 Negative And Authorization",
+      "item": [
+        {
+          "name": "Missing Token Returns 401",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('missing token returns 401', () => pm.response.to.have.status(401));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "GET",
+            "url": "{{baseUrl}}/institutions/{{schoolInstitutionId}}/students/me/academic-profile?academicYearId={{academicYearId}}"
+          }
+        },
+        {
+          "name": "Invalid institutionId Returns 400",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('invalid ObjectId returns 400', () => pm.response.to.have.status(400));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [{ "key": "token", "value": "{{adminToken}}", "type": "string" }]
+            },
+            "method": "GET",
+            "url": "{{baseUrl}}/institutions/not-an-object-id/students/{{schoolStudentMembershipId}}/academic-profile?academicYearId={{academicYearId}}"
+          }
+        },
+        {
+          "name": "Cross-Tenant Or Wrong Institution Staff Access",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('cross-tenant staff access is blocked', () => pm.expect([400, 403, 404]).to.include(pm.response.code));",
+                  "pm.test('error message is returned', () => pm.expect(pm.response.json().message).to.be.a('string'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [{ "key": "token", "value": "{{adminToken}}", "type": "string" }]
+            },
+            "method": "GET",
+            "url": "{{baseUrl}}/institutions/{{otherInstitutionId}}/students/{{schoolStudentMembershipId}}/academic-profile?academicYearId={{academicYearId}}",
+            "description": "Uses a target student from the school tenant against another institution id. Expected 400/403/404 depending on the actor membership/data setup."
+          }
+        },
+        {
+          "name": "School Institution Dispatches School Profile",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('school profile returns 200', () => pm.response.to.have.status(200));",
+                  "pm.test('school institution did not return university profile', () => pm.expect(pm.response.json().academicProfile.institutionType).to.eql('school'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [{ "key": "token", "value": "{{adminToken}}", "type": "string" }]
+            },
+            "method": "GET",
+            "url": "{{baseUrl}}/institutions/{{schoolInstitutionId}}/students/{{schoolStudentMembershipId}}/academic-profile?academicYearId={{academicYearId}}"
+          }
+        },
+        {
+          "name": "University Institution Dispatches University Profile",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('university profile returns 200', () => pm.response.to.have.status(200));",
+                  "pm.test('university institution did not return school profile', () => pm.expect(pm.response.json().academicProfile.institutionType).to.eql('university'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [{ "key": "token", "value": "{{adminToken}}", "type": "string" }]
+            },
+            "method": "GET",
+            "url": "{{baseUrl}}/institutions/{{universityInstitutionId}}/students/{{universityStudentMembershipId}}/academic-profile"
+          }
+        }
+      ]
+    }
+  ]
+}

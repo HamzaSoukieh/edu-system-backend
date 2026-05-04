@@ -19,7 +19,12 @@ const SCHOOL_ACADEMIC_POLICY_SELECT_FIELDS =
     "_id institutionId name status appliesTo gradingRules aggregationRules failureRules promotionRules createdAt updatedAt";
 const ACTIVE_CLASS_ASSIGNMENT_STATUS = ClassStudentAssignment.schema.path("status").defaultValue;
 const ACTIVE_SUBJECT_STATUS = Subject.schema.path("status").defaultValue;
+const ACTIVE_MEMBERSHIP_STATUS = Membership.schema.path("status").defaultValue;
 const REPORT_CARD_READ_PERMISSION = "class.manage";
+const ACADEMIC_PROFILE_ACCESS_MODES = {
+    self: "self",
+    staff: "staff",
+};
 
 function createError(statusCode, message) {
     const error = new Error(message);
@@ -76,7 +81,21 @@ function hasRolePermission(role, permission) {
     return (ROLE_PERMISSIONS[role] || []).includes(permission);
 }
 
-function ensureStaffReportAccess({ institutionId, actorUserId, actorMembership }) {
+function validateAccessMode(accessMode) {
+    if (!Object.values(ACADEMIC_PROFILE_ACCESS_MODES).includes(accessMode)) {
+        throw createError(400, "accessMode is invalid");
+    }
+
+    return accessMode;
+}
+
+function ensureReportAccess({
+    institutionId,
+    studentMembershipId,
+    actorUserId,
+    actorMembership,
+    accessMode = ACADEMIC_PROFILE_ACCESS_MODES.staff,
+}) {
     if (!actorUserId || !isValidObjectId(actorUserId)) {
         throw createError(401, "Unauthorized");
     }
@@ -88,6 +107,23 @@ function ensureStaffReportAccess({ institutionId, actorUserId, actorMembership }
     const actorInstitutionId = normalizeId(actorMembership.institutionId);
     if (!actorInstitutionId || actorInstitutionId !== normalizeId(institutionId)) {
         throw createError(403, "Institution access denied");
+    }
+
+    const normalizedAccessMode = validateAccessMode(accessMode);
+    if (normalizedAccessMode === ACADEMIC_PROFILE_ACCESS_MODES.self) {
+        if (actorMembership.role !== "student") {
+            throw createError(403, "Only students can view their own report cards");
+        }
+
+        if (actorMembership.status !== undefined && actorMembership.status !== ACTIVE_MEMBERSHIP_STATUS) {
+            throw createError(403, "Only active students can view their own report cards");
+        }
+
+        if (normalizeId(actorMembership._id) !== normalizeId(studentMembershipId)) {
+            throw createError(403, "Students can only view their own report cards");
+        }
+
+        return;
     }
 
     if (!hasRolePermission(actorMembership.role, REPORT_CARD_READ_PERMISSION)) {
@@ -601,14 +637,17 @@ async function getStudentSemesterReportCard({
     semesterId,
     actorUserId,
     actorMembership,
+    accessMode = ACADEMIC_PROFILE_ACCESS_MODES.staff,
 }) {
     const normalizedInstitutionId = validateObjectId(institutionId, "institutionId");
     const normalizedStudentMembershipId = validateObjectId(studentMembershipId, "studentMembershipId");
     const normalizedSemesterId = validateObjectId(semesterId, "semesterId");
-    ensureStaffReportAccess({
+    ensureReportAccess({
         institutionId: normalizedInstitutionId,
+        studentMembershipId: normalizedStudentMembershipId,
         actorUserId,
         actorMembership,
+        accessMode,
     });
     await ensureSchoolInstitution(normalizedInstitutionId);
 
@@ -685,14 +724,17 @@ async function getStudentYearlyReportCard({
     academicYearId,
     actorUserId,
     actorMembership,
+    accessMode = ACADEMIC_PROFILE_ACCESS_MODES.staff,
 }) {
     const normalizedInstitutionId = validateObjectId(institutionId, "institutionId");
     const normalizedStudentMembershipId = validateObjectId(studentMembershipId, "studentMembershipId");
     const normalizedAcademicYearId = validateObjectId(academicYearId, "academicYearId");
-    ensureStaffReportAccess({
+    ensureReportAccess({
         institutionId: normalizedInstitutionId,
+        studentMembershipId: normalizedStudentMembershipId,
         actorUserId,
         actorMembership,
+        accessMode,
     });
     await ensureSchoolInstitution(normalizedInstitutionId);
 
@@ -740,7 +782,7 @@ async function getClassPromotionSummary({
     const normalizedInstitutionId = validateObjectId(institutionId, "institutionId");
     const normalizedSchoolClassId = validateObjectId(schoolClassId, "schoolClassId");
     const normalizedAcademicYearId = validateObjectId(academicYearId, "academicYearId");
-    ensureStaffReportAccess({
+    ensureReportAccess({
         institutionId: normalizedInstitutionId,
         actorUserId,
         actorMembership,

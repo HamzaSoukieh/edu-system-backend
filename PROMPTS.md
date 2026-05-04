@@ -169,25 +169,57 @@ Before coding:
 6. Read `PROMPTS.md`
 
 Then inspect:
-- universityAcademicPolicyService
-- universityAcademicOutcomeService
-- university self-enrollment eligibility/submission flow
-- Assessment / AssessmentResult result publishing behavior
-- Enrollment and Section routes/services
-- existing school report-card/final-outcome patterns only as reference
+- schoolFinalOutcomeService
+- schoolFinalOutcomeController
+- SchoolFinalOutcome model/indexes
+- schoolReportCardService
+- schoolAcademicProfileService
+- shared academicProfileService facade
+- existing school final-outcome tests
 
 Task:
-Design and implement the next small university academic read layer: a read-only student academic profile/transcript-style summary over finalized university academic outcomes.
+Design and implement school final outcome cancellation / recompute workflow and link finalized outcome summaries back into school report-card responses where safe.
 
 Constraints:
-- keep this university-only
-- use GPA, credit hours, and resolved university academic policy where appropriate
-- do not copy school percentage promotion/report-card rules into university
-- do not introduce final outcome overrides unless explicitly scoped
-- keep shared primitives shared
-- keep all reads tenant-scoped by `institutionId`
+- keep this school-only
+- do not move students between classes
+- do not add automatic promotion placement
+- preserve calculated vs final decision history
+- keep cancellation explicit and auditable
+- keep report-card linkage read-only
+- keep cancellation/recompute writes explicit and admin/staff-only
+- do not change university academic services
+- keep all reads/writes tenant-scoped by `institutionId`
+- keep school academic profile reads requiring explicit `academicYearId` until a first-class `AcademicYear` / current-year resolver exists
 - keep changes minimal, safe, local, and reviewable
 - run relevant tests before finishing
+```
+
+## Recent Prompt - AP4 Academic Profile Explanations
+```text
+Add structured excluded/incomplete explanations to shared academic profile responses.
+
+Key constraints:
+- keep shared facade as delegation only
+- preserve school report-card, promotion, and final-outcome behavior
+- preserve university GPA, credit, self-enrollment, and repeat-attempt behavior
+- use existing warnings/reason-code patterns where possible
+- add `excluded` explanations only for safely detectable cases
+- keep all explanation queries tenant-scoped and bounded to the student's academic data
+- document deferred cases with TODO/verify instead of guessing
+```
+
+## Recent Prompt - AP5 Academic Profile Test Hardening
+```text
+Harden tests for the shared academic profile system and fix only small bugs discovered by those tests.
+
+Focus:
+- shared facade route/service dispatch and common envelope
+- self/staff accessMode as internal scenarios only
+- school academicYearId requirement, report-card warnings, semester explanations, and sanitized finalOutcome
+- university empty profile warnings, excluded explanations, GPA preservation, same-institution decorations, and subjectOutcomeSummaries totals
+- explanation dedupe/sanitization and tenant scoping
+- surrounding school report-card/final-outcome and university self-enrollment regressions
 ```
 
 ## Prompt 4 - School Outcome Preview API

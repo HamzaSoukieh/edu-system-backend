@@ -195,7 +195,10 @@
   - university subjects can now store `prerequisiteSubjectIds`
   - internal academic outcomes can now derive per-enrollment finalized outcome status, grade point, quality points, earned credits, and cumulative GPA inputs from published section results plus resolved policy
   - internal academic outcomes now also derive stable per-subject repeated-attempt summaries for eligibility reuse
-  - academically incomplete or non-finalized closed sections are excluded from finalized university outcome meaning
+  - academically incomplete or non-finalized sections are excluded from finalized university outcome meaning and now return structured `excluded` explanations when safely detectable
+  - internal university academic profile provider now composes the existing academic outcome service into a transcript-style read model for the shared academic profile facade
+  - the university provider is read-only, university-only, tenant-scoped, staff-readable through current `section.manage` access, and self-readable only by the target student through the shared facade
+  - university provider `semesterId` filtering is currently documented as not applied until the outcome service has a semester-scoped source contract
   - student self-enrollment now exposes:
     - a lightweight active-semester browse/list discovery route for university section candidates
     - a detailed preview eligibility route that remains the canonical explanation surface
@@ -207,7 +210,6 @@
   - per-section preview keeps structural/duplicate/prerequisite/capacity guidance, while minimum enrollment is now deferred to final multi-section submission validation
   - policy now uses a blocking `minimumEnrollmentCreditHours` field for final registration validation
   - current remaining gap:
-    - academic profile / transcript read layers
     - university read-only academic report / transcript APIs comparable to school report-card projections
     - university final academic outcome confirmation / override workflow, if product needs explicit administrative finalization
     - repeat-grade replacement / forgiveness policy
@@ -257,6 +259,27 @@
   - duplicate finalized outcomes are also protected by a finalized-only partial unique index
   - cancelled outcomes cannot be overridden
   - no class movement, next-year placement, GPA, or credit-hour behavior is introduced
+- School Academic Profile Provider
+  - internal school-only provider for the shared academic profile facade
+  - composes existing school yearly report-card, optional semester report-card, and optional final-outcome reads
+  - requires `academicYearId` for now because there is no first-class academic-year/current-year resolver yet
+  - supports staff access through school report-card/final-outcome style `class.manage` access
+  - supports student self access only when the actor is the target student membership
+  - returns `finalOutcome: null` when no non-cancelled final outcome exists
+  - returns top-level `excluded` explanations normalized from existing report-card warnings and incomplete completion flags
+  - read-only; does not finalize, override, promote, place students, or write report-card/outcome records
+- Shared Academic Profile Facade
+  - public read routes:
+    - `GET /institutions/:institutionId/students/me/academic-profile`
+    - `GET /institutions/:institutionId/students/:studentMembershipId/academic-profile`
+  - dispatches by `Institution.type`
+  - delegates school profiles to `buildSchoolAcademicProfile`
+  - delegates university profiles to `buildUniversityAcademicProfile`
+  - returns `{ academicProfile: ... }`
+  - provider responses can include `warnings` and `excluded` explanation arrays for incomplete or excluded academic data
+  - keeps school and university calculation logic inside the institution-specific providers
+  - student self route returns only the authenticated student's own profile
+  - admin/staff route currently uses route-level `membership.manage` plus provider-level school `class.manage` / university `section.manage`
 
 ## Next Likely Modules
 - School final outcome cancellation / recompute workflow and report-card final-outcome linking
