@@ -169,30 +169,37 @@ Before coding:
 6. Read `PROMPTS.md`
 
 Then inspect:
-- schoolFinalOutcomeService
-- schoolFinalOutcomeController
-- SchoolFinalOutcome model/indexes
-- schoolReportCardService
-- schoolAcademicProfileService
-- shared academicProfileService facade
-- existing school final-outcome tests
+- universityAcademicOutcomeService
+- universityAcademicProfileService
+- universityAcademicPolicyService
+- InstitutionAcademicPolicy model
+- Enrollment, Section, Semester, Subject, Assessment, and AssessmentResult models
+- university academic outcome/profile tests
+- self-enrollment eligibility/browse/write tests
+- existing repeated-attempt transcript display from U4
 
 Task:
-Design and implement school final outcome cancellation / recompute workflow and link finalized outcome summaries back into school report-card responses where safe.
+Audit current university repeat behavior and design an admin-configurable repeatPolicy for a future implementation.
 
 Constraints:
-- keep this school-only
-- do not move students between classes
-- do not add automatic promotion placement
-- preserve calculated vs final decision history
-- keep cancellation explicit and auditable
-- keep report-card linkage read-only
-- keep cancellation/recompute writes explicit and admin/staff-only
-- do not change university academic services
-- keep all reads/writes tenant-scoped by `institutionId`
-- keep school academic profile reads requiring explicit `academicYearId` until a first-class `AcademicYear` / current-year resolver exists
-- keep changes minimal, safe, local, and reviewable
-- run relevant tests before finishing
+- audit/design only unless explicitly asked to implement U5B
+- do not add `repeatPolicy` fields yet
+- do not change official GPA, earned credits, prerequisite behavior, or self-enrollment behavior
+- document how current GPA counts finalized attempts
+- identify policy choices needed for replacement/forgiveness, latest/best/all attempt treatment, transcript display, prerequisites, and migration/backfill
+- keep school academic services untouched
+- keep tenant scoping assumptions explicit
+- update docs with TODO/verify notes instead of guessing product rules
+```
+
+## Recent Prompt - U4 University Repeated-Attempt Transcript Display
+```text
+Improve the university academic profile repeated-attempt transcript display without changing official GPA, earned credits, prerequisites, self-enrollment, repeatPolicy, or academic standing.
+
+Key result:
+- `subjectAttempts` expose attempt number/count, latest/best flags, previous-attempt metadata, and display labels
+- `subjectOutcomeSummaries` expose decorated best/latest outcome fields, compact attempt rows, and repeat-history booleans
+- `gpaCalculation` documents that current cumulative GPA still follows existing outcome-service behavior and counts all finalized attempts until repeatPolicy exists
 ```
 
 ## Recent Prompt - AP4 Academic Profile Explanations

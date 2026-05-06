@@ -321,17 +321,95 @@ test("university academic profile provider returns a safe transcript profile", a
     assert.equal(result.semesters[1].semesterId, semesterTwoId);
     assert.equal(result.semesters[1].gpa, 0);
     assert.equal(result.subjectAttempts.length, 2);
-    assert.equal(result.subjectAttempts[0].subjectCode, "CS201");
-    assert.equal(result.subjectAttempts[0].sectionCode, "A");
+    assert.deepEqual(
+        result.subjectAttempts.map((attempt) => ({
+            enrollmentId: attempt.enrollmentId,
+            subjectCode: attempt.subjectCode,
+            sectionCode: attempt.sectionCode,
+            attemptNumber: attempt.attemptNumber,
+            attemptCount: attempt.attemptCount,
+            isRepeatedSubject: attempt.isRepeatedSubject,
+            isLatestAttempt: attempt.isLatestAttempt,
+            isBestAttempt: attempt.isBestAttempt,
+            previousAttemptCount: attempt.previousAttemptCount,
+            hasPreviousAttempt: attempt.hasPreviousAttempt,
+            attemptLabel: attempt.attemptLabel,
+        })),
+        [
+            {
+                enrollmentId: enrollmentOneId,
+                subjectCode: "CS201",
+                sectionCode: "A",
+                attemptNumber: 1,
+                attemptCount: 2,
+                isRepeatedSubject: true,
+                isLatestAttempt: false,
+                isBestAttempt: true,
+                previousAttemptCount: 0,
+                hasPreviousAttempt: false,
+                attemptLabel: "Attempt 1",
+            },
+            {
+                enrollmentId: enrollmentTwoId,
+                subjectCode: "CS201",
+                sectionCode: "B",
+                attemptNumber: 2,
+                attemptCount: 2,
+                isRepeatedSubject: true,
+                isLatestAttempt: true,
+                isBestAttempt: false,
+                previousAttemptCount: 1,
+                hasPreviousAttempt: true,
+                attemptLabel: "Attempt 2",
+            },
+        ]
+    );
     assert.deepEqual(result.subjectOutcomeSummaries[0], {
         subjectId: subjectOneId,
+        subjectCode: "CS201",
+        subjectName: "Data Structures",
         attemptCount: 2,
+        attempts: [
+            {
+                attemptNumber: 1,
+                enrollmentId: enrollmentOneId,
+                sectionId: sectionOneId,
+                semesterId: semesterOneId,
+                outcomeStatus: "passed_final",
+                percentage: 90,
+                isLatestAttempt: false,
+                isBestAttempt: true,
+            },
+            {
+                attemptNumber: 2,
+                enrollmentId: enrollmentTwoId,
+                sectionId: sectionTwoId,
+                semesterId: semesterTwoId,
+                outcomeStatus: "failed",
+                percentage: 55,
+                isLatestAttempt: true,
+                isBestAttempt: false,
+            },
+        ],
         bestOutcomeStatus: "passed_final",
         bestOutcomeEnrollmentId: enrollmentOneId,
         bestOutcomeSectionId: sectionOneId,
+        bestPercentage: 90,
+        latestOutcomeStatus: "failed",
+        latestOutcomeEnrollmentId: enrollmentTwoId,
+        latestOutcomeSectionId: sectionTwoId,
+        latestPercentage: 55,
         hasFailedAttempt: true,
         hasPassedImprovableAttempt: false,
         hasPassedFinalAttempt: true,
+        failedThenPassed: false,
+        passedThenRepeated: true,
+        repeatedAfterFinalPass: true,
+    });
+    assert.deepEqual(result.gpaCalculation, {
+        mode: "all_finalized_attempts",
+        message:
+            "Cumulative GPA follows the current university academic outcome service behavior and counts all finalized attempts until a repeatPolicy is introduced.",
     });
     assert.deepEqual(result.warnings, []);
     assert.deepEqual(result.excluded, []);
@@ -341,6 +419,102 @@ test("university academic profile provider returns a safe transcript profile", a
     assert.equal(queryLog.sectionFind.institutionId, institutionId);
     assert.equal(queryLog.subjectFind.institutionId, institutionId);
     assert.equal(queryLog.semesterFind.institutionId, institutionId);
+});
+
+test("university academic profile displays failed-then-passed repeated attempts without changing GPA", async (t) => {
+    mockProviderDependencies(
+        t,
+        buildDataset({
+            outcomeResult: buildOutcomeResult({
+                outcomes: [
+                    buildOutcome({
+                        enrollmentId: enrollmentTwoId,
+                        sectionId: sectionTwoId,
+                        semesterId: semesterTwoId,
+                        subjectId: subjectOneId,
+                        outcomeStatus: "passed_final",
+                        percentage: 82,
+                        attemptedCreditHours: 3,
+                        earnedCreditHours: 3,
+                        gradePoint: 3,
+                        qualityPoints: 9,
+                    }),
+                    buildOutcome({
+                        enrollmentId: enrollmentOneId,
+                        sectionId: sectionOneId,
+                        semesterId: semesterOneId,
+                        subjectId: subjectOneId,
+                        outcomeStatus: "failed",
+                        percentage: 52,
+                        attemptedCreditHours: 3,
+                        earnedCreditHours: 0,
+                        gradePoint: 0,
+                        qualityPoints: 0,
+                    }),
+                ],
+                summary: {
+                    attemptedCreditHours: 6,
+                    earnedCreditHours: 3,
+                    qualityPoints: 9,
+                    cumulativeGpa: 1.5,
+                },
+                subjectOutcomeSummaries: [],
+            }),
+        })
+    );
+
+    const result = await buildUniversityAcademicProfile({
+        institutionId,
+        studentMembershipId,
+        actorUserId,
+        actorMembership,
+    });
+
+    assert.deepEqual(result.summary, {
+        cumulativeGpa: 1.5,
+        totalEarnedCreditHours: 3,
+        totalAttemptedCreditHours: 6,
+        totalPassedSubjects: 1,
+        totalFailedSubjects: 0,
+    });
+    assert.deepEqual(
+        result.subjectAttempts.map((attempt) => ({
+            enrollmentId: attempt.enrollmentId,
+            outcomeStatus: attempt.outcomeStatus,
+            attemptNumber: attempt.attemptNumber,
+            attemptCount: attempt.attemptCount,
+            isLatestAttempt: attempt.isLatestAttempt,
+            isBestAttempt: attempt.isBestAttempt,
+        })),
+        [
+            {
+                enrollmentId: enrollmentOneId,
+                outcomeStatus: "failed",
+                attemptNumber: 1,
+                attemptCount: 2,
+                isLatestAttempt: false,
+                isBestAttempt: false,
+            },
+            {
+                enrollmentId: enrollmentTwoId,
+                outcomeStatus: "passed_final",
+                attemptNumber: 2,
+                attemptCount: 2,
+                isLatestAttempt: true,
+                isBestAttempt: true,
+            },
+        ]
+    );
+    assert.equal(result.subjectOutcomeSummaries.length, 1);
+    assert.equal(result.subjectOutcomeSummaries[0].bestOutcomeStatus, "passed_final");
+    assert.equal(result.subjectOutcomeSummaries[0].bestOutcomeEnrollmentId, enrollmentTwoId);
+    assert.equal(result.subjectOutcomeSummaries[0].latestOutcomeStatus, "passed_final");
+    assert.equal(result.subjectOutcomeSummaries[0].latestOutcomeEnrollmentId, enrollmentTwoId);
+    assert.equal(result.subjectOutcomeSummaries[0].bestPercentage, 82);
+    assert.equal(result.subjectOutcomeSummaries[0].latestPercentage, 82);
+    assert.equal(result.subjectOutcomeSummaries[0].failedThenPassed, true);
+    assert.equal(result.subjectOutcomeSummaries[0].passedThenRepeated, false);
+    assert.equal(result.subjectOutcomeSummaries[0].repeatedAfterFinalPass, false);
 });
 
 test("university academic profile returns a safe empty profile when no finalized outcomes exist", async (t) => {

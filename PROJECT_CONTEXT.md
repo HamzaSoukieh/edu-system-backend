@@ -197,6 +197,7 @@
   - internal academic outcomes now also derive stable per-subject repeated-attempt summaries for eligibility reuse
   - academically incomplete or non-finalized sections are excluded from finalized university outcome meaning and now return structured `excluded` explanations when safely detectable
   - internal university academic profile provider now composes the existing academic outcome service into a transcript-style read model for the shared academic profile facade
+  - university academic profiles now add repeated-attempt display metadata to `subjectAttempts` and decorated best/latest attempt fields to `subjectOutcomeSummaries`
   - the university provider is read-only, university-only, tenant-scoped, staff-readable through current `section.manage` access, and self-readable only by the target student through the shared facade
   - university provider `semesterId` filtering is currently documented as not applied until the outcome service has a semester-scoped source contract
   - student self-enrollment now exposes:

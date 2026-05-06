@@ -278,6 +278,17 @@
   - internal university academic profile provider now composes the existing academic outcome summary into a transcript-style read model for the shared academic profile facade
   - the internal provider remains read-only, university-only, tenant-scoped, staff-readable through current `section.manage` access, and self-readable only through the shared facade's target-student check
   - university academic profile responses surface deduped/sanitized outcome-service `excluded` explanations without changing official GPA or credit calculations
+  - university `subjectAttempts` now include repeated-attempt display fields:
+    - `attemptNumber`
+    - `attemptCount`
+    - `isRepeatedSubject`
+    - `isLatestAttempt`
+    - `isBestAttempt`
+    - `previousAttemptCount`
+    - `hasPreviousAttempt`
+    - `attemptLabel`
+  - university `subjectOutcomeSummaries` now include decorated transcript fields such as subject code/name, compact attempt rows, best/latest outcome ids/status/percentage, and repeat-history booleans like `failedThenPassed`, `passedThenRepeated`, and `repeatedAfterFinalPass`
+  - university profiles include a read-only `gpaCalculation` note that current cumulative GPA still follows the outcome-service behavior of counting all finalized attempts until a future `repeatPolicy` exists
   - TODO/verify: `semesterId` is accepted and validated by the provider, but filtering is documented as not applied until the university outcome service supports a semester-scoped source contract
 - the self-enrollment preview route now loads tenant-scoped context in `enrollmentService` and delegates shared rule evaluation to an internal reusable eligibility decision service
 - the self-enrollment browse route now reuses the same shared decision engine for lightweight per-row `eligibilitySummary` without forcing the full preview payload into every list item

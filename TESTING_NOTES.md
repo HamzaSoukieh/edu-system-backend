@@ -1073,6 +1073,15 @@
   - added `postman/academic-profile.local.postman_environment.json`
   - added `postman/ACADEMIC_PROFILE_POSTMAN_GUIDE.md`
   - validated collection and environment JSON with Node
+- 2026-05-04 U4 university repeated-attempt transcript display:
+  - added university academic profile display metadata for repeated `subjectAttempts`
+  - decorated `subjectOutcomeSummaries` with best/latest attempt fields and repeat-history booleans without changing official GPA/credit calculations
+  - ran `node --test test/university-academic-profile.test.js`
+  - result: 15 passing
+  - ran `node --test test/university-academic-profile.test.js test/university-academic-outcome-foundation.test.js test/academic-profile.test.js test/self-enrollment-eligibility.test.js test/self-enrollment-browse.test.js test/self-enrollment-write.test.js`
+  - result: 69 passing
+  - ran `node --test test/academic-profile.test.js test/school-academic-profile.test.js test/university-academic-profile.test.js test/university-academic-outcome-foundation.test.js test/school-academic-policy.test.js test/school-outcome.test.js test/school-promotion.test.js test/school-report-card.test.js test/school-final-outcome.test.js test/university-academic-policy-foundation.test.js test/self-enrollment-eligibility.test.js test/self-enrollment-browse.test.js test/self-enrollment-write.test.js`
+  - result: 165 passing
 - TODO:
   - add real sample responses when helpful
   - add attendance response examples after first manual Postman pass

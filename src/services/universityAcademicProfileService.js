@@ -12,6 +12,11 @@ const universityAcademicOutcomeService = require("./universityAcademicOutcomeSer
 const UNIVERSITY_ACADEMIC_PROFILE_READ_PERMISSION = "section.manage";
 const ACTIVE_MEMBERSHIP_STATUS = Membership.schema.path("status").defaultValue;
 const PASSING_OUTCOME_STATUSES = ["passed_improvable", "passed_final"];
+const GPA_CALCULATION_NOTE = {
+    mode: "all_finalized_attempts",
+    message:
+        "Cumulative GPA follows the current university academic outcome service behavior and counts all finalized attempts until a repeatPolicy is introduced.",
+};
 const ACADEMIC_PROFILE_ACCESS_MODES = {
     self: "self",
     staff: "staff",
@@ -175,11 +180,15 @@ function buildEmptySummary() {
     };
 }
 
+function isPassingOutcomeStatus(outcomeStatus) {
+    return PASSING_OUTCOME_STATUSES.includes(outcomeStatus);
+}
+
 function buildSubjectStatusTotals({ outcomes = [], subjectOutcomeSummaries = [] }) {
     if (Array.isArray(subjectOutcomeSummaries) && subjectOutcomeSummaries.length) {
         return {
             totalPassedSubjects: subjectOutcomeSummaries.filter((subjectSummary) =>
-                PASSING_OUTCOME_STATUSES.includes(subjectSummary.bestOutcomeStatus)
+                isPassingOutcomeStatus(subjectSummary.bestOutcomeStatus)
             ).length,
             totalFailedSubjects: subjectOutcomeSummaries.filter(
                 (subjectSummary) => subjectSummary.bestOutcomeStatus === "failed"
@@ -189,7 +198,7 @@ function buildSubjectStatusTotals({ outcomes = [], subjectOutcomeSummaries = [] 
 
     return {
         totalPassedSubjects: outcomes.filter((outcome) =>
-            PASSING_OUTCOME_STATUSES.includes(outcome.outcomeStatus)
+            isPassingOutcomeStatus(outcome.outcomeStatus)
         ).length,
         totalFailedSubjects: outcomes.filter((outcome) => outcome.outcomeStatus === "failed").length,
     };
@@ -303,6 +312,155 @@ function compareSubjectAttempts(left, right, semesterById) {
     ].find((comparison) => comparison !== 0) || 0;
 }
 
+function isSameAttempt(left, right) {
+    if (!left || !right) {
+        return false;
+    }
+
+    const leftEnrollmentId = normalizeId(left.enrollmentId);
+    const rightEnrollmentId = normalizeId(right.enrollmentId);
+    if (leftEnrollmentId && rightEnrollmentId) {
+        return leftEnrollmentId === rightEnrollmentId;
+    }
+
+    return (
+        normalizeId(left.sectionId) === normalizeId(right.sectionId) &&
+        normalizeId(left.subjectId) === normalizeId(right.subjectId) &&
+        normalizeId(left.semesterId) === normalizeId(right.semesterId)
+    );
+}
+
+function groupAttemptsBySubject(subjectAttempts = []) {
+    const attemptsBySubjectId = new Map();
+    for (const attempt of subjectAttempts) {
+        const subjectId = normalizeId(attempt.subjectId);
+        if (!subjectId) {
+            continue;
+        }
+
+        if (!attemptsBySubjectId.has(subjectId)) {
+            attemptsBySubjectId.set(subjectId, []);
+        }
+
+        attemptsBySubjectId.get(subjectId).push(attempt);
+    }
+
+    return attemptsBySubjectId;
+}
+
+function addAttemptDisplayMetadata(subjectAttempts, semesterById) {
+    const attemptsBySubjectId = groupAttemptsBySubject(subjectAttempts);
+
+    for (const subjectAttemptsForSubject of attemptsBySubjectId.values()) {
+        subjectAttemptsForSubject.sort((left, right) => compareSubjectAttempts(left, right, semesterById));
+        const attemptCount = subjectAttemptsForSubject.length;
+        const bestAttempt = universityAcademicOutcomeService.resolveBestAcademicOutcome(subjectAttemptsForSubject);
+
+        subjectAttemptsForSubject.forEach((attempt, index) => {
+            attempt.attemptNumber = index + 1;
+            attempt.attemptCount = attemptCount;
+            attempt.isRepeatedSubject = attemptCount > 1;
+            attempt.isLatestAttempt = index === attemptCount - 1;
+            attempt.isBestAttempt = isSameAttempt(attempt, bestAttempt);
+            attempt.previousAttemptCount = index;
+            attempt.hasPreviousAttempt = index > 0;
+            attempt.attemptLabel = `Attempt ${index + 1}`;
+        });
+    }
+
+    return subjectAttempts;
+}
+
+function buildSubjectSummaryAttempt(attempt) {
+    return {
+        attemptNumber: attempt.attemptNumber,
+        enrollmentId: attempt.enrollmentId,
+        sectionId: attempt.sectionId,
+        semesterId: attempt.semesterId,
+        outcomeStatus: attempt.outcomeStatus,
+        percentage: attempt.percentage,
+        isLatestAttempt: attempt.isLatestAttempt,
+        isBestAttempt: attempt.isBestAttempt,
+    };
+}
+
+function hasEarlierAttempt(attempts, index, predicate) {
+    return attempts.slice(0, index).some(predicate);
+}
+
+function buildDecoratedSubjectOutcomeSummaries({ outcomeResult, subjectAttempts, subjectById }) {
+    const sourceSummaries = buildSubjectOutcomeSummaries(outcomeResult);
+    const attemptsBySubjectId = groupAttemptsBySubject(subjectAttempts);
+
+    return sourceSummaries.map((summary) => {
+        const subjectId = normalizeId(summary.subjectId);
+        const attempts = attemptsBySubjectId.get(subjectId) || [];
+        const subject = subjectById.get(subjectId) || null;
+        const bestAttempt = universityAcademicOutcomeService.resolveBestAcademicOutcome(attempts);
+        const latestAttempt = attempts[attempts.length - 1] || null;
+        const bestOutcomeEnrollmentId = normalizeId(summary.bestOutcomeEnrollmentId || bestAttempt?.enrollmentId);
+        const bestOutcomeSectionId = normalizeId(summary.bestOutcomeSectionId || bestAttempt?.sectionId);
+        const bestOutcomeStatus = summary.bestOutcomeStatus || bestAttempt?.outcomeStatus || null;
+        const resolvedBestAttempt =
+            attempts.find(
+                (attempt) =>
+                    normalizeId(attempt.enrollmentId) === bestOutcomeEnrollmentId ||
+                    normalizeId(attempt.sectionId) === bestOutcomeSectionId
+            ) ||
+            bestAttempt ||
+            null;
+        const hasFailedAttempt =
+            summary.hasFailedAttempt === true || attempts.some((attempt) => attempt.outcomeStatus === "failed");
+        const hasPassedImprovableAttempt =
+            summary.hasPassedImprovableAttempt === true ||
+            attempts.some((attempt) => attempt.outcomeStatus === "passed_improvable");
+        const hasPassedFinalAttempt =
+            summary.hasPassedFinalAttempt === true ||
+            attempts.some((attempt) => attempt.outcomeStatus === "passed_final");
+
+        return {
+            ...summary,
+            subjectId,
+            subjectCode: subject?.code || null,
+            subjectName: subject?.name || null,
+            attemptCount: summary.attemptCount ?? attempts.length,
+            attempts: attempts.map(buildSubjectSummaryAttempt),
+            bestOutcomeStatus,
+            bestOutcomeEnrollmentId,
+            bestOutcomeSectionId,
+            bestPercentage: resolvedBestAttempt?.percentage ?? null,
+            latestOutcomeStatus: latestAttempt?.outcomeStatus || null,
+            latestOutcomeEnrollmentId: normalizeId(latestAttempt?.enrollmentId),
+            latestOutcomeSectionId: normalizeId(latestAttempt?.sectionId),
+            latestPercentage: latestAttempt?.percentage ?? null,
+            hasFailedAttempt,
+            hasPassedImprovableAttempt,
+            hasPassedFinalAttempt,
+            failedThenPassed: attempts.some(
+                (attempt, index) =>
+                    isPassingOutcomeStatus(attempt.outcomeStatus) &&
+                    hasEarlierAttempt(attempts, index, (previousAttempt) => previousAttempt.outcomeStatus === "failed")
+            ),
+            passedThenRepeated: attempts.some(
+                (attempt, index) =>
+                    index > 0 &&
+                    hasEarlierAttempt(attempts, index, (previousAttempt) =>
+                        isPassingOutcomeStatus(previousAttempt.outcomeStatus)
+                    )
+            ),
+            repeatedAfterFinalPass: attempts.some(
+                (attempt, index) =>
+                    index > 0 &&
+                    hasEarlierAttempt(
+                        attempts,
+                        index,
+                        (previousAttempt) => previousAttempt.outcomeStatus === "passed_final"
+                    )
+            ),
+        };
+    });
+}
+
 function buildSemesterSummaries({ outcomes, subjectAttempts, semesterById }) {
     const attemptsByEnrollmentId = new Map(
         subjectAttempts.map((attempt) => [normalizeId(attempt.enrollmentId), attempt])
@@ -354,7 +512,7 @@ function buildSemesterSummaries({ outcomes, subjectAttempts, semesterById }) {
 }
 
 function buildSubjectOutcomeSummaries(outcomeResult = {}) {
-    if (Array.isArray(outcomeResult.subjectOutcomeSummaries)) {
+    if (Array.isArray(outcomeResult.subjectOutcomeSummaries) && outcomeResult.subjectOutcomeSummaries.length) {
         return outcomeResult.subjectOutcomeSummaries;
     }
 
@@ -481,18 +639,30 @@ async function buildUniversityAcademicProfile({
     const subjectAttempts = outcomes
         .map((outcome) => buildSubjectAttempt(outcome, decorations))
         .sort((left, right) => compareSubjectAttempts(left, right, decorations.semesterById));
+    addAttemptDisplayMetadata(subjectAttempts, decorations.semesterById);
+    const subjectOutcomeSummaries = buildDecoratedSubjectOutcomeSummaries({
+        outcomeResult,
+        subjectAttempts,
+        subjectById: decorations.subjectById,
+    });
 
     return {
         institutionType: "university",
         student,
-        summary: outcomes.length ? buildProfileSummary(outcomeResult) : buildEmptySummary(),
+        summary: outcomes.length
+            ? buildProfileSummary({
+                  ...outcomeResult,
+                  subjectOutcomeSummaries,
+              })
+            : buildEmptySummary(),
         semesters: buildSemesterSummaries({
             outcomes,
             subjectAttempts,
             semesterById: decorations.semesterById,
         }),
         subjectAttempts,
-        subjectOutcomeSummaries: buildSubjectOutcomeSummaries(outcomeResult),
+        subjectOutcomeSummaries,
+        gpaCalculation: GPA_CALCULATION_NOTE,
         warnings,
         excluded,
     };
