@@ -263,6 +263,20 @@
   - a partial unique index allows only one `active` policy per institution + `effectiveFromSemesterId`
   - resolvable `active|archived` policy resolution stays deterministic by start semester within the same institution
   - policy configuration validates coherent outcome thresholds, contiguous GPA bands, overload max >= default max, and overload GPA within the configured scale
+  - policy now stores university-only `repeatPolicy`:
+    - `enabled`
+    - `gpaCalculationMethod`
+    - `earnedCreditsMethod`
+    - `prerequisiteMethod`
+    - `allowGradeImprovementRepeats`
+    - `blockRepeatAfterFinalPass`
+  - old policy records without `repeatPolicy` resolve to defaults:
+    - GPA: `best_attempt_only`
+    - earned credits: `count_once_per_subject`
+    - prerequisites: `best_passed_attempt`
+    - grade-improvement repeats allowed
+    - final-pass repeats blocked
+  - explicit legacy behavior is available by configuring `gpaCalculationMethod=all_attempts` and `earnedCreditsMethod=count_each_passed_attempt`, or by setting `repeatPolicy.enabled=false`
   - policy stores blocking `minimumEnrollmentCreditHours` rather than warning-only `minCreditHours`
   - `InstitutionAcademicPolicy` does not store graduation required credits; that is deferred to a future department/program requirement model
   - dangerous academic-field edits are blocked once the policy is already used by finalized outcomes
@@ -274,10 +288,12 @@
     - resolved semester policy
     - strict exclusion of incomplete or invalid finalized inputs for a student's closed-section outcome
     - stable per-subject repeated-attempt summaries so eligibility can reuse consistent prior-subject meaning
+    - repeat-policy official GPA inclusion/exclusion for repeated finalized attempts
+    - repeat-policy earned-credit counting for repeated passed attempts
     - structured `excluded` explanations for safely detectable non-official inputs such as open sections, unpublished or incomplete assessments, missing results, missing policy, and invalid credit hours
   - internal university academic profile provider now composes the existing academic outcome summary into a transcript-style read model for the shared academic profile facade
   - the internal provider remains read-only, university-only, tenant-scoped, staff-readable through current `section.manage` access, and self-readable only through the shared facade's target-student check
-  - university academic profile responses surface deduped/sanitized outcome-service `excluded` explanations without changing official GPA or credit calculations
+  - university academic profile responses surface deduped/sanitized outcome-service `excluded` explanations and repeat-policy GPA/credit classifications
   - university `subjectAttempts` now include repeated-attempt display fields:
     - `attemptNumber`
     - `attemptCount`
@@ -288,7 +304,8 @@
     - `hasPreviousAttempt`
     - `attemptLabel`
   - university `subjectOutcomeSummaries` now include decorated transcript fields such as subject code/name, compact attempt rows, best/latest outcome ids/status/percentage, and repeat-history booleans like `failedThenPassed`, `passedThenRepeated`, and `repeatedAfterFinalPass`
-  - university profiles include a read-only `gpaCalculation` note that current cumulative GPA still follows the outcome-service behavior of counting all finalized attempts until a future `repeatPolicy` exists
+  - university profiles now include active `repeatPolicy`, `gpaCalculation`, and `earnedCreditCalculation` notes
+  - university `subjectAttempts` and compact summary attempt rows show `includedInOfficialGpa`, repeat-policy exclusion reason codes, and earned-credit counted/excluded flags
   - TODO/verify: `semesterId` is accepted and validated by the provider, but filtering is documented as not applied until the university outcome service supports a semester-scoped source contract
 - the self-enrollment preview route now loads tenant-scoped context in `enrollmentService` and delegates shared rule evaluation to an internal reusable eligibility decision service
 - the self-enrollment browse route now reuses the same shared decision engine for lightweight per-row `eligibilitySummary` without forcing the full preview payload into every list item
@@ -299,7 +316,7 @@
   - grouped duplicate-enrollment, prerequisite, same-subject, capacity, and load-policy summaries
 - Still missing:
   - university academic report/finalization APIs, if needed separately from calculated outcome summaries
-  - repeat-grade replacement / forgiveness rules
+  - broader repeat forgiveness/audit workflows beyond calculated policy classification
 
 ### Shared Academic Profile Facade
 - `GET /institutions/:institutionId/students/me/academic-profile`

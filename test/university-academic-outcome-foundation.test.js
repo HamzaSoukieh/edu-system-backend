@@ -9,6 +9,9 @@ const {
     resolveBestAcademicOutcomeStatus,
     resolveFinalizedEnrollmentMetrics,
 } = require("../src/services/universityAcademicOutcomeService");
+const {
+    applyEarnedCreditRepeatPolicy,
+} = require("../src/services/universityRepeatPolicyService");
 const Assessment = require("../src/models/Assessment");
 const AssessmentResult = require("../src/models/AssessmentResult");
 const Enrollment = require("../src/models/Enrollment");
@@ -26,6 +29,10 @@ const semesterId = "507f1f77bcf86cd799439015";
 const subjectId = "507f1f77bcf86cd799439016";
 const assessmentId = "507f1f77bcf86cd799439017";
 const policyId = "507f1f77bcf86cd799439018";
+const enrollmentTwoId = "507f1f77bcf86cd799439021";
+const sectionTwoId = "507f1f77bcf86cd799439022";
+const semesterTwoId = "507f1f77bcf86cd799439023";
+const assessmentTwoId = "507f1f77bcf86cd799439024";
 
 function normalizeId(value) {
     return value?.toString();
@@ -137,6 +144,138 @@ function buildAcademicOutcomeDataset(overrides = {}) {
         ],
         ...overrides,
     };
+}
+
+function buildRepeatedAttemptDataset({ repeatPolicy = {}, firstScore = 50, secondScore = 85, secondCreditHours = 3 } = {}) {
+    return buildAcademicOutcomeDataset({
+        semesters: [
+            {
+                _id: semesterId,
+                institutionId,
+                name: "Fall 2025",
+                startDate: new Date("2025-09-01T00:00:00.000Z"),
+                endDate: new Date("2025-12-20T00:00:00.000Z"),
+                status: "archived",
+            },
+            {
+                _id: semesterTwoId,
+                institutionId,
+                name: "Spring 2026",
+                startDate: new Date("2026-02-01T00:00:00.000Z"),
+                endDate: new Date("2026-05-20T00:00:00.000Z"),
+                status: "active",
+            },
+        ],
+        policies: [
+            buildAcademicPolicy({
+                repeatPolicy: {
+                    enabled: true,
+                    gpaCalculationMethod: "best_attempt_only",
+                    earnedCreditsMethod: "count_once_per_subject",
+                    prerequisiteMethod: "best_passed_attempt",
+                    allowGradeImprovementRepeats: true,
+                    blockRepeatAfterFinalPass: true,
+                    ...repeatPolicy,
+                },
+            }),
+        ],
+        enrollments: [
+            {
+                _id: enrollmentId,
+                institutionId,
+                sectionId,
+                studentMemberId,
+                status: "enrolled",
+                enrolledAt: new Date("2025-09-01T00:00:00.000Z"),
+            },
+            {
+                _id: enrollmentTwoId,
+                institutionId,
+                sectionId: sectionTwoId,
+                studentMemberId,
+                status: "enrolled",
+                enrolledAt: new Date("2026-02-01T00:00:00.000Z"),
+            },
+        ],
+        sections: [
+            {
+                _id: sectionId,
+                institutionId,
+                semesterId,
+                subjectId,
+                status: "closed",
+                updatedAt: new Date("2025-12-20T00:00:00.000Z"),
+            },
+            {
+                _id: sectionTwoId,
+                institutionId,
+                semesterId: semesterTwoId,
+                subjectId,
+                status: "closed",
+                updatedAt: new Date("2026-05-20T00:00:00.000Z"),
+            },
+        ],
+        subjects: [
+            {
+                _id: subjectId,
+                institutionId,
+                code: "MATH101",
+                name: "Calculus",
+                creditHours: 3,
+            },
+        ],
+        assessments: [
+            {
+                _id: assessmentId,
+                institutionId,
+                sectionId,
+                maxScore: 100,
+                weight: 100,
+                status: "published",
+            },
+            {
+                _id: assessmentTwoId,
+                institutionId,
+                sectionId: sectionTwoId,
+                maxScore: 100,
+                weight: 100,
+                status: "published",
+            },
+        ],
+        assessmentResults: [
+            {
+                _id: "507f1f77bcf86cd799439025",
+                institutionId,
+                assessmentId,
+                enrollmentId,
+                sectionId,
+                studentMemberId,
+                score: firstScore,
+            },
+            {
+                _id: "507f1f77bcf86cd799439026",
+                institutionId,
+                assessmentId: assessmentTwoId,
+                enrollmentId: enrollmentTwoId,
+                sectionId: sectionTwoId,
+                studentMemberId,
+                score: secondScore,
+            },
+        ],
+        ...(secondCreditHours !== 3
+            ? {
+                  subjects: [
+                      {
+                          _id: subjectId,
+                          institutionId,
+                          code: "MATH101",
+                          name: "Calculus",
+                          creditHours: secondCreditHours,
+                      },
+                  ],
+              }
+            : {}),
+    });
 }
 
 function mockAcademicOutcomeDependencies(t, dataset) {
@@ -687,4 +826,193 @@ test("listStudentAcademicOutcomes deduplicates duplicate explanations", async (t
 
     assert.equal(result.excluded.length, 1);
     assert.equal(result.excluded[0].reasonCode, "section_not_closed");
+});
+
+test("default repeatPolicy uses best_attempt_only GPA and count_once_per_subject credits", async (t) => {
+    mockAcademicOutcomeDependencies(t, buildRepeatedAttemptDataset());
+
+    const result = await listStudentAcademicOutcomes({ institutionId, studentMemberId });
+
+    assert.equal(result.repeatPolicy.gpaCalculationMethod, "best_attempt_only");
+    assert.equal(result.repeatPolicy.earnedCreditsMethod, "count_once_per_subject");
+    assert.equal(result.summary.attemptedCreditHours, 3);
+    assert.equal(result.summary.earnedCreditHours, 3);
+    assert.equal(result.summary.cumulativeGpa, 4);
+    assert.deepEqual(
+        result.outcomes.map((outcome) => ({
+            enrollmentId: outcome.enrollmentId,
+            includedInOfficialGpa: outcome.includedInOfficialGpa,
+            gpaExcludedReasonCode: outcome.gpaExcludedReasonCode,
+            earnedCreditsCounted: outcome.earnedCreditsCounted,
+        })),
+        [
+            {
+                enrollmentId,
+                includedInOfficialGpa: false,
+                gpaExcludedReasonCode: "repeat_policy_best_attempt_only",
+                earnedCreditsCounted: false,
+            },
+            {
+                enrollmentId: enrollmentTwoId,
+                includedInOfficialGpa: true,
+                gpaExcludedReasonCode: null,
+                earnedCreditsCounted: true,
+            },
+        ]
+    );
+});
+
+test("all_attempts counts all eligible finalized attempts in GPA", async (t) => {
+    mockAcademicOutcomeDependencies(
+        t,
+        buildRepeatedAttemptDataset({
+            repeatPolicy: {
+                gpaCalculationMethod: "all_attempts",
+            },
+        })
+    );
+
+    const result = await listStudentAcademicOutcomes({ institutionId, studentMemberId });
+
+    assert.equal(result.summary.attemptedCreditHours, 6);
+    assert.equal(result.summary.cumulativeGpa, 2);
+    assert.deepEqual(
+        result.outcomes.map((outcome) => outcome.includedInOfficialGpa),
+        [true, true]
+    );
+});
+
+test("latest_attempt_only includes only the latest eligible finalized attempt in GPA", async (t) => {
+    mockAcademicOutcomeDependencies(
+        t,
+        buildRepeatedAttemptDataset({
+            firstScore: 90,
+            secondScore: 50,
+            repeatPolicy: {
+                gpaCalculationMethod: "latest_attempt_only",
+            },
+        })
+    );
+
+    const result = await listStudentAcademicOutcomes({ institutionId, studentMemberId });
+
+    assert.equal(result.summary.attemptedCreditHours, 3);
+    assert.equal(result.summary.cumulativeGpa, 0);
+    assert.deepEqual(
+        result.outcomes.map((outcome) => outcome.gpaExcludedReasonCode),
+        ["repeat_policy_latest_attempt_only", null]
+    );
+});
+
+test("replace_failed_with_passed excludes earlier failed attempts after a later pass", async (t) => {
+    mockAcademicOutcomeDependencies(
+        t,
+        buildRepeatedAttemptDataset({
+            repeatPolicy: {
+                gpaCalculationMethod: "replace_failed_with_passed",
+            },
+        })
+    );
+
+    const result = await listStudentAcademicOutcomes({ institutionId, studentMemberId });
+
+    assert.equal(result.summary.attemptedCreditHours, 3);
+    assert.equal(result.summary.cumulativeGpa, 4);
+    assert.deepEqual(
+        result.outcomes.map((outcome) => outcome.gpaExcludedReasonCode),
+        ["replaced_by_later_passed_attempt", null]
+    );
+});
+
+test("count_each_passed_attempt preserves legacy earned-credit behavior when configured", async (t) => {
+    mockAcademicOutcomeDependencies(
+        t,
+        buildRepeatedAttemptDataset({
+            firstScore: 75,
+            secondScore: 85,
+            repeatPolicy: {
+                earnedCreditsMethod: "count_each_passed_attempt",
+            },
+        })
+    );
+
+    const result = await listStudentAcademicOutcomes({ institutionId, studentMemberId });
+
+    assert.equal(result.summary.earnedCreditHours, 6);
+    assert.deepEqual(
+        result.outcomes.map((outcome) => outcome.earnedCreditsCounted),
+        [true, true]
+    );
+});
+
+test("repeatPolicy enabled false preserves legacy all-attempt GPA and earned-credit behavior", async (t) => {
+    mockAcademicOutcomeDependencies(
+        t,
+        buildRepeatedAttemptDataset({
+            firstScore: 75,
+            secondScore: 85,
+            repeatPolicy: {
+                enabled: false,
+            },
+        })
+    );
+
+    const result = await listStudentAcademicOutcomes({ institutionId, studentMemberId });
+
+    assert.equal(result.repeatPolicy.enabled, false);
+    assert.equal(result.repeatPolicy.gpaCalculationMethod, "all_attempts");
+    assert.equal(result.repeatPolicy.earnedCreditsMethod, "count_each_passed_attempt");
+    assert.equal(result.summary.attemptedCreditHours, 6);
+    assert.equal(result.summary.earnedCreditHours, 6);
+});
+
+test("count_once_per_subject uses the best passed attempt credit hours when attempts differ", () => {
+    const outcomes = applyEarnedCreditRepeatPolicy({
+        outcomes: [
+            buildOutcome({
+                enrollmentId: "older-pass",
+                outcomeStatus: "passed_improvable",
+                percentage: 65,
+                attemptedCreditHours: 2,
+                earnedCreditHours: 2,
+                gradePoint: 2,
+                qualityPoints: 4,
+            }),
+            buildOutcome({
+                enrollmentId: "better-pass",
+                outcomeStatus: "passed_final",
+                percentage: 85,
+                attemptedCreditHours: 4,
+                earnedCreditHours: 4,
+                gradePoint: 4,
+                qualityPoints: 16,
+            }),
+        ],
+        repeatPolicy: {
+            enabled: true,
+            earnedCreditsMethod: "count_once_per_subject",
+        },
+        resolveBestAttempt: (attempts) => attempts.find((attempt) => attempt.enrollmentId === "better-pass"),
+    });
+
+    assert.equal(buildOutcomeSummary(outcomes).earnedCreditHours, 4);
+    assert.deepEqual(
+        outcomes.map((outcome) => ({
+            enrollmentId: outcome.enrollmentId,
+            officialEarnedCreditHours: outcome.officialEarnedCreditHours,
+            earnedCreditsCounted: outcome.earnedCreditsCounted,
+        })),
+        [
+            {
+                enrollmentId: "older-pass",
+                officialEarnedCreditHours: 0,
+                earnedCreditsCounted: false,
+            },
+            {
+                enrollmentId: "better-pass",
+                officialEarnedCreditHours: 4,
+                earnedCreditsCounted: true,
+            },
+        ]
+    );
 });

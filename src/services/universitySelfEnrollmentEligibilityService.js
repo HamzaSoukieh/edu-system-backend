@@ -1,8 +1,13 @@
 const { resolveAllowedMaxCreditHours } = require("./universityAcademicPolicyService");
 const {
     buildSubjectOutcomeSummaries,
+    resolveBestAcademicOutcome,
     resolveBestAcademicOutcomeStatus,
 } = require("./universityAcademicOutcomeService");
+const {
+    resolvePrerequisiteOutcomeStatus,
+    resolveRepeatPolicy,
+} = require("./universityRepeatPolicyService");
 
 const SELF_ENROLLMENT_ENROLLABLE_SECTION_STATUSES = ["draft", "active"];
 const SELF_ENROLLMENT_REASON_MESSAGES = {
@@ -11,6 +16,8 @@ const SELF_ENROLLMENT_REASON_MESSAGES = {
     section_full: "Section capacity is full.",
     missing_prerequisites: "One or more prerequisite subjects are not satisfied.",
     same_subject_already_passed_final: "Student already has a final-pass outcome for the target subject.",
+    repeat_blocked_grade_improvement_not_allowed:
+        "The active repeat policy does not allow repeating an improvable passed subject.",
     duplicate_subject_in_submission:
         "Self-enrollment submission cannot include multiple sections for the same subject.",
     projected_credit_load_exceeds_max: "Projected active-semester credit load exceeds the allowed maximum.",
@@ -146,7 +153,9 @@ function toSelfEnrollmentEligibilitySummary(decision) {
 function buildPrerequisiteChecks({
     targetSubject,
     prerequisiteSubjects = [],
+    outcomesBySubjectId = new Map(),
     subjectOutcomeSummaryBySubjectId,
+    repeatPolicy,
 }) {
     const prerequisiteSubjectIds = Array.isArray(targetSubject?.prerequisiteSubjectIds)
         ? targetSubject.prerequisiteSubjectIds.map((subjectId) => normalizeId(subjectId)).filter(Boolean)
@@ -160,7 +169,11 @@ function buildPrerequisiteChecks({
 
     return prerequisiteSubjectIds.map((prerequisiteSubjectId) => {
         const prerequisiteOutcomeSummary = subjectOutcomeSummaryBySubjectId.get(prerequisiteSubjectId) || null;
-        const outcomeStatus = prerequisiteOutcomeSummary?.bestOutcomeStatus || null;
+        const outcomeStatus = resolvePrerequisiteOutcomeStatus({
+            outcomes: outcomesBySubjectId.get(prerequisiteSubjectId) || [],
+            repeatPolicy,
+            resolveBestAttempt: resolveBestAcademicOutcome,
+        }) || prerequisiteOutcomeSummary?.bestOutcomeStatus || null;
         const prerequisiteSubject = prerequisiteSubjectById.get(prerequisiteSubjectId) || null;
 
         return {
@@ -303,6 +316,7 @@ function resolveSelfEnrollmentEligibility({
         throw createError(500, "Academic policy context missing");
     }
 
+    const repeatPolicy = resolveRepeatPolicy(policy);
     const outcomes = academicOutcomeSummary?.outcomes || [];
     const subjectOutcomeSummaries = Array.isArray(academicOutcomeSummary?.subjectOutcomeSummaries)
         ? academicOutcomeSummary.subjectOutcomeSummaries
@@ -312,17 +326,21 @@ function resolveSelfEnrollmentEligibility({
             .map((subjectOutcomeSummary) => [normalizeId(subjectOutcomeSummary?.subjectId), subjectOutcomeSummary])
             .filter(([subjectId]) => Boolean(subjectId))
     );
+    const outcomesBySubjectId = buildOutcomeMap(outcomes);
     const prerequisiteChecks = buildPrerequisiteChecks({
         targetSubject,
         prerequisiteSubjects,
+        outcomesBySubjectId,
         subjectOutcomeSummaryBySubjectId,
+        repeatPolicy,
     });
 
     const sameSubjectOutcomeSummary =
         subjectOutcomeSummaryBySubjectId.get(normalizeId(targetSubject._id)) || null;
+    const sameSubjectOutcomes = outcomesBySubjectId.get(normalizeId(targetSubject._id)) || [];
     const sameSubjectOutcomeStatus =
         sameSubjectOutcomeSummary?.bestOutcomeStatus ||
-        resolveBestAcademicOutcomeStatus(buildOutcomeMap(outcomes).get(normalizeId(targetSubject._id)) || []);
+        resolveBestAcademicOutcomeStatus(sameSubjectOutcomes);
 
     const blockingReasons = [];
     if (existingSectionEnrollment) {
@@ -356,6 +374,7 @@ function resolveSelfEnrollmentEligibility({
         satisfiedCount: prerequisiteChecks.filter((check) => check.met).length,
         missingCount: prerequisiteChecks.filter((check) => !check.met).length,
         checks: prerequisiteChecks,
+        method: repeatPolicy.prerequisiteMethod,
     };
     if (prerequisiteChecks.some((check) => !check.met)) {
         blockingReasons.push(
@@ -367,11 +386,21 @@ function resolveSelfEnrollmentEligibility({
         );
     }
 
-    if (sameSubjectOutcomeStatus === "passed_final") {
+    if (sameSubjectOutcomeStatus === "passed_final" && repeatPolicy.blockRepeatAfterFinalPass) {
         blockingReasons.push(
             createReasonItem("same_subject_already_passed_final", {
                 outcomeStatus: sameSubjectOutcomeStatus,
                 attemptCount: sameSubjectOutcomeSummary?.attemptCount || 0,
+                repeatPolicyReasonCode: "repeat_blocked_after_final_pass",
+            })
+        );
+    }
+
+    if (sameSubjectOutcomeStatus === "passed_improvable" && !repeatPolicy.allowGradeImprovementRepeats) {
+        blockingReasons.push(
+            createReasonItem("repeat_blocked_grade_improvement_not_allowed", {
+                outcomeStatus: sameSubjectOutcomeStatus,
+                attemptCount: sameSubjectOutcomeSummary?.attemptCount || sameSubjectOutcomes.length,
             })
         );
     }
@@ -432,7 +461,7 @@ function resolveSelfEnrollmentEligibility({
         );
     }
 
-    if (sameSubjectOutcomeStatus !== "passed_final") {
+    if (sameSubjectOutcomeStatus !== "passed_final" || !repeatPolicy.blockRepeatAfterFinalPass) {
         infos.push(
             createReasonItem("no_prior_same_subject_final_pass", {
                 outcomeStatus: sameSubjectOutcomeStatus,
@@ -487,7 +516,15 @@ function resolveSelfEnrollmentEligibility({
         hasPassedImprovableAttempt: sameSubjectOutcomeSummary?.hasPassedImprovableAttempt || false,
         hasPassedFinalAttempt: sameSubjectOutcomeSummary?.hasPassedFinalAttempt || false,
         blockingReasonCode:
-            sameSubjectOutcomeStatus === "passed_final" ? "same_subject_already_passed_final" : null,
+            sameSubjectOutcomeStatus === "passed_final" && repeatPolicy.blockRepeatAfterFinalPass
+                ? "same_subject_already_passed_final"
+                : sameSubjectOutcomeStatus === "passed_improvable" && !repeatPolicy.allowGradeImprovementRepeats
+                  ? "repeat_blocked_grade_improvement_not_allowed"
+                  : null,
+        repeatPolicy: {
+            allowGradeImprovementRepeats: repeatPolicy.allowGradeImprovementRepeats,
+            blockRepeatAfterFinalPass: repeatPolicy.blockRepeatAfterFinalPass,
+        },
     };
     const loadSummary = {
         currentCreditHours,
@@ -532,6 +569,7 @@ function resolveSelfEnrollmentEligibility({
             overloadMaxCreditHours: policy.overloadMaxCreditHours,
             maxAllowedCreditHours,
             qualifiesForOverloadByGpa,
+            repeatPolicy,
         },
     };
 }
@@ -551,6 +589,7 @@ function resolveSelfEnrollmentSubmissionEligibility({
         throw createError(500, "Academic policy context missing");
     }
 
+    const repeatPolicy = resolveRepeatPolicy(policy);
     if (!Array.isArray(selections) || !selections.length) {
         throw createError(500, "Self-enrollment submission context missing");
     }
@@ -723,6 +762,7 @@ function resolveSelfEnrollmentSubmissionEligibility({
             overloadMaxCreditHours: policy.overloadMaxCreditHours,
             maxAllowedCreditHours,
             qualifiesForOverloadByGpa,
+            repeatPolicy,
         },
     };
 }

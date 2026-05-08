@@ -4,11 +4,15 @@ const Institution = require("../models/Institution");
 const Semester = require("../models/Semester");
 const Section = require("../models/Section");
 const Assessment = require("../models/Assessment");
+const {
+    resolveRepeatPolicy,
+    validateRepeatPolicyInput: validateRepeatPolicyConfig,
+} = require("./universityRepeatPolicyService");
 
 const ACADEMIC_POLICY_STATUSES = ["draft", "active", "archived"];
 const RESOLVABLE_POLICY_STATUSES = ["active", "archived"];
 const ACADEMIC_POLICY_SELECT_FIELDS =
-    "_id institutionId name status effectiveFromSemesterId minimumEnrollmentCreditHours defaultMaxCreditHours overloadMinGpa overloadMaxCreditHours outcomeThresholds gpaBands createdByUserId updatedByUserId createdAt updatedAt";
+    "_id institutionId name status effectiveFromSemesterId minimumEnrollmentCreditHours defaultMaxCreditHours overloadMinGpa overloadMaxCreditHours outcomeThresholds gpaBands repeatPolicy createdByUserId updatedByUserId createdAt updatedAt";
 const GPA_SCALE_MAX = 4;
 const POLICY_EPSILON = 1e-9;
 
@@ -301,6 +305,14 @@ function readMinimumEnrollmentCreditHours(payload) {
     return payload?.minCreditHours;
 }
 
+function validateRepeatPolicyInput(rawValue, { allowUndefined = false, useDefaults = true } = {}) {
+    try {
+        return validateRepeatPolicyConfig(rawValue, { allowUndefined, useDefaults });
+    } catch (error) {
+        throw createError(400, error.message);
+    }
+}
+
 function validateCreateAcademicPolicyInput(payload) {
     if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
         throw createError(400, "Invalid request body");
@@ -325,6 +337,7 @@ function validateCreateAcademicPolicyInput(payload) {
         overloadMaxCreditHours: validateIntegerField(payload.overloadMaxCreditHours, "overloadMaxCreditHours"),
         outcomeThresholds: validateOutcomeThresholds(payload.outcomeThresholds),
         gpaBands: validateGpaBands(payload.gpaBands),
+        repeatPolicy: validateRepeatPolicyInput(payload.repeatPolicy, { allowUndefined: false }),
     };
 }
 
@@ -344,6 +357,7 @@ function validateUpdateAcademicPolicyInput(payload) {
         "overloadMaxCreditHours",
         "outcomeThresholds",
         "gpaBands",
+        "repeatPolicy",
     ];
     const invalidFields = Object.keys(payload).filter((key) => !allowedFields.includes(key));
     if (invalidFields.length) {
@@ -412,6 +426,13 @@ function validateUpdateAcademicPolicyInput(payload) {
     if (payload.gpaBands !== undefined) {
         updates.gpaBands = validateGpaBands(payload.gpaBands, {
             allowUndefined: true,
+        });
+    }
+
+    if (payload.repeatPolicy !== undefined) {
+        updates.repeatPolicy = validateRepeatPolicyInput(payload.repeatPolicy, {
+            allowUndefined: true,
+            useDefaults: false,
         });
     }
 
@@ -520,6 +541,7 @@ function toAcademicPolicyResponse(policy, { effectiveFromSemester = null } = {})
                   gradePoint: band.gradePoint,
               }))
             : [],
+        repeatPolicy: resolveRepeatPolicy(policy),
         createdByUserId: policy.createdByUserId?.toString() || null,
         updatedByUserId: policy.updatedByUserId?.toString() || null,
         createdAt: policy.createdAt,
@@ -789,6 +811,7 @@ async function createAcademicPolicy({ institutionId, actorUserId, payload }) {
             overloadMaxCreditHours: input.overloadMaxCreditHours,
             outcomeThresholds: input.outcomeThresholds,
             gpaBands: input.gpaBands,
+            repeatPolicy: input.repeatPolicy,
             createdByUserId: actorUserId,
             updatedByUserId: actorUserId,
         });
@@ -889,11 +912,19 @@ async function updateAcademicPolicy({ institutionId, policyId, actorUserId, payl
         throw createError(404, "Academic policy not found");
     }
 
+    if (updates.repeatPolicy) {
+        updates.repeatPolicy = {
+            ...resolveRepeatPolicy(existingPolicy),
+            ...updates.repeatPolicy,
+        };
+    }
+
     const mergedPolicy = {
         ...existingPolicy,
         ...updates,
         outcomeThresholds: updates.outcomeThresholds || existingPolicy.outcomeThresholds,
         gpaBands: updates.gpaBands || existingPolicy.gpaBands,
+        repeatPolicy: updates.repeatPolicy || resolveRepeatPolicy(existingPolicy),
     };
     validateAcademicPolicyBusinessRules(mergedPolicy);
     await loadSemesterRecord({
@@ -1028,6 +1059,7 @@ module.exports = {
     GPA_SCALE_MAX,
     validateOutcomeThresholds,
     validateGpaBands,
+    validateRepeatPolicyInput,
     validateCreateAcademicPolicyInput,
     validateUpdateAcademicPolicyInput,
     resolveAllowedMaxCreditHours,

@@ -1,0 +1,969 @@
+{
+  "info": {
+    "_postman_id": "aa605bb0-u5b-repeat-policy",
+    "name": "Edu SaaS - U5B University Repeat Policy",
+    "description": "Manual end-to-end checks for U5B admin-configurable university repeatPolicy. Uses the live auth, institution academic policy, academic profile, section/enrollment/assessment, and self-enrollment routes wired in this backend.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "event": [
+    {
+      "listen": "prerequest",
+      "script": {
+        "type": "text/javascript",
+        "exec": [
+          "if (!pm.environment.get('fixtureTag')) {",
+          "  pm.environment.set('fixtureTag', 'U5B' + Date.now().toString().slice(-6));",
+          "}",
+          "function requireEnv(name) {",
+          "  if (!pm.environment.get(name)) console.warn('Missing environment variable: ' + name);",
+          "}",
+          "requireEnv('baseUrl');"
+        ]
+      }
+    }
+  ],
+  "item": [
+    {
+      "name": "00 Auth And Context",
+      "item": [
+        {
+          "name": "Owner/Admin Login",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('owner/admin login returns 200', () => pm.response.to.have.status(200));",
+                  "const json = pm.response.json();",
+                  "pm.test('accessToken returned', () => pm.expect(json.accessToken).to.be.a('string'));",
+                  "if (json.accessToken) pm.environment.set('ownerToken', json.accessToken);",
+                  "if (json.user && json.user.id) pm.environment.set('ownerUserId', json.user.id);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{ownerEmail}}\",\n  \"password\": \"{{ownerPassword}}\"\n}"
+            },
+            "url": "{{baseUrl}}/auth/login",
+            "description": "Requires an existing verified owner/admin with an active university membership and institution.manage/membership.manage/section.manage permissions."
+          }
+        },
+        {
+          "name": "Get My Institution Context",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('context request succeeds', () => pm.response.to.have.status(200));",
+                  "const json = pm.response.json();",
+                  "if (json.activeInstitutionId && !pm.environment.get('institutionId')) pm.environment.set('institutionId', json.activeInstitutionId);",
+                  "if (json.institution && json.institution.id && !pm.environment.get('institutionId')) pm.environment.set('institutionId', json.institution.id);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [{ "key": "token", "value": "{{ownerToken}}", "type": "string" }]
+            },
+            "method": "GET",
+            "url": "{{baseUrl}}/institutions/me",
+            "description": "Optional helper. If this response shape does not expose institutionId, set institutionId manually in the environment."
+          }
+        },
+        {
+          "name": "Student Login",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('student login returns 200', () => pm.response.to.have.status(200));",
+                  "const json = pm.response.json();",
+                  "pm.test('student accessToken returned', () => pm.expect(json.accessToken).to.be.a('string'));",
+                  "if (json.accessToken) pm.environment.set('studentToken', json.accessToken);",
+                  "if (json.user && json.user.id) pm.environment.set('studentUserId', json.user.id);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{studentEmail}}\",\n  \"password\": \"{{studentPassword}}\"\n}"
+            },
+            "url": "{{baseUrl}}/auth/login",
+            "description": "Run after creating the fixture student or use an existing active university student account."
+          }
+        }
+      ]
+    },
+    {
+      "name": "01 Fixture Setup - Repeated Attempts",
+      "auth": {
+        "type": "bearer",
+        "bearer": [{ "key": "token", "value": "{{ownerToken}}", "type": "string" }]
+      },
+      "item": [
+        {
+          "name": "Create Department",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('department created', () => pm.response.to.have.status(201));",
+                  "const json = pm.response.json();",
+                  "if (json.department && json.department.id) pm.environment.set('departmentId', json.department.id);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"U5B Repeat Policy Department {{fixtureTag}}\",\n  \"code\": \"U5B{{fixtureTag}}\",\n  \"description\": \"Fixture department for U5B repeatPolicy manual testing\"\n}"
+            },
+            "url": "{{baseUrl}}/institutions/{{institutionId}}/departments"
+          }
+        },
+        {
+          "name": "Create Previous Semester",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('previous semester created', () => pm.response.to.have.status(201));",
+                  "const json = pm.response.json();",
+                  "if (json.semester && json.semester.id) pm.environment.set('previousSemesterId', json.semester.id);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"U5B Previous Semester {{fixtureTag}}\",\n  \"startDate\": \"2026-01-05\",\n  \"endDate\": \"2026-03-31\",\n  \"teachingDays\": [\"monday\", \"tuesday\", \"wednesday\", \"thursday\"],\n  \"status\": \"archived\"\n}"
+            },
+            "url": "{{baseUrl}}/institutions/{{institutionId}}/semesters"
+          }
+        },
+        {
+          "name": "Create Latest Active Semester",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('latest semester created or active-semester conflict is visible', () => pm.expect([201, 409]).to.include(pm.response.code));",
+                  "if (pm.response.code !== 201) return;",
+                  "const json = pm.response.json();",
+                  "if (json.semester && json.semester.id) {",
+                  "  pm.environment.set('activeSemesterId', json.semester.id);",
+                  "  pm.environment.set('latestSemesterId', json.semester.id);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"U5B Latest Semester {{fixtureTag}}\",\n  \"startDate\": \"2026-04-01\",\n  \"endDate\": \"2026-06-30\",\n  \"teachingDays\": [\"monday\", \"tuesday\", \"wednesday\", \"thursday\"],\n  \"status\": \"active\"\n}"
+            },
+            "url": "{{baseUrl}}/institutions/{{institutionId}}/semesters",
+            "description": "If your institution already has an active semester, set activeSemesterId/latestSemesterId manually or archive the old fixture semester first."
+          }
+        },
+        {
+          "name": "Create Academic Policy - repeatPolicy Omitted",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('policy created', () => pm.response.to.have.status(201));",
+                  "const policy = pm.response.json().academicPolicy || {};",
+                  "if (policy.id) pm.environment.set('academicPolicyId', policy.id);",
+                  "pm.test('default repeatPolicy is resolved', () => {",
+                  "  pm.expect(policy.repeatPolicy).to.be.an('object');",
+                  "  pm.expect(policy.repeatPolicy.enabled).to.eql(true);",
+                  "  pm.expect(policy.repeatPolicy.gpaCalculationMethod).to.eql('best_attempt_only');",
+                  "  pm.expect(policy.repeatPolicy.earnedCreditsMethod).to.eql('count_once_per_subject');",
+                  "  pm.expect(policy.repeatPolicy.prerequisiteMethod).to.eql('best_passed_attempt');",
+                  "  pm.expect(policy.repeatPolicy.allowGradeImprovementRepeats).to.eql(true);",
+                  "  pm.expect(policy.repeatPolicy.blockRepeatAfterFinalPass).to.eql(true);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"U5B Repeat Policy {{fixtureTag}}\",\n  \"status\": \"active\",\n  \"effectiveFromSemesterId\": \"{{previousSemesterId}}\",\n  \"minimumEnrollmentCreditHours\": 0,\n  \"defaultMaxCreditHours\": 18,\n  \"overloadMinGpa\": 3.5,\n  \"overloadMaxCreditHours\": 24,\n  \"outcomeThresholds\": {\n    \"failedMaxPercentage\": 59.99,\n    \"improvableMinPercentage\": 60,\n    \"improvableMaxPercentage\": 69.99,\n    \"finalPassMinPercentage\": 70\n  },\n  \"gpaBands\": [\n    { \"minPercentage\": 0, \"maxPercentage\": 60, \"gradePoint\": 0 },\n    { \"minPercentage\": 60, \"maxPercentage\": 70, \"gradePoint\": 2 },\n    { \"minPercentage\": 70, \"maxPercentage\": 85, \"gradePoint\": 3 },\n    { \"minPercentage\": 85, \"maxPercentage\": 100, \"gradePoint\": 4 }\n  ]\n}"
+            },
+            "url": "{{baseUrl}}/institutions/{{institutionId}}/academic-policies",
+            "description": "repeatPolicy is intentionally omitted. The response should resolve the U5B default repeatPolicy."
+          }
+        },
+        {
+          "name": "Create Student Member",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('student member created', () => pm.response.to.have.status(201));",
+                  "const member = (pm.response.json().member || {});",
+                  "if (member.id) {",
+                  "  pm.environment.set('studentMembershipId', member.id);",
+                  "  pm.environment.set('studentMemberId', member.id);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{studentEmail}}\",\n  \"role\": \"student\",\n  \"profile\": {\n    \"firstName\": \"Repeat\",\n    \"lastName\": \"Student {{fixtureTag}}\",\n    \"nationalNumber\": \"{{studentPassword}}\"\n  }\n}"
+            },
+            "url": "{{baseUrl}}/institutions/{{institutionId}}/members",
+            "description": "Creates a login-capable student. The initial password is profile.nationalNumber."
+          }
+        },
+        {
+          "name": "Create Repeated Subject",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('repeated subject created', () => pm.response.to.have.status(201));",
+                  "const subject = pm.response.json().subject || {};",
+                  "if (subject.id) {",
+                  "  pm.environment.set('repeatedSubjectId', subject.id);",
+                  "  pm.environment.set('subjectId', subject.id);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"U5B Repeated Subject {{fixtureTag}}\",\n  \"code\": \"R{{fixtureTag}}\",\n  \"creditHours\": 3,\n  \"status\": \"active\"\n}"
+            },
+            "url": "{{baseUrl}}/institutions/{{institutionId}}/departments/{{departmentId}}/subjects"
+          }
+        },
+        {
+          "name": "Create Prerequisite Subject",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('prerequisite subject created', () => pm.response.to.have.status(201));",
+                  "const subject = pm.response.json().subject || {};",
+                  "if (subject.id) pm.environment.set('prerequisiteSubjectId', subject.id);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"U5B Prerequisite Subject {{fixtureTag}}\",\n  \"code\": \"P{{fixtureTag}}\",\n  \"creditHours\": 3,\n  \"status\": \"active\"\n}"
+            },
+            "url": "{{baseUrl}}/institutions/{{institutionId}}/departments/{{departmentId}}/subjects"
+          }
+        },
+        {
+          "name": "Create Target Subject With Prerequisite",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('target subject created', () => pm.response.to.have.status(201));",
+                  "const subject = pm.response.json().subject || {};",
+                  "if (subject.id) pm.environment.set('targetSubjectId', subject.id);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"U5B Target Subject {{fixtureTag}}\",\n  \"code\": \"T{{fixtureTag}}\",\n  \"creditHours\": 3,\n  \"prerequisiteSubjectIds\": [\"{{prerequisiteSubjectId}}\"],\n  \"status\": \"active\"\n}"
+            },
+            "url": "{{baseUrl}}/institutions/{{institutionId}}/departments/{{departmentId}}/subjects"
+          }
+        },
+        {
+          "name": "Create First Attempt Section",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('first attempt section created', () => pm.response.to.have.status(201));",
+                  "const section = pm.response.json().section || {};",
+                  "if (section.id) pm.environment.set('firstAttemptSectionId', section.id);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"semesterId\": \"{{previousSemesterId}}\",\n  \"subjectId\": \"{{repeatedSubjectId}}\",\n  \"code\": \"A\",\n  \"title\": \"U5B First Attempt {{fixtureTag}}\",\n  \"instructorMemberId\": null,\n  \"capacity\": 20,\n  \"schedule\": [\n    { \"sessionType\": \"lecture\", \"day\": \"monday\", \"startTime\": \"09:00\", \"endTime\": \"10:00\", \"room\": \"U5B-101\" }\n  ],\n  \"status\": \"active\"\n}"
+            },
+            "url": "{{baseUrl}}/institutions/{{institutionId}}/sections"
+          }
+        },
+        {
+          "name": "Enroll Student - First Attempt",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('first enrollment created', () => pm.response.to.have.status(201));",
+                  "const enrollment = pm.response.json().enrollment || {};",
+                  "if (enrollment.id) {",
+                  "  pm.environment.set('firstAttemptEnrollmentId', enrollment.id);",
+                  "  pm.environment.set('enrollmentId', enrollment.id);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"studentMemberId\": \"{{studentMembershipId}}\"\n}" },
+            "url": "{{baseUrl}}/institutions/{{institutionId}}/sections/{{firstAttemptSectionId}}/enrollments"
+          }
+        },
+        {
+          "name": "Create First Attempt Assessment",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('assessment created', () => pm.response.to.have.status(201));",
+                  "const assessment = pm.response.json().assessment || {};",
+                  "if (assessment.id) pm.environment.set('assessmentId', assessment.id);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"title\": \"U5B First Final {{fixtureTag}}\",\n  \"description\": \"First attempt final assessment\",\n  \"type\": \"final\",\n  \"assessmentDate\": \"2026-03-15\",\n  \"maxScore\": 100,\n  \"weight\": 100\n}"
+            },
+            "url": "{{baseUrl}}/institutions/{{institutionId}}/sections/{{firstAttemptSectionId}}/assessments"
+          }
+        },
+        {
+          "name": "Upsert First Attempt Result - Failed",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('first result upserted', () => pm.response.to.have.status(200));",
+                  "const result = (pm.response.json().assessmentResults || [])[0] || {};",
+                  "if (result.id) pm.environment.set('assessmentResultId', result.id);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "PUT",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"entries\": [\n    { \"enrollmentId\": \"{{firstAttemptEnrollmentId}}\", \"score\": 50, \"note\": \"Failed first attempt for U5B\" }\n  ]\n}"
+            },
+            "url": "{{baseUrl}}/institutions/{{institutionId}}/sections/{{firstAttemptSectionId}}/assessments/{{assessmentId}}/results"
+          }
+        },
+        {
+          "name": "Publish First Attempt Assessment",
+          "request": {
+            "method": "PATCH",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"status\": \"published\"\n}" },
+            "url": "{{baseUrl}}/institutions/{{institutionId}}/sections/{{firstAttemptSectionId}}/assessments/{{assessmentId}}/status"
+          }
+        },
+        {
+          "name": "Close First Attempt Section",
+          "request": {
+            "method": "PATCH",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"status\": \"closed\"\n}" },
+            "url": "{{baseUrl}}/institutions/{{institutionId}}/sections/{{firstAttemptSectionId}}"
+          }
+        },
+        {
+          "name": "Create Second Attempt Section",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('second attempt section created', () => pm.response.to.have.status(201));",
+                  "const section = pm.response.json().section || {};",
+                  "if (section.id) pm.environment.set('secondAttemptSectionId', section.id);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"semesterId\": \"{{activeSemesterId}}\",\n  \"subjectId\": \"{{repeatedSubjectId}}\",\n  \"code\": \"B\",\n  \"title\": \"U5B Second Attempt {{fixtureTag}}\",\n  \"instructorMemberId\": null,\n  \"capacity\": 20,\n  \"schedule\": [\n    { \"sessionType\": \"lecture\", \"day\": \"tuesday\", \"startTime\": \"09:00\", \"endTime\": \"10:00\", \"room\": \"U5B-102\" }\n  ],\n  \"status\": \"active\"\n}"
+            },
+            "url": "{{baseUrl}}/institutions/{{institutionId}}/sections"
+          }
+        },
+        {
+          "name": "Enroll Student - Second Attempt",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('second enrollment created', () => pm.response.to.have.status(201));",
+                  "const enrollment = pm.response.json().enrollment || {};",
+                  "if (enrollment.id) pm.environment.set('secondAttemptEnrollmentId', enrollment.id);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"studentMemberId\": \"{{studentMembershipId}}\"\n}" },
+            "url": "{{baseUrl}}/institutions/{{institutionId}}/sections/{{secondAttemptSectionId}}/enrollments"
+          }
+        },
+        {
+          "name": "Create Second Attempt Assessment",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('second assessment created', () => pm.response.to.have.status(201));",
+                  "const assessment = pm.response.json().assessment || {};",
+                  "if (assessment.id) pm.environment.set('secondAssessmentId', assessment.id);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"title\": \"U5B Second Final {{fixtureTag}}\",\n  \"description\": \"Second attempt final assessment\",\n  \"type\": \"final\",\n  \"assessmentDate\": \"2026-06-15\",\n  \"maxScore\": 100,\n  \"weight\": 100\n}"
+            },
+            "url": "{{baseUrl}}/institutions/{{institutionId}}/sections/{{secondAttemptSectionId}}/assessments"
+          }
+        },
+        {
+          "name": "Upsert Second Attempt Result - Passed Final",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('second result upserted', () => pm.response.to.have.status(200));",
+                  "const result = (pm.response.json().assessmentResults || [])[0] || {};",
+                  "if (result.id) pm.environment.set('secondAssessmentResultId', result.id);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "PUT",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"entries\": [\n    { \"enrollmentId\": \"{{secondAttemptEnrollmentId}}\", \"score\": 85, \"note\": \"Passed final second attempt for U5B\" }\n  ]\n}"
+            },
+            "url": "{{baseUrl}}/institutions/{{institutionId}}/sections/{{secondAttemptSectionId}}/assessments/{{secondAssessmentId}}/results"
+          }
+        },
+        {
+          "name": "Publish Second Attempt Assessment",
+          "request": {
+            "method": "PATCH",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"status\": \"published\"\n}" },
+            "url": "{{baseUrl}}/institutions/{{institutionId}}/sections/{{secondAttemptSectionId}}/assessments/{{secondAssessmentId}}/status"
+          }
+        },
+        {
+          "name": "Close Second Attempt Section",
+          "request": {
+            "method": "PATCH",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"status\": \"closed\"\n}" },
+            "url": "{{baseUrl}}/institutions/{{institutionId}}/sections/{{secondAttemptSectionId}}"
+          }
+        },
+        {
+          "name": "Create Active Repeat Target Section",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('repeat target section created', () => pm.response.to.have.status(201));",
+                  "const section = pm.response.json().section || {};",
+                  "if (section.id) pm.environment.set('repeatTargetSectionId', section.id);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"semesterId\": \"{{activeSemesterId}}\",\n  \"subjectId\": \"{{repeatedSubjectId}}\",\n  \"code\": \"C\",\n  \"title\": \"U5B Repeat Target {{fixtureTag}}\",\n  \"instructorMemberId\": null,\n  \"capacity\": 20,\n  \"schedule\": [\n    { \"sessionType\": \"lecture\", \"day\": \"wednesday\", \"startTime\": \"09:00\", \"endTime\": \"10:00\", \"room\": \"U5B-103\" }\n  ],\n  \"status\": \"active\"\n}"
+            },
+            "url": "{{baseUrl}}/institutions/{{institutionId}}/sections",
+            "description": "Use this with the student self-enrollment eligibility preview to check passed_final repeat blocking/allowing."
+          }
+        },
+        {
+          "name": "Create Active Prerequisite Target Section",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('prerequisite target section created', () => pm.response.to.have.status(201));",
+                  "const section = pm.response.json().section || {};",
+                  "if (section.id) pm.environment.set('prereqTargetSectionId', section.id);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"semesterId\": \"{{activeSemesterId}}\",\n  \"subjectId\": \"{{targetSubjectId}}\",\n  \"code\": \"A\",\n  \"title\": \"U5B Prerequisite Target {{fixtureTag}}\",\n  \"instructorMemberId\": null,\n  \"capacity\": 20,\n  \"schedule\": [\n    { \"sessionType\": \"lecture\", \"day\": \"thursday\", \"startTime\": \"09:00\", \"endTime\": \"10:00\", \"room\": \"U5B-104\" }\n  ],\n  \"status\": \"active\"\n}"
+            },
+            "url": "{{baseUrl}}/institutions/{{institutionId}}/sections",
+            "description": "Requires manual prerequisite outcomes if you want best_passed_attempt vs latest_attempt to diverge. See guide."
+          }
+        }
+      ]
+    },
+    {
+      "name": "02 Academic Policy repeatPolicy Modes",
+      "auth": {
+        "type": "bearer",
+        "bearer": [{ "key": "token", "value": "{{ownerToken}}", "type": "string" }]
+      },
+      "item": [
+        {
+          "name": "Get Academic Policy",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('policy returned', () => pm.response.to.have.status(200));",
+                  "const policy = pm.response.json().academicPolicy || {};",
+                  "pm.test('repeatPolicy appears', () => pm.expect(policy.repeatPolicy).to.be.an('object'));"
+                ]
+              }
+            }
+          ],
+          "request": { "method": "GET", "url": "{{baseUrl}}/institutions/{{institutionId}}/academic-policies/{{academicPolicyId}}" }
+        },
+        {
+          "name": "Set GPA all_attempts",
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.test('policy updated or locked after finalized outcomes', () => pm.expect([200, 409]).to.include(pm.response.code));", "if (pm.response.code === 200) pm.expect(pm.response.json().academicPolicy.repeatPolicy.gpaCalculationMethod).to.eql('all_attempts');"] } }],
+          "request": {
+            "method": "PATCH",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"repeatPolicy\": { \"gpaCalculationMethod\": \"all_attempts\" }\n}" },
+            "url": "{{baseUrl}}/institutions/{{institutionId}}/academic-policies/{{academicPolicyId}}"
+          }
+        },
+        {
+          "name": "Set GPA latest_attempt_only",
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.test('policy updated or locked after finalized outcomes', () => pm.expect([200, 409]).to.include(pm.response.code));", "if (pm.response.code === 200) pm.expect(pm.response.json().academicPolicy.repeatPolicy.gpaCalculationMethod).to.eql('latest_attempt_only');"] } }],
+          "request": {
+            "method": "PATCH",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"repeatPolicy\": { \"gpaCalculationMethod\": \"latest_attempt_only\" }\n}" },
+            "url": "{{baseUrl}}/institutions/{{institutionId}}/academic-policies/{{academicPolicyId}}"
+          }
+        },
+        {
+          "name": "Set GPA best_attempt_only",
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.test('policy updated or locked after finalized outcomes', () => pm.expect([200, 409]).to.include(pm.response.code));", "if (pm.response.code === 200) pm.expect(pm.response.json().academicPolicy.repeatPolicy.gpaCalculationMethod).to.eql('best_attempt_only');"] } }],
+          "request": {
+            "method": "PATCH",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"repeatPolicy\": { \"gpaCalculationMethod\": \"best_attempt_only\" }\n}" },
+            "url": "{{baseUrl}}/institutions/{{institutionId}}/academic-policies/{{academicPolicyId}}"
+          }
+        },
+        {
+          "name": "Set GPA replace_failed_with_passed",
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.test('policy updated or locked after finalized outcomes', () => pm.expect([200, 409]).to.include(pm.response.code));", "if (pm.response.code === 200) pm.expect(pm.response.json().academicPolicy.repeatPolicy.gpaCalculationMethod).to.eql('replace_failed_with_passed');"] } }],
+          "request": {
+            "method": "PATCH",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"repeatPolicy\": { \"gpaCalculationMethod\": \"replace_failed_with_passed\" }\n}" },
+            "url": "{{baseUrl}}/institutions/{{institutionId}}/academic-policies/{{academicPolicyId}}"
+          }
+        },
+        {
+          "name": "Set Credits count_once_per_subject",
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.test('policy updated or locked after finalized outcomes', () => pm.expect([200, 409]).to.include(pm.response.code));", "if (pm.response.code === 200) pm.expect(pm.response.json().academicPolicy.repeatPolicy.earnedCreditsMethod).to.eql('count_once_per_subject');"] } }],
+          "request": {
+            "method": "PATCH",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"repeatPolicy\": { \"earnedCreditsMethod\": \"count_once_per_subject\" }\n}" },
+            "url": "{{baseUrl}}/institutions/{{institutionId}}/academic-policies/{{academicPolicyId}}"
+          }
+        },
+        {
+          "name": "Set Credits count_each_passed_attempt",
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.test('policy updated or locked after finalized outcomes', () => pm.expect([200, 409]).to.include(pm.response.code));", "if (pm.response.code === 200) pm.expect(pm.response.json().academicPolicy.repeatPolicy.earnedCreditsMethod).to.eql('count_each_passed_attempt');"] } }],
+          "request": {
+            "method": "PATCH",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"repeatPolicy\": { \"earnedCreditsMethod\": \"count_each_passed_attempt\" }\n}" },
+            "url": "{{baseUrl}}/institutions/{{institutionId}}/academic-policies/{{academicPolicyId}}"
+          }
+        },
+        {
+          "name": "Set Prerequisites latest_attempt",
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.test('policy updated or locked after finalized outcomes', () => pm.expect([200, 409]).to.include(pm.response.code));", "if (pm.response.code === 200) pm.expect(pm.response.json().academicPolicy.repeatPolicy.prerequisiteMethod).to.eql('latest_attempt');"] } }],
+          "request": {
+            "method": "PATCH",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"repeatPolicy\": { \"prerequisiteMethod\": \"latest_attempt\" }\n}" },
+            "url": "{{baseUrl}}/institutions/{{institutionId}}/academic-policies/{{academicPolicyId}}"
+          }
+        },
+        {
+          "name": "Set Prerequisites best_passed_attempt",
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.test('policy updated or locked after finalized outcomes', () => pm.expect([200, 409]).to.include(pm.response.code));", "if (pm.response.code === 200) pm.expect(pm.response.json().academicPolicy.repeatPolicy.prerequisiteMethod).to.eql('best_passed_attempt');"] } }],
+          "request": {
+            "method": "PATCH",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"repeatPolicy\": { \"prerequisiteMethod\": \"best_passed_attempt\" }\n}" },
+            "url": "{{baseUrl}}/institutions/{{institutionId}}/academic-policies/{{academicPolicyId}}"
+          }
+        },
+        {
+          "name": "Set Repeat Flags - Block Both",
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.test('policy updated or locked after finalized outcomes', () => pm.expect([200, 409]).to.include(pm.response.code));", "if (pm.response.code === 200) { const rp = pm.response.json().academicPolicy.repeatPolicy; pm.expect(rp.allowGradeImprovementRepeats).to.eql(false); pm.expect(rp.blockRepeatAfterFinalPass).to.eql(true); }"] } }],
+          "request": {
+            "method": "PATCH",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"repeatPolicy\": {\n    \"allowGradeImprovementRepeats\": false,\n    \"blockRepeatAfterFinalPass\": true\n  }\n}" },
+            "url": "{{baseUrl}}/institutions/{{institutionId}}/academic-policies/{{academicPolicyId}}"
+          }
+        },
+        {
+          "name": "Set Repeat Flags - Allow Both",
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.test('policy updated or locked after finalized outcomes', () => pm.expect([200, 409]).to.include(pm.response.code));", "if (pm.response.code === 200) { const rp = pm.response.json().academicPolicy.repeatPolicy; pm.expect(rp.allowGradeImprovementRepeats).to.eql(true); pm.expect(rp.blockRepeatAfterFinalPass).to.eql(false); }"] } }],
+          "request": {
+            "method": "PATCH",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"repeatPolicy\": {\n    \"allowGradeImprovementRepeats\": true,\n    \"blockRepeatAfterFinalPass\": false\n  }\n}" },
+            "url": "{{baseUrl}}/institutions/{{institutionId}}/academic-policies/{{academicPolicyId}}"
+          }
+        }
+      ]
+    },
+    {
+      "name": "03 Academic Profile Repeat Policy Checks",
+      "auth": {
+        "type": "bearer",
+        "bearer": [{ "key": "token", "value": "{{ownerToken}}", "type": "string" }]
+      },
+      "item": [
+        {
+          "name": "Staff Profile - Default best_attempt_only / count_once_per_subject",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('profile returns 200', () => pm.response.to.have.status(200));",
+                  "const p = pm.response.json().academicProfile || {};",
+                  "const attempts = (p.subjectAttempts || []).filter(a => a.subjectId === pm.environment.get('repeatedSubjectId'));",
+                  "pm.test('repeatPolicy appears on profile', () => {",
+                  "  pm.expect(p.repeatPolicy).to.be.an('object');",
+                  "  pm.expect(p.repeatPolicy.gpaCalculationMethod).to.eql('best_attempt_only');",
+                  "  pm.expect(p.repeatPolicy.earnedCreditsMethod).to.eql('count_once_per_subject');",
+                  "});",
+                  "pm.test('repeated subject attempts stay visible', () => pm.expect(attempts.length).to.be.at.least(2));",
+                  "pm.test('only best repeated attempt is included in official GPA', () => pm.expect(attempts.filter(a => a.includedInOfficialGpa).length).to.eql(1));",
+                  "pm.test('excluded attempt has repeat_policy_best_attempt_only', () => pm.expect(attempts.map(a => a.excludedReasonCode).filter(Boolean)).to.include('repeat_policy_best_attempt_only'));",
+                  "pm.test('earned credits counted once for repeated subject', () => pm.expect(attempts.filter(a => a.earnedCreditsCounted).length).to.eql(1));",
+                  "pm.test('summary earned credits do not double count 3-credit repeated subject', () => pm.expect(p.summary.totalEarnedCreditHours).to.be.at.most(3));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/institutions/{{institutionId}}/students/{{studentMembershipId}}/academic-profile"
+          }
+        },
+        {
+          "name": "Student Self Profile - Repeat Fields Visible",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('self profile returns 200', () => pm.response.to.have.status(200));",
+                  "const p = pm.response.json().academicProfile || {};",
+                  "pm.test('repeatPolicy appears to student', () => pm.expect(p.repeatPolicy).to.be.an('object'));",
+                  "pm.test('subjectAttempts include repeat flags', () => {",
+                  "  const attempt = (p.subjectAttempts || []).find(a => a.subjectId === pm.environment.get('repeatedSubjectId'));",
+                  "  pm.expect(attempt).to.be.an('object');",
+                  "  pm.expect(attempt).to.have.property('includedInOfficialGpa');",
+                  "  pm.expect(attempt).to.have.property('earnedCreditsCounted');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [{ "key": "token", "value": "{{studentToken}}", "type": "string" }]
+            },
+            "method": "GET",
+            "url": "{{baseUrl}}/institutions/{{institutionId}}/students/me/academic-profile"
+          }
+        },
+        {
+          "name": "Profile - AP4 Excluded Explanation Shape",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('profile returns 200', () => pm.response.to.have.status(200));",
+                  "const p = pm.response.json().academicProfile || {};",
+                  "pm.test('excluded explanation array still exists', () => pm.expect(p.excluded).to.be.an('array'));",
+                  "pm.test('excluded entries use reasonCode/message shape', () => {",
+                  "  (p.excluded || []).forEach(e => { pm.expect(e.reasonCode).to.be.a('string'); pm.expect(e).to.have.property('message'); });",
+                  "});",
+                  "const codes = (p.excluded || []).map(e => e.reasonCode);",
+                  "console.log('AP4/repeat excluded reason codes:', codes);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/institutions/{{institutionId}}/students/{{studentMembershipId}}/academic-profile",
+            "description": "Use AP4 fixture flags/manual incomplete sections to verify section_not_closed, assessment_not_published, missing_assessment_result, etc. Repeat-policy GPA exclusions also surface through subjectAttempts."
+          }
+        }
+      ]
+    },
+    {
+      "name": "04 Self-Enrollment Repeat Behavior",
+      "auth": {
+        "type": "bearer",
+        "bearer": [{ "key": "token", "value": "{{studentToken}}", "type": "string" }]
+      },
+      "item": [
+        {
+          "name": "Preview Repeat Target - passed_final Default Blocks",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('eligibility request returns 200 or policy/load conflict is visible', () => pm.expect([200, 409]).to.include(pm.response.code));",
+                  "if (pm.response.code !== 200) return;",
+                  "const e = pm.response.json().eligibility || {};",
+                  "pm.test('same-subject repeat summary exists', () => pm.expect(e.sameSubjectSummary).to.be.an('object'));",
+                  "pm.test('passed_final blocks when blockRepeatAfterFinalPass is true', () => {",
+                  "  pm.expect(e.blockingReasonCodes || []).to.include('same_subject_already_passed_final');",
+                  "  pm.expect(e.sameSubjectSummary.repeatPolicy.blockRepeatAfterFinalPass).to.eql(true);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/institutions/{{institutionId}}/students/me/self-enrollment/sections/{{repeatTargetSectionId}}/eligibility"
+          }
+        },
+        {
+          "name": "Preview Repeat Target - after allowing passed_final",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('eligibility request returns 200 or setup conflict is visible', () => pm.expect([200, 409]).to.include(pm.response.code));",
+                  "if (pm.response.code !== 200) return;",
+                  "const e = pm.response.json().eligibility || {};",
+                  "pm.test('repeatPolicy is reported in policySummary', () => pm.expect(e.policySummary.repeatPolicy).to.be.an('object'));",
+                  "pm.test('passed_final blocker absent when blockRepeatAfterFinalPass is false', () => {",
+                  "  if (e.policySummary.repeatPolicy.blockRepeatAfterFinalPass === false) {",
+                  "    pm.expect(e.blockingReasonCodes || []).to.not.include('same_subject_already_passed_final');",
+                  "  }",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/institutions/{{institutionId}}/students/me/self-enrollment/sections/{{repeatTargetSectionId}}/eligibility",
+            "description": "Run the policy update Set Repeat Flags - Allow Both before finalizing outcomes, or use a fixture whose active policy already has blockRepeatAfterFinalPass=false."
+          }
+        },
+        {
+          "name": "Preview Prerequisite Target",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('eligibility request returns 200 or setup conflict is visible', () => pm.expect([200, 409]).to.include(pm.response.code));",
+                  "if (pm.response.code !== 200) return;",
+                  "const e = pm.response.json().eligibility || {};",
+                  "pm.test('prerequisite method appears', () => pm.expect(e.prerequisiteSummary.method).to.be.a('string'));",
+                  "console.log('Prerequisite checks:', e.prerequisiteChecks);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/institutions/{{institutionId}}/students/me/self-enrollment/sections/{{prereqTargetSectionId}}/eligibility",
+            "description": "For best_passed_attempt vs latest_attempt divergence, create prerequisite subject attempts where an earlier attempt passes and the latest attempt fails, then switch prerequisiteMethod before finalizing or use separate fixtures."
+          }
+        }
+      ]
+    },
+    {
+      "name": "05 Optional Sanity - School Unaffected",
+      "item": [
+        {
+          "name": "School Academic Policy Route Rejects University-Only Policy On School Tenant",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('school tenant does not accept university academic policy', () => pm.expect([400, 403, 409]).to.include(pm.response.code));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [{ "key": "token", "value": "{{ownerToken}}", "type": "string" }]
+            },
+            "method": "GET",
+            "url": "{{baseUrl}}/institutions/{{schoolInstitutionId}}/academic-policies",
+            "description": "Optional only. Fill schoolInstitutionId with a school tenant where the owner/admin has access. Expected 409 from the university-only academic policy service, or auth errors if the actor lacks school access."
+          }
+        }
+      ]
+    }
+  ],
+  "variable": [
+    { "key": "baseUrl", "value": "http://localhost:3000" },
+    { "key": "fixtureTag", "value": "U5B01" }
+  ]
+}

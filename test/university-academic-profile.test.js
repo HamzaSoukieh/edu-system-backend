@@ -379,6 +379,10 @@ test("university academic profile provider returns a safe transcript profile", a
                 percentage: 90,
                 isLatestAttempt: false,
                 isBestAttempt: true,
+                includedInOfficialGpa: true,
+                excludedReasonCode: null,
+                earnedCreditsCounted: true,
+                earnedCreditExcludedReasonCode: null,
             },
             {
                 attemptNumber: 2,
@@ -389,6 +393,10 @@ test("university academic profile provider returns a safe transcript profile", a
                 percentage: 55,
                 isLatestAttempt: true,
                 isBestAttempt: false,
+                includedInOfficialGpa: true,
+                excludedReasonCode: null,
+                earnedCreditsCounted: false,
+                earnedCreditExcludedReasonCode: null,
             },
         ],
         bestOutcomeStatus: "passed_final",
@@ -406,10 +414,23 @@ test("university academic profile provider returns a safe transcript profile", a
         passedThenRepeated: true,
         repeatedAfterFinalPass: true,
     });
+    assert.deepEqual(result.repeatPolicy, {
+        enabled: true,
+        gpaCalculationMethod: "best_attempt_only",
+        earnedCreditsMethod: "count_once_per_subject",
+        prerequisiteMethod: "best_passed_attempt",
+        allowGradeImprovementRepeats: true,
+        blockRepeatAfterFinalPass: true,
+    });
     assert.deepEqual(result.gpaCalculation, {
-        mode: "all_finalized_attempts",
+        mode: "best_attempt_only",
         message:
-            "Cumulative GPA follows the current university academic outcome service behavior and counts all finalized attempts until a repeatPolicy is introduced.",
+            "Cumulative GPA follows the active university repeatPolicy.gpaCalculationMethod: best_attempt_only.",
+    });
+    assert.deepEqual(result.earnedCreditCalculation, {
+        mode: "count_once_per_subject",
+        message:
+            "Earned credits count once per subject using the best passed attempt's credit hours when subjects are repeated.",
     });
     assert.deepEqual(result.warnings, []);
     assert.deepEqual(result.excluded, []);
@@ -515,6 +536,79 @@ test("university academic profile displays failed-then-passed repeated attempts 
     assert.equal(result.subjectOutcomeSummaries[0].failedThenPassed, true);
     assert.equal(result.subjectOutcomeSummaries[0].passedThenRepeated, false);
     assert.equal(result.subjectOutcomeSummaries[0].repeatedAfterFinalPass, false);
+});
+
+test("university academic profile shows repeatPolicy GPA and earned-credit attempt flags", async (t) => {
+    mockProviderDependencies(
+        t,
+        buildDataset({
+            outcomeResult: buildOutcomeResult({
+                repeatPolicy: {
+                    enabled: true,
+                    gpaCalculationMethod: "best_attempt_only",
+                    earnedCreditsMethod: "count_once_per_subject",
+                    prerequisiteMethod: "best_passed_attempt",
+                    allowGradeImprovementRepeats: true,
+                    blockRepeatAfterFinalPass: true,
+                },
+                outcomes: [
+                    buildOutcome({
+                        enrollmentId: enrollmentOneId,
+                        sectionId: sectionOneId,
+                        semesterId: semesterOneId,
+                        subjectId: subjectOneId,
+                        outcomeStatus: "failed",
+                        percentage: 50,
+                        attemptedCreditHours: 3,
+                        earnedCreditHours: 0,
+                        officialEarnedCreditHours: 0,
+                        gradePoint: 0,
+                        qualityPoints: 0,
+                        includedInOfficialGpa: false,
+                        gpaExcludedReasonCode: "repeat_policy_best_attempt_only",
+                        gpaExcludedReason: "Excluded by best attempt policy.",
+                        earnedCreditsCounted: false,
+                    }),
+                    buildOutcome({
+                        enrollmentId: enrollmentTwoId,
+                        sectionId: sectionTwoId,
+                        semesterId: semesterTwoId,
+                        subjectId: subjectOneId,
+                        outcomeStatus: "passed_final",
+                        percentage: 90,
+                        attemptedCreditHours: 3,
+                        earnedCreditHours: 3,
+                        officialEarnedCreditHours: 3,
+                        gradePoint: 4,
+                        qualityPoints: 12,
+                        includedInOfficialGpa: true,
+                        earnedCreditsCounted: true,
+                    }),
+                ],
+                summary: {
+                    attemptedCreditHours: 3,
+                    earnedCreditHours: 3,
+                    qualityPoints: 12,
+                    cumulativeGpa: 4,
+                },
+                subjectOutcomeSummaries: [],
+            }),
+        })
+    );
+
+    const result = await buildUniversityAcademicProfile({
+        institutionId,
+        studentMembershipId,
+        actorUserId,
+        actorMembership,
+    });
+
+    assert.equal(result.repeatPolicy.gpaCalculationMethod, "best_attempt_only");
+    assert.equal(result.summary.cumulativeGpa, 4);
+    assert.equal(result.subjectAttempts[0].includedInOfficialGpa, false);
+    assert.equal(result.subjectAttempts[0].excludedReasonCode, "repeat_policy_best_attempt_only");
+    assert.equal(result.subjectAttempts[1].earnedCreditsCounted, true);
+    assert.equal(result.subjectOutcomeSummaries[0].attempts[0].includedInOfficialGpa, false);
 });
 
 test("university academic profile returns a safe empty profile when no finalized outcomes exist", async (t) => {

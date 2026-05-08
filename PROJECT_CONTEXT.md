@@ -200,6 +200,9 @@
   - university academic profiles now add repeated-attempt display metadata to `subjectAttempts` and decorated best/latest attempt fields to `subjectOutcomeSummaries`
   - the university provider is read-only, university-only, tenant-scoped, staff-readable through current `section.manage` access, and self-readable only by the target student through the shared facade
   - university provider `semesterId` filtering is currently documented as not applied until the outcome service has a semester-scoped source contract
+  - university academic policy now includes `repeatPolicy` for GPA, earned-credit, prerequisite, and same-subject repeat behavior
+  - default university repeat behavior counts the best finalized repeated attempt in official GPA and counts earned credits once per subject
+  - explicit legacy repeat behavior is still available with `repeatPolicy.enabled=false` or configured `all_attempts` / `count_each_passed_attempt`
   - student self-enrollment now exposes:
     - a lightweight active-semester browse/list discovery route for university section candidates
     - a detailed preview eligibility route that remains the canonical explanation surface
@@ -213,7 +216,6 @@
   - current remaining gap:
     - university read-only academic report / transcript APIs comparable to school report-card projections
     - university final academic outcome confirmation / override workflow, if product needs explicit administrative finalization
-    - repeat-grade replacement / forgiveness policy
     - near-graduation exception logic backed by a future department/program graduation requirement model
 - School Structure
   - class level create/list/get/update

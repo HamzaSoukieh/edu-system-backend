@@ -3,11 +3,18 @@ const Assessment = require("../models/Assessment");
 const AssessmentResult = require("../models/AssessmentResult");
 const Enrollment = require("../models/Enrollment");
 const Section = require("../models/Section");
+const Semester = require("../models/Semester");
 const Subject = require("../models/Subject");
 const {
     POLICY_EPSILON,
     resolveAcademicPolicyForSemester,
 } = require("./universityAcademicPolicyService");
+const {
+    applyEarnedCreditRepeatPolicy,
+    applyGpaRepeatPolicy,
+    compareAttemptsByAcademicOrder,
+    resolveRepeatPolicy,
+} = require("./universityRepeatPolicyService");
 
 const FINALIZED_SECTION_WEIGHT_TOTAL = 100;
 const CLOSED_SECTION_STATUS = "closed";
@@ -194,13 +201,16 @@ function classifyAcademicOutcome({ percentage, outcomeThresholds }) {
 }
 
 function buildOutcomeSummary(outcomes) {
-    // TODO/verify: cumulative GPA currently counts all finalized attempts until
-    // repeat-grade replacement / forgiveness policy is introduced.
     const totals = outcomes.reduce(
         (accumulator, outcome) => {
-            accumulator.attemptedCreditHours += outcome.attemptedCreditHours;
-            accumulator.earnedCreditHours += outcome.earnedCreditHours;
-            accumulator.qualityPoints += outcome.qualityPoints;
+            if (outcome.includedInOfficialGpa !== false) {
+                accumulator.attemptedCreditHours += outcome.attemptedCreditHours;
+                accumulator.qualityPoints += outcome.qualityPoints;
+            }
+
+            accumulator.earnedCreditHours += Number.isFinite(outcome.officialEarnedCreditHours)
+                ? outcome.officialEarnedCreditHours
+                : outcome.earnedCreditHours;
             return accumulator;
         },
         {
@@ -282,6 +292,20 @@ function resolveBestAcademicOutcome(outcomes = []) {
     }
 
     return [...comparableOutcomes].sort(compareAcademicOutcomes)[0] || null;
+}
+
+function resolveLatestAcademicOutcome(outcomes = [], semesterById = new Map()) {
+    const comparableOutcomes = Array.isArray(outcomes)
+        ? outcomes.filter((outcome) => resolveAcademicOutcomeStatusPriority(outcome?.outcomeStatus) > 0)
+        : [];
+
+    if (!comparableOutcomes.length) {
+        return null;
+    }
+
+    return [...comparableOutcomes].sort((left, right) =>
+        compareAttemptsByAcademicOrder(right, left, semesterById)
+    )[0] || null;
 }
 
 function resolveBestAcademicOutcomeStatus(outcomes = []) {
@@ -402,7 +426,7 @@ async function listStudentAcademicOutcomes({ institutionId, studentMemberId }) {
         institutionId,
         studentMemberId,
     })
-        .select("_id institutionId sectionId studentMemberId status")
+        .select("_id institutionId sectionId studentMemberId status enrolledAt createdAt")
         .lean();
 
     if (!enrollments.length) {
@@ -410,6 +434,7 @@ async function listStudentAcademicOutcomes({ institutionId, studentMemberId }) {
             outcomes: [],
             summary: buildOutcomeSummary([]),
             subjectOutcomeSummaries: [],
+            repeatPolicy: resolveRepeatPolicy({}),
             excluded: [],
         };
     }
@@ -418,7 +443,7 @@ async function listStudentAcademicOutcomes({ institutionId, studentMemberId }) {
         institutionId,
         _id: { $in: enrollments.map((enrollment) => enrollment.sectionId) },
     })
-        .select("_id institutionId semesterId subjectId code title status")
+        .select("_id institutionId semesterId subjectId code title status createdAt updatedAt")
         .lean();
     const sectionById = new Map(sections.map((section) => [section._id.toString(), section]));
     const excluded = [];
@@ -451,11 +476,13 @@ async function listStudentAcademicOutcomes({ institutionId, studentMemberId }) {
             outcomes: [],
             summary: buildOutcomeSummary([]),
             subjectOutcomeSummaries: [],
+            repeatPolicy: resolveRepeatPolicy({}),
             excluded: uniqueExclusions(excluded),
         };
     }
 
     const subjectIds = [...new Set(closedSections.map((section) => normalizeId(section.subjectId)).filter(Boolean))];
+    const closedSemesterIds = [...new Set(closedSections.map((section) => normalizeId(section.semesterId)).filter(Boolean))];
     const subjects = await Subject.find({
         institutionId,
         _id: { $in: subjectIds },
@@ -463,6 +490,15 @@ async function listStudentAcademicOutcomes({ institutionId, studentMemberId }) {
         .select("_id institutionId code name creditHours")
         .lean();
     const subjectById = new Map(subjects.map((subject) => [subject._id.toString(), subject]));
+    const semesters = closedSemesterIds.length
+        ? await Semester.find({
+              institutionId,
+              _id: { $in: closedSemesterIds },
+          })
+              .select("_id institutionId startDate")
+              .lean()
+        : [];
+    const semesterById = new Map(semesters.map((semester) => [semester._id.toString(), semester]));
 
     const allSectionAssessments = await Assessment.find({
         institutionId,
@@ -555,6 +591,7 @@ async function listStudentAcademicOutcomes({ institutionId, studentMemberId }) {
             outcomes: [],
             summary: buildOutcomeSummary([]),
             subjectOutcomeSummaries: [],
+            repeatPolicy: resolveRepeatPolicy({}),
             excluded: uniqueExclusions(excluded),
         };
     }
@@ -581,6 +618,7 @@ async function listStudentAcademicOutcomes({ institutionId, studentMemberId }) {
             outcomes: [],
             summary: buildOutcomeSummary([]),
             subjectOutcomeSummaries: [],
+            repeatPolicy: resolveRepeatPolicy({}),
             excluded: uniqueExclusions(excluded),
         };
     }
@@ -732,13 +770,50 @@ async function listStudentAcademicOutcomes({ institutionId, studentMemberId }) {
             earnedCreditHours,
             gradePoint,
             qualityPoints,
+            finalizedAt: section.updatedAt || null,
+            completedAt: section.updatedAt || null,
+            createdAt: enrollment.enrolledAt || enrollment.createdAt || section.createdAt || null,
         });
     }
 
-    return {
+    const latestOutcome = resolveLatestAcademicOutcome(outcomes, semesterById);
+    const activeRepeatPolicy = resolveRepeatPolicy(
+        policyBySemesterId.get(normalizeId(latestOutcome?.semesterId)) || {}
+    );
+    const gpaClassifiedOutcomes = applyGpaRepeatPolicy({
         outcomes,
-        summary: buildOutcomeSummary(outcomes),
-        subjectOutcomeSummaries: buildSubjectOutcomeSummaries(outcomes),
+        repeatPolicy: activeRepeatPolicy,
+        semesterById,
+        resolveBestAttempt: resolveBestAcademicOutcome,
+    });
+    const officialOutcomes = applyEarnedCreditRepeatPolicy({
+        outcomes: gpaClassifiedOutcomes,
+        repeatPolicy: activeRepeatPolicy,
+        semesterById,
+        resolveBestAttempt: resolveBestAcademicOutcome,
+    });
+
+    for (const outcome of officialOutcomes) {
+        if (outcome.gpaExcludedReasonCode) {
+            excluded.push(
+                buildExclusion({
+                    reasonCode: outcome.gpaExcludedReasonCode,
+                    message: outcome.gpaExcludedReason,
+                    enrollmentId: outcome.enrollmentId,
+                    sectionId: outcome.sectionId,
+                    semesterId: outcome.semesterId,
+                    subjectId: outcome.subjectId,
+                    studentMembershipId: studentMemberId,
+                })
+            );
+        }
+    }
+
+    return {
+        outcomes: officialOutcomes,
+        summary: buildOutcomeSummary(officialOutcomes),
+        subjectOutcomeSummaries: buildSubjectOutcomeSummaries(officialOutcomes),
+        repeatPolicy: activeRepeatPolicy,
         excluded: uniqueExclusions(excluded),
     };
 }
@@ -752,6 +827,7 @@ module.exports = {
     isFinalizedWeightTotal,
     resolveBestAcademicOutcome,
     resolveBestAcademicOutcomeStatus,
+    resolveLatestAcademicOutcome,
     resolveFinalizedEnrollmentMetrics,
     resolveGradePointFromBands,
     listStudentAcademicOutcomes,

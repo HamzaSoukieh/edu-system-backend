@@ -669,6 +669,13 @@
 - Academic outcome foundation checks:
   - university academic policy/outcome implementation files are internally university-prefixed
   - repeated same-subject attempts should resolve through one stable best-outcome meaning for eligibility reuse
+  - default `repeatPolicy.gpaCalculationMethod = best_attempt_only` should include only the best eligible finalized repeated attempt in official GPA
+  - `all_attempts`, `latest_attempt_only`, `best_attempt_only`, and `replace_failed_with_passed` GPA methods should classify repeated attempts consistently
+  - default `repeatPolicy.earnedCreditsMethod = count_once_per_subject` should not double-count repeated passed subject credits
+  - `count_each_passed_attempt` should preserve legacy earned-credit behavior only when explicitly configured
+  - repeated attempts excluded from official GPA by repeat policy should remain visible in university academic profile `subjectAttempts`
+  - prerequisite checks should use `best_passed_attempt` by default and `latest_attempt` when configured
+  - self-enrollment same-subject repeat checks should respect `allowGradeImprovementRepeats` and `blockRepeatAfterFinalPass`
   - closed sections with missing student published scores should be excluded from finalized outcome meaning
   - closed sections with published weight totals that are not academically finalized should be excluded from finalized outcome meaning
   - cumulative GPA should stay stable at policy-sensitive numeric boundaries
@@ -1082,6 +1089,13 @@
   - result: 69 passing
   - ran `node --test test/academic-profile.test.js test/school-academic-profile.test.js test/university-academic-profile.test.js test/university-academic-outcome-foundation.test.js test/school-academic-policy.test.js test/school-outcome.test.js test/school-promotion.test.js test/school-report-card.test.js test/school-final-outcome.test.js test/university-academic-policy-foundation.test.js test/self-enrollment-eligibility.test.js test/self-enrollment-browse.test.js test/self-enrollment-write.test.js`
   - result: 165 passing
+- 2026-05-07 U5B admin-configurable university repeatPolicy:
+  - added `InstitutionAcademicPolicy.repeatPolicy` validation/defaults
+  - applied repeat policy to university official GPA inclusion, earned-credit counting, prerequisites, self-enrollment same-subject repeat checks, and academic profile attempt display
+  - ran `node --test test/university-academic-policy-foundation.test.js test/university-academic-outcome-foundation.test.js test/self-enrollment-eligibility.test.js test/university-academic-profile.test.js`
+  - result: 70 passing
+  - ran `node --test test/academic-profile.test.js test/school-academic-profile.test.js test/university-academic-profile.test.js test/university-academic-outcome-foundation.test.js test/school-academic-policy.test.js test/school-outcome.test.js test/school-promotion.test.js test/school-report-card.test.js test/school-final-outcome.test.js test/university-academic-policy-foundation.test.js test/self-enrollment-eligibility.test.js test/self-enrollment-browse.test.js test/self-enrollment-write.test.js`
+  - result: 180 passing
 - TODO:
   - add real sample responses when helpful
   - add attendance response examples after first manual Postman pass

@@ -302,6 +302,92 @@ test("resolveSelfEnrollmentEligibility blocks missing prerequisites", () => {
     );
 });
 
+test("prerequisiteMethod best_passed_attempt satisfies prerequisite if any passed attempt exists", () => {
+    const decision = resolveSelfEnrollmentEligibility(
+        buildEligibilityContext({
+            policy: { minimumEnrollmentCreditHours: 3 },
+            targetSubject: {
+                prerequisiteSubjectIds: ["subject-prereq-1"],
+            },
+            prerequisiteSubjects: [
+                {
+                    _id: "subject-prereq-1",
+                    code: "CS101",
+                    name: "Intro to CS",
+                },
+            ],
+            academicOutcomeSummary: {
+                outcomes: [
+                    {
+                        enrollmentId: "older-pass",
+                        subjectId: "subject-prereq-1",
+                        outcomeStatus: "passed_final",
+                        percentage: 80,
+                    },
+                    {
+                        enrollmentId: "later-fail",
+                        subjectId: "subject-prereq-1",
+                        outcomeStatus: "failed",
+                        percentage: 50,
+                    },
+                ],
+                summary: { cumulativeGpa: 2.5 },
+            },
+        })
+    );
+
+    assert.equal(decision.isEligible, true);
+    assert.equal(decision.prerequisiteSummary.method, "best_passed_attempt");
+    assert.equal(decision.prerequisiteChecks[0].met, true);
+});
+
+test("prerequisiteMethod latest_attempt evaluates the latest prerequisite attempt", () => {
+    const decision = resolveSelfEnrollmentEligibility(
+        buildEligibilityContext({
+            policy: {
+                minimumEnrollmentCreditHours: 3,
+                repeatPolicy: {
+                    prerequisiteMethod: "latest_attempt",
+                },
+            },
+            targetSubject: {
+                prerequisiteSubjectIds: ["subject-prereq-1"],
+            },
+            prerequisiteSubjects: [
+                {
+                    _id: "subject-prereq-1",
+                    code: "CS101",
+                    name: "Intro to CS",
+                },
+            ],
+            academicOutcomeSummary: {
+                outcomes: [
+                    {
+                        enrollmentId: "older-pass",
+                        subjectId: "subject-prereq-1",
+                        outcomeStatus: "passed_final",
+                        percentage: 80,
+                        createdAt: new Date("2025-01-01T00:00:00.000Z"),
+                    },
+                    {
+                        enrollmentId: "later-fail",
+                        subjectId: "subject-prereq-1",
+                        outcomeStatus: "failed",
+                        percentage: 50,
+                        createdAt: new Date("2026-01-01T00:00:00.000Z"),
+                    },
+                ],
+                summary: { cumulativeGpa: 2.5 },
+            },
+        })
+    );
+
+    assert.equal(decision.isEligible, false);
+    assert.deepEqual(decision.blockingReasonCodes, ["missing_prerequisites"]);
+    assert.equal(decision.prerequisiteSummary.method, "latest_attempt");
+    assert.equal(decision.prerequisiteChecks[0].outcomeStatus, "failed");
+});
+
 test("resolveSelfEnrollmentEligibility blocks a subject already passed final", () => {
     const decision = resolveSelfEnrollmentEligibility(
         buildEligibilityContext({
@@ -321,6 +407,71 @@ test("resolveSelfEnrollmentEligibility blocks a subject already passed final", (
     assert.deepEqual(decision.blockingReasonCodes, ["same_subject_already_passed_final"]);
     assert.equal(decision.sameSubjectSummary.bestOutcomeStatus, "passed_final");
     assert.equal(decision.sameSubjectSummary.blockingReasonCode, "same_subject_already_passed_final");
+});
+
+test("allowGradeImprovementRepeats controls repeats after passed_improvable", () => {
+    const allowedDecision = resolveSelfEnrollmentEligibility(
+        buildEligibilityContext({
+            policy: { minimumEnrollmentCreditHours: 3 },
+            academicOutcomeSummary: {
+                outcomes: [
+                    {
+                        subjectId: "subject-target-1",
+                        outcomeStatus: "passed_improvable",
+                    },
+                ],
+                summary: { cumulativeGpa: 2.5 },
+            },
+        })
+    );
+    const blockedDecision = resolveSelfEnrollmentEligibility(
+        buildEligibilityContext({
+            policy: {
+                minimumEnrollmentCreditHours: 3,
+                repeatPolicy: {
+                    allowGradeImprovementRepeats: false,
+                },
+            },
+            academicOutcomeSummary: {
+                outcomes: [
+                    {
+                        subjectId: "subject-target-1",
+                        outcomeStatus: "passed_improvable",
+                    },
+                ],
+                summary: { cumulativeGpa: 2.5 },
+            },
+        })
+    );
+
+    assert.equal(allowedDecision.isEligible, true);
+    assert.equal(blockedDecision.isEligible, false);
+    assert.deepEqual(blockedDecision.blockingReasonCodes, ["repeat_blocked_grade_improvement_not_allowed"]);
+});
+
+test("blockRepeatAfterFinalPass controls repeats after passed_final", () => {
+    const decision = resolveSelfEnrollmentEligibility(
+        buildEligibilityContext({
+            policy: {
+                minimumEnrollmentCreditHours: 3,
+                repeatPolicy: {
+                    blockRepeatAfterFinalPass: false,
+                },
+            },
+            academicOutcomeSummary: {
+                outcomes: [
+                    {
+                        subjectId: "subject-target-1",
+                        outcomeStatus: "passed_final",
+                    },
+                ],
+                summary: { cumulativeGpa: 2.5 },
+            },
+        })
+    );
+
+    assert.equal(decision.isEligible, true);
+    assert.equal(decision.sameSubjectSummary.blockingReasonCode, null);
 });
 
 test("resolveSelfEnrollmentEligibility blocks projected load below the policy minimum", () => {

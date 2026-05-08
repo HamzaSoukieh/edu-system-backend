@@ -226,3 +226,17 @@
 - Decision: Expose shared academic profile routes through one facade service that loads `Institution.type` and delegates to school or university providers.
 - Reason: The platform needs one multi-tenant academic profile surface, but school and university academic meaning remains different.
 - Notes: The facade must stay read-only and must not become a mixed calculation engine. School calculations stay in school report-card/outcome/final-outcome services through `buildSchoolAcademicProfile`; university GPA/credit behavior stays in `universityAcademicOutcomeService` through `buildUniversityAcademicProfile`.
+
+## D038 - University Repeat Policy Is Admin Configurable
+- Status: Confirmed
+- Decision: Store university repeat behavior inside `InstitutionAcademicPolicy.repeatPolicy`.
+- Reason: Institutions need configurable repeated-attempt treatment without hardcoding one global GPA, credit, prerequisite, or repeat-enrollment rule.
+- Notes:
+  - Default GPA repeat method is `best_attempt_only`.
+  - Admin/owner can choose `all_attempts`, `latest_attempt_only`, `best_attempt_only`, or `replace_failed_with_passed`.
+  - Default earned-credit method is `count_once_per_subject`; legacy repeated-pass credit summing is available through explicit `count_each_passed_attempt`.
+  - Default prerequisite method is `best_passed_attempt`; `latest_attempt` is available when a university wants latest-attempt prerequisite evaluation.
+  - `blockRepeatAfterFinalPass` controls whether `passed_final` blocks future self-enrollment repeats.
+  - `allowGradeImprovementRepeats` controls whether `passed_improvable` can be repeated.
+  - Old policies without `repeatPolicy` resolve through the new academic defaults. Explicit `repeatPolicy.enabled=false` preserves legacy GPA/credit behavior as closely as possible.
+  - This is university-only and does not affect school academic policy, report-card, promotion, or final-outcome modules.

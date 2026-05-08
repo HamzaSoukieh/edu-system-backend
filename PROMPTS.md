@@ -202,6 +202,20 @@ Key result:
 - `gpaCalculation` documents that current cumulative GPA still follows existing outcome-service behavior and counts all finalized attempts until repeatPolicy exists
 ```
 
+## Recent Prompt - U5B Admin-Configurable University repeatPolicy
+```text
+Implement university-only `InstitutionAcademicPolicy.repeatPolicy` so admins can configure repeated-attempt behavior.
+
+Key result:
+- default GPA repeat behavior is `best_attempt_only`
+- default earned-credit behavior is `count_once_per_subject`
+- explicit legacy behavior remains available through `all_attempts` and `count_each_passed_attempt`, or `enabled=false`
+- prerequisites support `best_passed_attempt` and `latest_attempt`
+- self-enrollment respects `allowGradeImprovementRepeats` and `blockRepeatAfterFinalPass`
+- university academic profile surfaces active repeatPolicy plus attempt-level GPA/credit inclusion flags
+- school academic modules remain unchanged
+```
+
 ## Recent Prompt - AP4 Academic Profile Explanations
 ```text
 Add structured excluded/incomplete explanations to shared academic profile responses.

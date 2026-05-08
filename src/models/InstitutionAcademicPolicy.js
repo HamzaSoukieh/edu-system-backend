@@ -53,6 +53,50 @@ const outcomeThresholdSchema = new mongoose.Schema(
     { _id: false }
 );
 
+const repeatPolicySchema = new mongoose.Schema(
+    {
+        enabled: {
+            type: Boolean,
+            required: true,
+            default: true,
+        },
+        gpaCalculationMethod: {
+            type: String,
+            enum: [
+                "all_attempts",
+                "latest_attempt_only",
+                "best_attempt_only",
+                "replace_failed_with_passed",
+            ],
+            required: true,
+            default: "best_attempt_only",
+        },
+        earnedCreditsMethod: {
+            type: String,
+            enum: ["count_once_per_subject", "count_each_passed_attempt"],
+            required: true,
+            default: "count_once_per_subject",
+        },
+        prerequisiteMethod: {
+            type: String,
+            enum: ["best_passed_attempt", "latest_attempt"],
+            required: true,
+            default: "best_passed_attempt",
+        },
+        allowGradeImprovementRepeats: {
+            type: Boolean,
+            required: true,
+            default: true,
+        },
+        blockRepeatAfterFinalPass: {
+            type: Boolean,
+            required: true,
+            default: true,
+        },
+    },
+    { _id: false }
+);
+
 const institutionAcademicPolicySchema = new mongoose.Schema(
     {
         institutionId: {
@@ -108,6 +152,10 @@ const institutionAcademicPolicySchema = new mongoose.Schema(
             type: [gpaBandSchema],
             required: true,
             default: [],
+        },
+        repeatPolicy: {
+            type: repeatPolicySchema,
+            default: () => ({}),
         },
         createdByUserId: {
             type: mongoose.Schema.Types.ObjectId,

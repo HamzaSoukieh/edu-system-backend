@@ -1,0 +1,232 @@
+{
+  "info": {
+    "_postman_id": "f772b2d8-u5b-repeat-policy-api-smoke",
+    "name": "Edu SaaS - U5B Repeat Policy API Smoke",
+    "description": "Minimal U5B smoke checks for only the changed API surfaces: university academic policy repeatPolicy, university academic profile repeat metadata, and university self-enrollment eligibility repeat/prerequisite policy metadata. This assumes fixture IDs already exist.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "01 Owner/Admin Login",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('login returns token', () => {",
+              "  pm.response.to.have.status(200);",
+              "  pm.expect(pm.response.json().accessToken).to.be.a('string');",
+              "});",
+              "pm.environment.set('ownerToken', pm.response.json().accessToken);"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "auth": { "type": "noauth" },
+        "method": "POST",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"email\": \"{{ownerEmail}}\",\n  \"password\": \"{{ownerPassword}}\"\n}"
+        },
+        "url": "{{baseUrl}}/auth/login"
+      }
+    },
+    {
+      "name": "02 Get Academic Policy - repeatPolicy Present",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('policy returns repeatPolicy', () => {",
+              "  pm.response.to.have.status(200);",
+              "  const p = pm.response.json().academicPolicy;",
+              "  pm.expect(p).to.be.an('object');",
+              "  pm.expect(p.repeatPolicy).to.be.an('object');",
+              "  pm.expect(p.repeatPolicy.gpaCalculationMethod).to.be.oneOf(['all_attempts', 'latest_attempt_only', 'best_attempt_only', 'replace_failed_with_passed']);",
+              "  pm.expect(p.repeatPolicy.earnedCreditsMethod).to.be.oneOf(['count_once_per_subject', 'count_each_passed_attempt']);",
+              "  pm.expect(p.repeatPolicy.prerequisiteMethod).to.be.oneOf(['best_passed_attempt', 'latest_attempt']);",
+              "});"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "auth": {
+          "type": "bearer",
+          "bearer": [{ "key": "token", "value": "{{ownerToken}}", "type": "string" }]
+        },
+        "method": "GET",
+        "url": "{{baseUrl}}/institutions/{{institutionId}}/academic-policies/{{academicPolicyId}}"
+      }
+    },
+    {
+      "name": "03 Update Academic Policy repeatPolicy - Best Attempt Default Shape",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('repeatPolicy update succeeds or locked-policy rule is visible', () => pm.expect([200, 409]).to.include(pm.response.code));",
+              "if (pm.response.code === 200) {",
+              "  const rp = pm.response.json().academicPolicy.repeatPolicy;",
+              "  pm.expect(rp.gpaCalculationMethod).to.eql('best_attempt_only');",
+              "  pm.expect(rp.earnedCreditsMethod).to.eql('count_once_per_subject');",
+              "  pm.expect(rp.prerequisiteMethod).to.eql('best_passed_attempt');",
+              "  pm.expect(rp.allowGradeImprovementRepeats).to.eql(true);",
+              "  pm.expect(rp.blockRepeatAfterFinalPass).to.eql(true);",
+              "}"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "auth": {
+          "type": "bearer",
+          "bearer": [{ "key": "token", "value": "{{ownerToken}}", "type": "string" }]
+        },
+        "method": "PATCH",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"repeatPolicy\": {\n    \"enabled\": true,\n    \"gpaCalculationMethod\": \"best_attempt_only\",\n    \"earnedCreditsMethod\": \"count_once_per_subject\",\n    \"prerequisiteMethod\": \"best_passed_attempt\",\n    \"allowGradeImprovementRepeats\": true,\n    \"blockRepeatAfterFinalPass\": true\n  }\n}"
+        },
+        "url": "{{baseUrl}}/institutions/{{institutionId}}/academic-policies/{{academicPolicyId}}",
+        "description": "If this returns 409, the policy has finalized outcomes already. That is expected current behavior for locked policy fields."
+      }
+    },
+    {
+      "name": "04 Get Academic Profile - Repeat Metadata",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('profile returns repeat metadata', () => {",
+              "  pm.response.to.have.status(200);",
+              "  const p = pm.response.json().academicProfile;",
+              "  pm.expect(p).to.be.an('object');",
+              "  pm.expect(p.repeatPolicy).to.be.an('object');",
+              "  pm.expect(p.subjectAttempts).to.be.an('array');",
+              "});",
+              "const p = pm.response.json().academicProfile || {};",
+              "const repeated = (p.subjectAttempts || []).filter(a => a.subjectId === pm.environment.get('repeatedSubjectId'));",
+              "if (repeated.length) {",
+              "  pm.test('repeated attempts expose GPA/credit flags', () => {",
+              "    repeated.forEach(a => {",
+              "      pm.expect(a).to.have.property('includedInOfficialGpa');",
+              "      pm.expect(a).to.have.property('earnedCreditsCounted');",
+              "      pm.expect(a).to.have.property('officialEarnedCreditHours');",
+              "    });",
+              "  });",
+              "}"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "auth": {
+          "type": "bearer",
+          "bearer": [{ "key": "token", "value": "{{ownerToken}}", "type": "string" }]
+        },
+        "method": "GET",
+        "url": "{{baseUrl}}/institutions/{{institutionId}}/students/{{studentMembershipId}}/academic-profile"
+      }
+    },
+    {
+      "name": "05 Student Login",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('student login returns token', () => {",
+              "  pm.response.to.have.status(200);",
+              "  pm.expect(pm.response.json().accessToken).to.be.a('string');",
+              "});",
+              "pm.environment.set('studentToken', pm.response.json().accessToken);"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "auth": { "type": "noauth" },
+        "method": "POST",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"email\": \"{{studentEmail}}\",\n  \"password\": \"{{studentPassword}}\"\n}"
+        },
+        "url": "{{baseUrl}}/auth/login"
+      }
+    },
+    {
+      "name": "06 Self-Enrollment Eligibility - Repeat Policy Metadata",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('eligibility returns repeat policy metadata', () => {",
+              "  pm.response.to.have.status(200);",
+              "  const e = pm.response.json().eligibility;",
+              "  pm.expect(e).to.be.an('object');",
+              "  pm.expect(e.policySummary.repeatPolicy).to.be.an('object');",
+              "  pm.expect(e.sameSubjectSummary.repeatPolicy).to.be.an('object');",
+              "});",
+              "console.log('blockingReasonCodes:', (pm.response.json().eligibility || {}).blockingReasonCodes);"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "auth": {
+          "type": "bearer",
+          "bearer": [{ "key": "token", "value": "{{studentToken}}", "type": "string" }]
+        },
+        "method": "GET",
+        "url": "{{baseUrl}}/institutions/{{institutionId}}/students/me/self-enrollment/sections/{{repeatTargetSectionId}}/eligibility",
+        "description": "Use a same-subject target section. This is where allowGradeImprovementRepeats/blockRepeatAfterFinalPass show up."
+      }
+    },
+    {
+      "name": "07 Self-Enrollment Eligibility - Prerequisite Method Metadata",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('eligibility returns prerequisite method', () => {",
+              "  pm.response.to.have.status(200);",
+              "  const e = pm.response.json().eligibility;",
+              "  pm.expect(e.prerequisiteSummary).to.be.an('object');",
+              "  pm.expect(e.prerequisiteSummary.method).to.be.oneOf(['best_passed_attempt', 'latest_attempt']);",
+              "});"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "auth": {
+          "type": "bearer",
+          "bearer": [{ "key": "token", "value": "{{studentToken}}", "type": "string" }]
+        },
+        "method": "GET",
+        "url": "{{baseUrl}}/institutions/{{institutionId}}/students/me/self-enrollment/sections/{{prereqTargetSectionId}}/eligibility",
+        "description": "Use a target section whose subject has prerequisiteSubjectIds."
+      }
+    }
+  ],
+  "variable": [
+    { "key": "baseUrl", "value": "http://localhost:3000" }
+  ]
+}

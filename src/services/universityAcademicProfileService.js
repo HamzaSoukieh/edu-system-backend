@@ -8,15 +8,11 @@ const Semester = require("../models/Semester");
 const Subject = require("../models/Subject");
 const { ROLE_PERMISSIONS } = require("../auth/permissions");
 const universityAcademicOutcomeService = require("./universityAcademicOutcomeService");
+const { resolveRepeatPolicy } = require("./universityRepeatPolicyService");
 
 const UNIVERSITY_ACADEMIC_PROFILE_READ_PERMISSION = "section.manage";
 const ACTIVE_MEMBERSHIP_STATUS = Membership.schema.path("status").defaultValue;
 const PASSING_OUTCOME_STATUSES = ["passed_improvable", "passed_final"];
-const GPA_CALCULATION_NOTE = {
-    mode: "all_finalized_attempts",
-    message:
-        "Cumulative GPA follows the current university academic outcome service behavior and counts all finalized attempts until a repeatPolicy is introduced.",
-};
 const ACADEMIC_PROFILE_ACCESS_MODES = {
     self: "self",
     staff: "staff",
@@ -290,8 +286,15 @@ function buildSubjectAttempt(outcome, { sectionById, subjectById, semesterById }
         percentage: outcome.percentage ?? null,
         attemptedCreditHours: outcome.attemptedCreditHours ?? 0,
         earnedCreditHours: outcome.earnedCreditHours ?? 0,
+        officialEarnedCreditHours: outcome.officialEarnedCreditHours ?? outcome.earnedCreditHours ?? 0,
+        earnedCreditsCounted: outcome.earnedCreditsCounted !== false && (outcome.earnedCreditHours ?? 0) > 0,
+        earnedCreditExcludedReasonCode: outcome.earnedCreditExcludedReasonCode || null,
+        earnedCreditExcludedReason: outcome.earnedCreditExcludedReason || null,
         gradePoint: outcome.gradePoint ?? null,
         qualityPoints: outcome.qualityPoints ?? 0,
+        includedInOfficialGpa: outcome.includedInOfficialGpa !== false,
+        excludedReasonCode: outcome.gpaExcludedReasonCode || null,
+        excludedReason: outcome.gpaExcludedReason || null,
     };
 }
 
@@ -381,6 +384,10 @@ function buildSubjectSummaryAttempt(attempt) {
         percentage: attempt.percentage,
         isLatestAttempt: attempt.isLatestAttempt,
         isBestAttempt: attempt.isBestAttempt,
+        includedInOfficialGpa: attempt.includedInOfficialGpa,
+        excludedReasonCode: attempt.excludedReasonCode,
+        earnedCreditsCounted: attempt.earnedCreditsCounted,
+        earnedCreditExcludedReasonCode: attempt.earnedCreditExcludedReasonCode,
     };
 }
 
@@ -577,6 +584,23 @@ function buildExcludedExplanations(outcomeResult = {}) {
         : [];
 }
 
+function buildGpaCalculationNote(repeatPolicy) {
+    return {
+        mode: repeatPolicy.gpaCalculationMethod,
+        message: `Cumulative GPA follows the active university repeatPolicy.gpaCalculationMethod: ${repeatPolicy.gpaCalculationMethod}.`,
+    };
+}
+
+function buildEarnedCreditCalculationNote(repeatPolicy) {
+    return {
+        mode: repeatPolicy.earnedCreditsMethod,
+        message:
+            repeatPolicy.earnedCreditsMethod === "count_once_per_subject"
+                ? "Earned credits count once per subject using the best passed attempt's credit hours when subjects are repeated."
+                : "Earned credits count each passed attempt under the active repeat policy.",
+    };
+}
+
 async function buildUniversityAcademicProfile({
     institutionId,
     studentMembershipId,
@@ -614,6 +638,7 @@ async function buildUniversityAcademicProfile({
     ]);
 
     const outcomes = outcomeResult.outcomes || [];
+    const repeatPolicy = resolveRepeatPolicy(outcomeResult);
     const warnings = Array.isArray(outcomeResult.warnings) ? [...outcomeResult.warnings] : [];
     const excluded = buildExcludedExplanations(outcomeResult);
     if (!outcomes.length) {
@@ -662,7 +687,9 @@ async function buildUniversityAcademicProfile({
         }),
         subjectAttempts,
         subjectOutcomeSummaries,
-        gpaCalculation: GPA_CALCULATION_NOTE,
+        repeatPolicy,
+        gpaCalculation: buildGpaCalculationNote(repeatPolicy),
+        earnedCreditCalculation: buildEarnedCreditCalculationNote(repeatPolicy),
         warnings,
         excluded,
     };

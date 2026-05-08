@@ -4,6 +4,7 @@ const assert = require("node:assert/strict");
 const {
     validateOutcomeThresholds,
     validateGpaBands,
+    validateRepeatPolicyInput,
     validateCreateAcademicPolicyInput,
     resolveAllowedMaxCreditHours,
 } = require("../src/services/universityAcademicPolicyService");
@@ -91,6 +92,69 @@ test("validateCreateAcademicPolicyInput accepts legacy minCreditHours as minimum
     });
 
     assert.equal(input.minimumEnrollmentCreditHours, 12);
+});
+
+test("old policies without repeatPolicy resolve to the default repeatPolicy on create validation", () => {
+    const input = validateCreateAcademicPolicyInput({
+        name: "Policy A",
+        effectiveFromSemesterId: "507f1f77bcf86cd799439011",
+        minimumEnrollmentCreditHours: 12,
+        defaultMaxCreditHours: 18,
+        overloadMinGpa: 3,
+        overloadMaxCreditHours: 21,
+        outcomeThresholds: {
+            failedMaxPercentage: 59.99,
+            improvableMinPercentage: 60,
+            improvableMaxPercentage: 69.99,
+            finalPassMinPercentage: 70,
+        },
+        gpaBands: [
+            { minPercentage: 0, maxPercentage: 60, gradePoint: 0 },
+            { minPercentage: 60, maxPercentage: 70, gradePoint: 2 },
+            { minPercentage: 70, maxPercentage: 85, gradePoint: 3 },
+            { minPercentage: 85, maxPercentage: 100, gradePoint: 4 },
+        ],
+    });
+
+    assert.deepEqual(input.repeatPolicy, {
+        enabled: true,
+        gpaCalculationMethod: "best_attempt_only",
+        earnedCreditsMethod: "count_once_per_subject",
+        prerequisiteMethod: "best_passed_attempt",
+        allowGradeImprovementRepeats: true,
+        blockRepeatAfterFinalPass: true,
+    });
+});
+
+test("validateRepeatPolicyInput accepts explicit legacy GPA and earned-credit behavior", () => {
+    const repeatPolicy = validateRepeatPolicyInput({
+        enabled: true,
+        gpaCalculationMethod: "all_attempts",
+        earnedCreditsMethod: "count_each_passed_attempt",
+        prerequisiteMethod: "latest_attempt",
+        allowGradeImprovementRepeats: false,
+        blockRepeatAfterFinalPass: false,
+    });
+
+    assert.deepEqual(repeatPolicy, {
+        enabled: true,
+        gpaCalculationMethod: "all_attempts",
+        earnedCreditsMethod: "count_each_passed_attempt",
+        prerequisiteMethod: "latest_attempt",
+        allowGradeImprovementRepeats: false,
+        blockRepeatAfterFinalPass: false,
+    });
+});
+
+test("validateRepeatPolicyInput rejects invalid repeatPolicy values", () => {
+    assert.throws(
+        () => validateRepeatPolicyInput({ enabled: "false" }),
+        /repeatPolicy\.enabled must be boolean/
+    );
+    assert.throws(
+        () => validateRepeatPolicyInput({ gpaCalculationMethod: "best" }),
+        /repeatPolicy\.gpaCalculationMethod must be one of/
+    );
 });
 
 test("validatePrerequisiteSubjectIds deduplicates university prerequisite ids", () => {
