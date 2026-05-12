@@ -268,6 +268,8 @@ test("school academic profile provider returns yearly summary", async (t) => {
     assert.equal(result.reportCards.yearly.yearlyAveragePercentage, 89.5);
     assert.equal(result.reportCards.semester, null);
     assert.equal(result.finalOutcome, null);
+    assert.equal("academicStanding" in result, false);
+    assert.equal("repeatPolicy" in result, false);
     assert.deepEqual(result.warnings, []);
     assert.deepEqual(result.excluded, []);
     assert.equal(queryLog.membershipFindOne.institutionId, institutionId);

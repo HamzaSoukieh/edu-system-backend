@@ -97,6 +97,96 @@ const repeatPolicySchema = new mongoose.Schema(
     { _id: false }
 );
 
+const academicStandingBandSchema = new mongoose.Schema(
+    {
+        standing: {
+            type: String,
+            enum: ["good_standing", "academic_warning", "probation", "suspension"],
+            required: true,
+        },
+        minCumulativeGpa: {
+            type: Number,
+            min: 0,
+            max: 4,
+            default: undefined,
+        },
+        maxCumulativeGpaExclusive: {
+            type: Number,
+            min: 0,
+            max: 4,
+            default: undefined,
+        },
+        allowedToContinue: {
+            type: Boolean,
+            required: true,
+        },
+        requiresAdvisorReview: {
+            type: Boolean,
+            required: true,
+        },
+    },
+    { _id: false }
+);
+
+const academicStandingRulesSchema = new mongoose.Schema(
+    {
+        enabled: {
+            type: Boolean,
+            required: true,
+            default: true,
+        },
+        bands: {
+            type: [academicStandingBandSchema],
+            required: true,
+            default: () => [
+                {
+                    standing: "good_standing",
+                    minCumulativeGpa: 2,
+                    allowedToContinue: true,
+                    requiresAdvisorReview: false,
+                },
+                {
+                    standing: "academic_warning",
+                    minCumulativeGpa: 1.7,
+                    maxCumulativeGpaExclusive: 2,
+                    allowedToContinue: true,
+                    requiresAdvisorReview: false,
+                },
+                {
+                    standing: "probation",
+                    minCumulativeGpa: 1,
+                    maxCumulativeGpaExclusive: 1.7,
+                    allowedToContinue: true,
+                    requiresAdvisorReview: true,
+                },
+                {
+                    standing: "suspension",
+                    maxCumulativeGpaExclusive: 1,
+                    allowedToContinue: false,
+                    requiresAdvisorReview: true,
+                },
+            ],
+        },
+        requireManualReviewIfIncompleteProfile: {
+            type: Boolean,
+            required: true,
+            default: true,
+        },
+        noOutcomeStanding: {
+            type: String,
+            enum: ["no_standing_yet"],
+            required: true,
+            default: "no_standing_yet",
+        },
+        allowManualReview: {
+            type: Boolean,
+            required: true,
+            default: true,
+        },
+    },
+    { _id: false }
+);
+
 const institutionAcademicPolicySchema = new mongoose.Schema(
     {
         institutionId: {
@@ -155,6 +245,10 @@ const institutionAcademicPolicySchema = new mongoose.Schema(
         },
         repeatPolicy: {
             type: repeatPolicySchema,
+            default: () => ({}),
+        },
+        academicStandingRules: {
+            type: academicStandingRulesSchema,
             default: () => ({}),
         },
         createdByUserId: {

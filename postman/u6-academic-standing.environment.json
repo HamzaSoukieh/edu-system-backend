@@ -1,0 +1,29 @@
+{
+  "id": "a7d3d5d6-u6-academic-standing-local",
+  "name": "Edu SaaS Local - U6 Academic Standing",
+  "values": [
+    { "key": "baseUrl", "value": "http://localhost:3000", "type": "default", "enabled": true },
+    { "key": "ownerEmail", "value": "", "type": "default", "enabled": true },
+    { "key": "ownerPassword", "value": "", "type": "secret", "enabled": true },
+    { "key": "ownerToken", "value": "", "type": "secret", "enabled": true },
+    { "key": "instructorEmail", "value": "", "type": "default", "enabled": true },
+    { "key": "instructorPassword", "value": "", "type": "secret", "enabled": true },
+    { "key": "instructorToken", "value": "", "type": "secret", "enabled": true },
+    { "key": "studentEmail", "value": "", "type": "default", "enabled": true },
+    { "key": "studentPassword", "value": "", "type": "secret", "enabled": true },
+    { "key": "studentToken", "value": "", "type": "secret", "enabled": true },
+    { "key": "institutionId", "value": "", "type": "default", "enabled": true },
+    { "key": "schoolInstitutionId", "value": "", "type": "default", "enabled": true },
+    { "key": "wrongInstitutionId", "value": "", "type": "default", "enabled": true },
+    { "key": "academicPolicyId", "value": "", "type": "default", "enabled": true },
+    { "key": "createdAcademicPolicyId", "value": "", "type": "default", "enabled": true },
+    { "key": "studentMembershipId", "value": "", "type": "default", "enabled": true },
+    { "key": "instructorMembershipId", "value": "", "type": "default", "enabled": true },
+    { "key": "semesterId", "value": "", "type": "default", "enabled": true },
+    { "key": "departmentId", "value": "", "type": "default", "enabled": true },
+    { "key": "studentSearch", "value": "", "type": "default", "enabled": true }
+  ],
+  "_postman_variable_scope": "environment",
+  "_postman_exported_at": "2026-05-12T00:00:00.000Z",
+  "_postman_exported_using": "OpenAI Codex"
+}

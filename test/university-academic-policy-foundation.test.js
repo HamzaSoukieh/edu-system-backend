@@ -5,7 +5,9 @@ const {
     validateOutcomeThresholds,
     validateGpaBands,
     validateRepeatPolicyInput,
+    validateAcademicStandingRulesInput,
     validateCreateAcademicPolicyInput,
+    validateUpdateAcademicPolicyInput,
     resolveAllowedMaxCreditHours,
 } = require("../src/services/universityAcademicPolicyService");
 const InstitutionAcademicPolicy = require("../src/models/InstitutionAcademicPolicy");
@@ -14,6 +16,68 @@ const {
     resolveGradePointFromBands,
 } = require("../src/services/universityAcademicOutcomeService");
 const { validatePrerequisiteSubjectIds } = require("../src/services/subjectService");
+
+function buildAcademicPolicyPayload(overrides = {}) {
+    return {
+        name: "Policy A",
+        effectiveFromSemesterId: "507f1f77bcf86cd799439011",
+        minimumEnrollmentCreditHours: 12,
+        defaultMaxCreditHours: 18,
+        overloadMinGpa: 3,
+        overloadMaxCreditHours: 21,
+        outcomeThresholds: {
+            failedMaxPercentage: 59.99,
+            improvableMinPercentage: 60,
+            improvableMaxPercentage: 69.99,
+            finalPassMinPercentage: 70,
+        },
+        gpaBands: [
+            { minPercentage: 0, maxPercentage: 60, gradePoint: 0 },
+            { minPercentage: 60, maxPercentage: 70, gradePoint: 2 },
+            { minPercentage: 70, maxPercentage: 85, gradePoint: 3 },
+            { minPercentage: 85, maxPercentage: 100, gradePoint: 4 },
+        ],
+        ...overrides,
+    };
+}
+
+function buildAcademicStandingRules(overrides = {}) {
+    return {
+        enabled: true,
+        bands: [
+            {
+                standing: "suspension",
+                maxCumulativeGpaExclusive: 1.2,
+                allowedToContinue: false,
+                requiresAdvisorReview: true,
+            },
+            {
+                standing: "probation",
+                minCumulativeGpa: 1.2,
+                maxCumulativeGpaExclusive: 2,
+                allowedToContinue: true,
+                requiresAdvisorReview: true,
+            },
+            {
+                standing: "academic_warning",
+                minCumulativeGpa: 2,
+                maxCumulativeGpaExclusive: 2.5,
+                allowedToContinue: true,
+                requiresAdvisorReview: false,
+            },
+            {
+                standing: "good_standing",
+                minCumulativeGpa: 2.5,
+                allowedToContinue: true,
+                requiresAdvisorReview: false,
+            },
+        ],
+        requireManualReviewIfIncompleteProfile: false,
+        noOutcomeStanding: "no_standing_yet",
+        allowManualReview: true,
+        ...overrides,
+    };
+}
 
 test("validateOutcomeThresholds accepts ordered failed, improvable, and final pass bands", () => {
     const thresholds = validateOutcomeThresholds({
@@ -126,6 +190,37 @@ test("old policies without repeatPolicy resolve to the default repeatPolicy on c
     });
 });
 
+test("old policies without academicStandingRules resolve to the default standing rules on create validation", () => {
+    const input = validateCreateAcademicPolicyInput({
+        name: "Policy A",
+        effectiveFromSemesterId: "507f1f77bcf86cd799439011",
+        minimumEnrollmentCreditHours: 12,
+        defaultMaxCreditHours: 18,
+        overloadMinGpa: 3,
+        overloadMaxCreditHours: 21,
+        outcomeThresholds: {
+            failedMaxPercentage: 59.99,
+            improvableMinPercentage: 60,
+            improvableMaxPercentage: 69.99,
+            finalPassMinPercentage: 70,
+        },
+        gpaBands: [
+            { minPercentage: 0, maxPercentage: 60, gradePoint: 0 },
+            { minPercentage: 60, maxPercentage: 70, gradePoint: 2 },
+            { minPercentage: 70, maxPercentage: 85, gradePoint: 3 },
+            { minPercentage: 85, maxPercentage: 100, gradePoint: 4 },
+        ],
+    });
+
+    assert.equal(input.academicStandingRules.enabled, true);
+    assert.equal(input.academicStandingRules.noOutcomeStanding, "no_standing_yet");
+    assert.equal(input.academicStandingRules.requireManualReviewIfIncompleteProfile, true);
+    assert.deepEqual(
+        input.academicStandingRules.bands.map((band) => band.standing),
+        ["suspension", "probation", "academic_warning", "good_standing"]
+    );
+});
+
 test("validateRepeatPolicyInput accepts explicit legacy GPA and earned-credit behavior", () => {
     const repeatPolicy = validateRepeatPolicyInput({
         enabled: true,
@@ -154,6 +249,105 @@ test("validateRepeatPolicyInput rejects invalid repeatPolicy values", () => {
     assert.throws(
         () => validateRepeatPolicyInput({ gpaCalculationMethod: "best" }),
         /repeatPolicy\.gpaCalculationMethod must be one of/
+    );
+});
+
+test("validateAcademicStandingRulesInput accepts custom standing thresholds", () => {
+    const rules = validateAcademicStandingRulesInput(buildAcademicStandingRules());
+
+    assert.equal(rules.bands[0].standing, "suspension");
+    assert.equal(rules.bands[0].maxCumulativeGpaExclusive, 1.2);
+    assert.equal(rules.requireManualReviewIfIncompleteProfile, false);
+});
+
+test("validateCreateAcademicPolicyInput accepts custom academicStandingRules", () => {
+    const input = validateCreateAcademicPolicyInput(
+        buildAcademicPolicyPayload({
+            academicStandingRules: buildAcademicStandingRules(),
+        })
+    );
+
+    assert.equal(input.academicStandingRules.enabled, true);
+    assert.equal(input.academicStandingRules.bands[0].standing, "suspension");
+    assert.equal(input.academicStandingRules.bands[0].maxCumulativeGpaExclusive, 1.2);
+    assert.equal(input.academicStandingRules.requireManualReviewIfIncompleteProfile, false);
+});
+
+test("validateUpdateAcademicPolicyInput accepts partial academicStandingRules patches", () => {
+    const updates = validateUpdateAcademicPolicyInput({
+        academicStandingRules: {
+            requireManualReviewIfIncompleteProfile: false,
+        },
+    });
+
+    assert.deepEqual(updates, {
+        academicStandingRules: {
+            requireManualReviewIfIncompleteProfile: false,
+        },
+    });
+});
+
+test("validateUpdateAcademicPolicyInput accepts replacement academicStandingRules bands", () => {
+    const updates = validateUpdateAcademicPolicyInput({
+        academicStandingRules: {
+            bands: buildAcademicStandingRules().bands,
+        },
+    });
+
+    assert.deepEqual(
+        updates.academicStandingRules.bands.map((band) => band.standing),
+        ["suspension", "probation", "academic_warning", "good_standing"]
+    );
+    assert.equal(updates.academicStandingRules.bands[0].maxCumulativeGpaExclusive, 1.2);
+});
+
+test("validateUpdateAcademicPolicyInput rejects invalid academicStandingRules with 400", () => {
+    assert.throws(
+        () =>
+            validateUpdateAcademicPolicyInput({
+                academicStandingRules: {
+                    bands: [
+                        {
+                            standing: "suspension",
+                            maxCumulativeGpaExclusive: 2,
+                            allowedToContinue: false,
+                            requiresAdvisorReview: true,
+                        },
+                        {
+                            standing: "good_standing",
+                            minCumulativeGpa: 1.5,
+                            allowedToContinue: true,
+                            requiresAdvisorReview: false,
+                        },
+                    ],
+                },
+            }),
+        (error) => {
+            assert.equal(error.statusCode, 400);
+            assert.match(error.message, /academicStandingRules\.bands must be non-overlapping/);
+            return true;
+        }
+    );
+});
+
+test("validateAcademicStandingRulesInput rejects invalid academicStandingRules values", () => {
+    assert.throws(
+        () => validateAcademicStandingRulesInput({ enabled: "true" }),
+        /academicStandingRules\.enabled must be boolean/
+    );
+    assert.throws(
+        () =>
+            validateAcademicStandingRulesInput({
+                bands: [
+                    {
+                        standing: "manual_review",
+                        maxCumulativeGpaExclusive: 4,
+                        allowedToContinue: true,
+                        requiresAdvisorReview: false,
+                    },
+                ],
+            }),
+        /standing must be one of/
     );
 });
 

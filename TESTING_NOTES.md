@@ -123,6 +123,11 @@
 - Current shared academic profile routes:
   - `GET /institutions/:institutionId/students/me/academic-profile`
   - `GET /institutions/:institutionId/students/:studentMembershipId/academic-profile`
+- Current university academic standing dashboard routes:
+  - `GET /institutions/:institutionId/academic-standing/university/summary`
+  - `GET /institutions/:institutionId/academic-standing/university/students`
+  - `GET /institutions/:institutionId/instructors/me/academic-standing/summary`
+  - `GET /institutions/:institutionId/instructors/me/academic-standing/students`
 - Current academic profile providers:
   - school: `buildSchoolAcademicProfile`
   - university: `buildUniversityAcademicProfile`
@@ -676,6 +681,14 @@
   - repeated attempts excluded from official GPA by repeat policy should remain visible in university academic profile `subjectAttempts`
   - prerequisite checks should use `best_passed_attempt` by default and `latest_attempt` when configured
   - self-enrollment same-subject repeat checks should respect `allowGradeImprovementRepeats` and `blockRepeatAfterFinalPass`
+  - default `academicStandingRules` should resolve for old university policies without the field
+  - academic standing should use the active policy's GPA bands instead of hardcoded thresholds
+  - university academic profiles should include live/read-only `academicStanding`
+  - no finalized university outcomes should return `no_standing_yet`
+  - incomplete official university profile inputs should return `review_required` when the policy requires manual review
+  - disabled academic standing rules should return a disabled standing shape without enforcing self-enrollment behavior
+  - GPA exactly at the GPA scale maximum should match the top academic standing band
+  - `section_not_closed` explanations should not force `review_required` when finalized GPA exists
   - closed sections with missing student published scores should be excluded from finalized outcome meaning
   - closed sections with published weight totals that are not academically finalized should be excluded from finalized outcome meaning
   - cumulative GPA should stay stable at policy-sensitive numeric boundaries
@@ -1096,6 +1109,46 @@
   - result: 70 passing
   - ran `node --test test/academic-profile.test.js test/school-academic-profile.test.js test/university-academic-profile.test.js test/university-academic-outcome-foundation.test.js test/school-academic-policy.test.js test/school-outcome.test.js test/school-promotion.test.js test/school-report-card.test.js test/school-final-outcome.test.js test/university-academic-policy-foundation.test.js test/self-enrollment-eligibility.test.js test/self-enrollment-browse.test.js test/self-enrollment-write.test.js`
   - result: 180 passing
+- 2026-05-08 U6B admin-configurable university academicStandingRules:
+  - added live/read-only university academic standing calculation from active academic policy rules and profile summary
+  - ran `node --test test/university-academic-standing.test.js test/university-academic-policy-foundation.test.js test/university-academic-profile.test.js test/university-academic-outcome-foundation.test.js`
+  - result: 67 passing
+  - ran `node --test test/academic-profile.test.js test/school-academic-profile.test.js test/university-academic-profile.test.js test/university-academic-outcome-foundation.test.js test/school-academic-policy.test.js test/school-outcome.test.js test/school-promotion.test.js test/school-report-card.test.js test/school-final-outcome.test.js test/university-academic-policy-foundation.test.js test/university-academic-standing.test.js test/self-enrollment-eligibility.test.js test/self-enrollment-browse.test.js test/self-enrollment-write.test.js`
+  - result: 196 passing
+- 2026-05-10 U6B academicStandingRules edge-case hardening:
+  - GPA exactly at the scale max now matches the top configured standing band
+  - `section_not_closed` remains an academic-profile explanation but no longer forces `review_required` by itself when finalized GPA exists
+  - ran `node --test test/university-academic-standing.test.js test/university-academic-profile.test.js test/university-academic-policy-foundation.test.js test/university-academic-outcome-foundation.test.js test/self-enrollment-eligibility.test.js`
+  - result: 89 passing
+  - ran `node --test test/academic-profile.test.js test/school-academic-profile.test.js test/university-academic-profile.test.js test/university-academic-outcome-foundation.test.js test/school-academic-policy.test.js test/school-outcome.test.js test/school-promotion.test.js test/school-report-card.test.js test/school-final-outcome.test.js test/university-academic-policy-foundation.test.js test/university-academic-standing.test.js test/self-enrollment-eligibility.test.js test/self-enrollment-browse.test.js test/self-enrollment-write.test.js`
+  - result: 199 passing
+- 2026-05-10 U6B academicStandingRules focused testing expansion:
+  - added unit coverage for null GPA, GPA boundary buckets, disabled rules, review-required exclusions, top-band GPA 4.0, custom thresholds, and standing-rule validation failures
+  - added policy validation coverage for create defaults/custom rules, partial PATCH payloads, band replacement, and invalid PATCH rules returning 400-style errors
+  - added university profile coverage for default standing ranges, disabled standing output, custom active-policy threshold changes, repeatPolicy official GPA feeding standing, and full `academicStanding` response shape
+  - added regressions confirming school academic profiles do not expose university-only `academicStanding`/`repeatPolicy`, and self-enrollment does not enforce `academicStandingRules.allowedToContinue`
+  - ran `node --test test/university-academic-standing.test.js test/university-academic-policy-foundation.test.js test/university-academic-profile.test.js test/self-enrollment-eligibility.test.js test/school-academic-profile.test.js`
+  - result: 97 passing
+  - ran `node --test test/academic-profile.test.js test/school-academic-profile.test.js test/university-academic-profile.test.js test/university-academic-outcome-foundation.test.js test/school-academic-policy.test.js test/school-outcome.test.js test/school-promotion.test.js test/school-report-card.test.js test/school-final-outcome.test.js test/university-academic-policy-foundation.test.js test/university-academic-standing.test.js test/self-enrollment-eligibility.test.js test/self-enrollment-browse.test.js test/self-enrollment-write.test.js`
+  - result: 213 passing
+- 2026-05-10 U6C university academic standing list/summary APIs:
+  - added live read-only university standing dashboard coverage for summary counts, compact list rows, standing/GPA/search/semester/department filters, pagination, tenant isolation, non-university rejection, unauthorized student blocking, custom threshold behavior, and instructor-assigned-section scoping/deduping
+  - ran `node --test test/university-academic-standing-report.test.js`
+  - result: 11 passing
+  - ran `node --test test/university-academic-standing-report.test.js test/university-academic-standing.test.js test/university-academic-profile.test.js test/university-academic-policy-foundation.test.js test/self-enrollment-eligibility.test.js`
+  - result: 93 passing
+  - ran `node --test test/academic-profile.test.js test/school-academic-profile.test.js test/university-academic-profile.test.js test/university-academic-outcome-foundation.test.js test/school-academic-policy.test.js test/school-outcome.test.js test/school-promotion.test.js test/school-report-card.test.js test/school-final-outcome.test.js test/university-academic-policy-foundation.test.js test/university-academic-standing.test.js test/university-academic-standing-report.test.js test/self-enrollment-eligibility.test.js test/self-enrollment-browse.test.js test/self-enrollment-write.test.js`
+  - result: 224 passing
+- 2026-05-12 U6C standing dashboard enrollment/performance hardening:
+  - standing dashboard semester, department, and instructor scope helpers now include only `Enrollment.status = enrolled` rows and exclude `dropped` rows from candidate scoping
+  - standing dashboard row building now uses bounded local concurrency for live per-student outcome reads
+  - added focused tests for dropped-enrollment exclusion, enrolled-row inclusion, instructor scoping, standing filter/pagination preservation, and bounded concurrency
+  - ran `node --test test/university-academic-standing-report.test.js`
+  - result: 14 passing
+  - ran `node --test test/university-academic-standing-report.test.js test/university-academic-standing.test.js test/university-academic-profile.test.js test/university-academic-policy-foundation.test.js test/self-enrollment-eligibility.test.js test/school-academic-profile.test.js`
+  - result: 111 passing
+  - ran `node --test test/academic-profile.test.js test/school-academic-profile.test.js test/university-academic-profile.test.js test/university-academic-outcome-foundation.test.js test/school-academic-policy.test.js test/school-outcome.test.js test/school-promotion.test.js test/school-report-card.test.js test/school-final-outcome.test.js test/university-academic-policy-foundation.test.js test/university-academic-standing.test.js test/university-academic-standing-report.test.js test/self-enrollment-eligibility.test.js test/self-enrollment-browse.test.js test/self-enrollment-write.test.js`
+  - result: 227 passing
 - TODO:
   - add real sample responses when helpful
   - add attendance response examples after first manual Postman pass

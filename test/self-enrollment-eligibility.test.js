@@ -156,6 +156,40 @@ test("resolveSelfEnrollmentEligibility returns an eligible decision when require
     assert.ok(decision.infos.some((item) => item.code === "projected_credit_load_meets_minimum_enrollment"));
 });
 
+test("resolveSelfEnrollmentEligibility does not enforce academicStandingRules allowedToContinue", () => {
+    const decision = resolveSelfEnrollmentEligibility(
+        buildEligibilityContext({
+            policy: {
+                minimumEnrollmentCreditHours: 3,
+                academicStandingRules: {
+                    enabled: true,
+                    bands: [
+                        {
+                            standing: "suspension",
+                            maxCumulativeGpaExclusive: 4,
+                            allowedToContinue: false,
+                            requiresAdvisorReview: true,
+                        },
+                    ],
+                    requireManualReviewIfIncompleteProfile: true,
+                    noOutcomeStanding: "no_standing_yet",
+                    allowManualReview: true,
+                },
+            },
+            academicOutcomeSummary: {
+                outcomes: [],
+                summary: {
+                    cumulativeGpa: 0.5,
+                },
+            },
+        })
+    );
+
+    assert.equal(decision.isEligible, true);
+    assert.deepEqual(decision.blockingReasonCodes, []);
+    assert.equal("academicStandingRules" in decision.policySummary, false);
+});
+
 test("resolveSelfEnrollmentEligibility counts one enrolled section for one subject once", () => {
     const decision = resolveSelfEnrollmentEligibility(
         buildEligibilityContext({

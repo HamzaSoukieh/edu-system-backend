@@ -240,3 +240,33 @@
   - `allowGradeImprovementRepeats` controls whether `passed_improvable` can be repeated.
   - Old policies without `repeatPolicy` resolve through the new academic defaults. Explicit `repeatPolicy.enabled=false` preserves legacy GPA/credit behavior as closely as possible.
   - This is university-only and does not affect school academic policy, report-card, promotion, or final-outcome modules.
+
+## D039 - University Academic Standing Rules Are Admin Configurable And Live-Calculated
+- Status: Confirmed
+- Decision: Store university GPA-based standing rules inside `InstitutionAcademicPolicy.academicStandingRules` and calculate standing live/read-only in the university academic profile.
+- Reason: Universities need configurable good-standing, warning, probation, and suspension thresholds without copying school promotion/final-outcome semantics or hardcoding one GPA boundary set.
+- Notes:
+  - Standing statuses are university-style: `no_standing_yet`, `good_standing`, `academic_warning`, `probation`, `suspension`, and `review_required`.
+  - Normal GPA bands allow only `good_standing`, `academic_warning`, `probation`, and `suspension`; `no_standing_yet` and `review_required` are system-derived.
+  - Default rules are GPA >= 2.0 good standing, 1.7 to < 2.0 academic warning, 1.0 to < 1.7 probation, and < 1.0 suspension.
+  - Old university policies without `academicStandingRules` resolve to the default standing rules.
+  - Standing is not stored or finalized in MVP; it is calculated from the current official university academic profile summary.
+  - GPA exactly at the configured GPA scale maximum matches the top standing band, even if that band explicitly uses `maxCumulativeGpaExclusive` equal to the scale maximum.
+  - `section_not_closed` explanations remain visible in academic profiles, but they do not by themselves force `review_required` when the student already has finalized official GPA data.
+  - `allowedToContinue` is informational only for now and does not block self-enrollment.
+  - Graduation review, transcript locking, final standing snapshots, enforcement, appeals, and manual override workflow remain deferred.
+  - This is university-only and does not affect school promotion, school report cards, or `SchoolFinalOutcome`.
+
+## D040 - University Academic Standing Dashboards Are Read-Only Live Reports
+- Status: Confirmed
+- Decision: Expose university academic standing summary/list APIs as live read-only reports over the current official university academic profile calculations.
+- Reason: Admins need an institution-wide standing dashboard, and instructors need a scoped view of their own assigned students, without introducing stored standing snapshots or enforcement.
+- Notes:
+  - Admin/owner institution-wide routes are guarded by current `section.manage` access and remain university-only.
+  - Instructor routes are scoped through `Section.instructorMemberId` and dedupe students enrolled in multiple assigned sections.
+  - Dashboard semester, department, and instructor scopes include only current `Enrollment.status = enrolled` rows; `dropped` enrollments do not pull students into scoped standing lists.
+  - Dashboard standing uses the active `academicStandingRules` from the university academic policy through the existing outcome/profile standing services; GPA thresholds are not hardcoded in the report.
+  - Supported MVP filters are `standing`, `minGpa`, `maxGpa`, `semesterId`, `departmentId`, `search`, `page`, and `limit`; department filtering is derived through `Subject`, not stored on `Section`.
+  - `programId` filtering is deferred until a real program/degree requirement model exists.
+  - Standing remains calculated live and is not stored/finalized. `allowedToContinue` remains informational only and does not affect self-enrollment.
+  - Live per-student profile calculation is acceptable for the MVP dashboard with conservative pagination and bounded row-building concurrency; a batch aggregation path or denormalized/reporting store can be revisited if dashboard volume grows.

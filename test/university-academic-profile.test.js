@@ -432,6 +432,33 @@ test("university academic profile provider returns a safe transcript profile", a
         message:
             "Earned credits count once per subject using the best passed attempt's credit hours when subjects are repeated.",
     });
+    assert.deepEqual(result.academicStanding, {
+        enabled: true,
+        standing: "good_standing",
+        allowedToContinue: true,
+        requiresAdvisorReview: false,
+        reasonCodes: ["cumulative_gpa_in_good_standing_range"],
+        warnings: [],
+        appliedBand: {
+            standing: "good_standing",
+            minCumulativeGpa: 2,
+            allowedToContinue: true,
+            requiresAdvisorReview: false,
+        },
+        calculationMode: "live",
+        source: "academic_profile",
+    });
+    assert.deepEqual(Object.keys(result.academicStanding), [
+        "enabled",
+        "standing",
+        "allowedToContinue",
+        "requiresAdvisorReview",
+        "reasonCodes",
+        "warnings",
+        "appliedBand",
+        "calculationMode",
+        "source",
+    ]);
     assert.deepEqual(result.warnings, []);
     assert.deepEqual(result.excluded, []);
     assert.equal(queryLog.membershipFindOne.institutionId, institutionId);
@@ -605,6 +632,8 @@ test("university academic profile shows repeatPolicy GPA and earned-credit attem
 
     assert.equal(result.repeatPolicy.gpaCalculationMethod, "best_attempt_only");
     assert.equal(result.summary.cumulativeGpa, 4);
+    assert.equal(result.academicStanding.standing, "good_standing");
+    assert.deepEqual(result.academicStanding.reasonCodes, ["cumulative_gpa_in_good_standing_range"]);
     assert.equal(result.subjectAttempts[0].includedInOfficialGpa, false);
     assert.equal(result.subjectAttempts[0].excludedReasonCode, "repeat_policy_best_attempt_only");
     assert.equal(result.subjectAttempts[1].earnedCreditsCounted, true);
@@ -652,6 +681,68 @@ test("university academic profile returns a safe empty profile when no finalized
             message: "No finalized academic outcomes are available for this student yet.",
         },
     ]);
+    assert.deepEqual(result.academicStanding, {
+        enabled: true,
+        standing: "no_standing_yet",
+        allowedToContinue: null,
+        requiresAdvisorReview: false,
+        reasonCodes: ["no_finalized_academic_outcomes"],
+        warnings: [],
+        appliedBand: null,
+        calculationMode: "live",
+        source: "academic_profile",
+    });
+});
+
+test("university academic profile maps default academic standing GPA ranges", async (t) => {
+    const dataset = buildDataset();
+    mockProviderDependencies(t, dataset);
+
+    const scenarios = [
+        {
+            cumulativeGpa: 2,
+            expectedStanding: "good_standing",
+            expectedReasonCode: "cumulative_gpa_in_good_standing_range",
+        },
+        {
+            cumulativeGpa: 1.8,
+            expectedStanding: "academic_warning",
+            expectedReasonCode: "cumulative_gpa_in_academic_warning_range",
+        },
+        {
+            cumulativeGpa: 1.2,
+            expectedStanding: "probation",
+            expectedReasonCode: "cumulative_gpa_in_probation_range",
+        },
+        {
+            cumulativeGpa: 0.9,
+            expectedStanding: "suspension",
+            expectedReasonCode: "cumulative_gpa_in_suspension_range",
+        },
+    ];
+
+    for (const scenario of scenarios) {
+        dataset.outcomeResult = buildOutcomeResult({
+            summary: {
+                attemptedCreditHours: 6,
+                earnedCreditHours: 3,
+                qualityPoints: scenario.cumulativeGpa * 6,
+                cumulativeGpa: scenario.cumulativeGpa,
+            },
+        });
+
+        const result = await buildUniversityAcademicProfile({
+            institutionId,
+            studentMembershipId,
+            actorUserId,
+            actorMembership,
+        });
+
+        assert.equal(result.academicStanding.standing, scenario.expectedStanding);
+        assert.deepEqual(result.academicStanding.reasonCodes, [scenario.expectedReasonCode]);
+        assert.equal(result.academicStanding.calculationMode, "live");
+        assert.equal(result.academicStanding.source, "academic_profile");
+    }
 });
 
 test("university academic profile preserves excluded explanations from outcome service", async (t) => {
@@ -688,6 +779,167 @@ test("university academic profile preserves excluded explanations from outcome s
             subjectId: subjectOneId,
         },
     ]);
+    assert.equal(result.academicStanding.standing, "good_standing");
+    assert.deepEqual(result.academicStanding.reasonCodes, ["cumulative_gpa_in_good_standing_range"]);
+});
+
+test("university academic profile returns disabled standing shape when rules are disabled", async (t) => {
+    mockProviderDependencies(
+        t,
+        buildDataset({
+            outcomeResult: buildOutcomeResult({
+                academicStandingRules: {
+                    enabled: false,
+                },
+                summary: {
+                    attemptedCreditHours: 6,
+                    earnedCreditHours: 6,
+                    qualityPoints: 18,
+                    cumulativeGpa: 3,
+                },
+            }),
+        })
+    );
+
+    const result = await buildUniversityAcademicProfile({
+        institutionId,
+        studentMembershipId,
+        actorUserId,
+        actorMembership,
+    });
+
+    assert.deepEqual(result.academicStanding, {
+        enabled: false,
+        standing: null,
+        allowedToContinue: null,
+        requiresAdvisorReview: false,
+        reasonCodes: ["standing_rules_disabled"],
+        warnings: [],
+        appliedBand: null,
+        calculationMode: "live",
+        source: "academic_profile",
+    });
+});
+
+test("university academic profile uses configured academicStandingRules", async (t) => {
+    mockProviderDependencies(
+        t,
+        buildDataset({
+            outcomeResult: buildOutcomeResult({
+                academicStandingRules: {
+                    enabled: true,
+                    bands: [
+                        {
+                            standing: "suspension",
+                            maxCumulativeGpaExclusive: 1.2,
+                            allowedToContinue: false,
+                            requiresAdvisorReview: true,
+                        },
+                        {
+                            standing: "probation",
+                            minCumulativeGpa: 1.2,
+                            maxCumulativeGpaExclusive: 2.5,
+                            allowedToContinue: true,
+                            requiresAdvisorReview: true,
+                        },
+                        {
+                            standing: "good_standing",
+                            minCumulativeGpa: 2.5,
+                            allowedToContinue: true,
+                            requiresAdvisorReview: false,
+                        },
+                    ],
+                    requireManualReviewIfIncompleteProfile: true,
+                    noOutcomeStanding: "no_standing_yet",
+                    allowManualReview: true,
+                },
+                summary: {
+                    attemptedCreditHours: 6,
+                    earnedCreditHours: 3,
+                    qualityPoints: 6.6,
+                    cumulativeGpa: 1.1,
+                },
+            }),
+        })
+    );
+
+    const result = await buildUniversityAcademicProfile({
+        institutionId,
+        studentMembershipId,
+        actorUserId,
+        actorMembership,
+    });
+
+    assert.equal(result.academicStanding.standing, "suspension");
+    assert.equal(result.academicStanding.requiresAdvisorReview, true);
+    assert.deepEqual(result.academicStanding.reasonCodes, ["cumulative_gpa_in_suspension_range"]);
+});
+
+test("university academic profile reflects changed active academicStandingRules", async (t) => {
+    const dataset = buildDataset({
+        outcomeResult: buildOutcomeResult({
+            summary: {
+                attemptedCreditHours: 6,
+                earnedCreditHours: 3,
+                qualityPoints: 12,
+                cumulativeGpa: 2,
+            },
+        }),
+    });
+    mockProviderDependencies(t, dataset);
+
+    const firstResult = await buildUniversityAcademicProfile({
+        institutionId,
+        studentMembershipId,
+        actorUserId,
+        actorMembership,
+    });
+
+    dataset.outcomeResult = buildOutcomeResult({
+        academicStandingRules: {
+            enabled: true,
+            bands: [
+                {
+                    standing: "suspension",
+                    maxCumulativeGpaExclusive: 1,
+                    allowedToContinue: false,
+                    requiresAdvisorReview: true,
+                },
+                {
+                    standing: "probation",
+                    minCumulativeGpa: 1,
+                    maxCumulativeGpaExclusive: 2.5,
+                    allowedToContinue: true,
+                    requiresAdvisorReview: true,
+                },
+                {
+                    standing: "good_standing",
+                    minCumulativeGpa: 2.5,
+                    allowedToContinue: true,
+                    requiresAdvisorReview: false,
+                },
+            ],
+            requireManualReviewIfIncompleteProfile: true,
+            noOutcomeStanding: "no_standing_yet",
+            allowManualReview: true,
+        },
+        summary: {
+            attemptedCreditHours: 6,
+            earnedCreditHours: 3,
+            qualityPoints: 12,
+            cumulativeGpa: 2,
+        },
+    });
+
+    const secondResult = await buildUniversityAcademicProfile({
+        institutionId,
+        studentMembershipId,
+        actorUserId,
+        actorMembership,
+    });
+
+    assert.equal(firstResult.academicStanding.standing, "good_standing");
+    assert.equal(secondResult.academicStanding.standing, "probation");
 });
 
 test("university academic profile deduplicates and sanitizes excluded explanations", async (t) => {
@@ -735,6 +987,10 @@ test("university academic profile deduplicates and sanitizes excluded explanatio
             subjectId: subjectOneId,
             assessmentId: "507f1f77bcf86cd799439091",
         },
+    ]);
+    assert.equal(result.academicStanding.standing, "review_required");
+    assert.deepEqual(result.academicStanding.reasonCodes, [
+        "incomplete_academic_profile_requires_review",
     ]);
 });
 

@@ -16,6 +16,7 @@ const sectionController = require("../controllers/sectionController");
 const attendanceController = require("../controllers/attendanceController");
 const assessmentController = require("../controllers/assessmentController");
 const academicProfileController = require("../controllers/academicProfileController");
+const universityAcademicStandingController = require("../controllers/universityAcademicStandingController");
 const universityAcademicPolicyController = require("../controllers/universityAcademicPolicyController");
 const schoolAcademicPolicyController = require("../controllers/schoolAcademicPolicyController");
 const schoolReportCardController = require("../controllers/schoolReportCardController");
@@ -164,6 +165,36 @@ router.patch(
     institutionAccess(),
     requirePermission("institution.manage"),
     universityAcademicPolicyController.updateAcademicPolicy
+);
+router.get(
+    "/:institutionId/academic-standing/university/summary",
+    authJwt,
+    requireEmailVerified,
+    institutionAccess(),
+    requirePermission("section.manage"),
+    universityAcademicStandingController.getUniversityAcademicStandingSummary
+);
+router.get(
+    "/:institutionId/academic-standing/university/students",
+    authJwt,
+    requireEmailVerified,
+    institutionAccess(),
+    requirePermission("section.manage"),
+    universityAcademicStandingController.listUniversityAcademicStandingStudents
+);
+router.get(
+    "/:institutionId/instructors/me/academic-standing/summary",
+    authJwt,
+    requireEmailVerified,
+    institutionAccess(),
+    universityAcademicStandingController.getMyInstructorAcademicStandingSummary
+);
+router.get(
+    "/:institutionId/instructors/me/academic-standing/students",
+    authJwt,
+    requireEmailVerified,
+    institutionAccess(),
+    universityAcademicStandingController.listMyInstructorAcademicStandingStudents
 );
 router.post(
     "/:institutionId/departments",

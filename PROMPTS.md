@@ -216,6 +216,65 @@ Key result:
 - school academic modules remain unchanged
 ```
 
+## Recent Prompt - U6B Admin-Configurable University academicStandingRules
+```text
+Implement university-only `InstitutionAcademicPolicy.academicStandingRules` so admins can configure GPA-based academic standing thresholds.
+
+Key result:
+- standing statuses are university-style: `no_standing_yet`, `good_standing`, `academic_warning`, `probation`, `suspension`, and `review_required`
+- old policies without `academicStandingRules` resolve to default GPA thresholds
+- university academic profile includes live/read-only `academicStanding`
+- `allowedToContinue` is informational only and is not enforced in self-enrollment yet
+- graduation review, transcript locking, standing finalization, appeals, and manual override workflow remain deferred
+- school academic modules remain unchanged
+```
+
+## Recent Prompt - U6B academicStandingRules Edge-Case Hardening
+```text
+Harden U6B academicStandingRules without adding new standing features.
+
+Key result:
+- GPA exactly at the GPA scale max matches the top configured standing band
+- `section_not_closed` profile explanations stay visible but do not force `review_required` when finalized GPA exists
+- missing result / invalid finalized inputs still force `review_required` when configured
+- custom active-policy standing rules continue to flow into the university academic profile response
+- self-enrollment remains unaffected by `allowedToContinue`
+```
+
+## Recent Prompt - U6B academicStandingRules Testing Expansion
+```text
+Add tests only for university academicStandingRules and academic profile behavior.
+
+Key result:
+- expanded unit coverage for default/missing rules, disabled rules, null GPA, review-required exclusions, GPA boundaries, GPA 4.0 top-band handling, custom thresholds, and validation failures
+- expanded university academic policy validation tests for custom create input, partial PATCH input, band replacement, and invalid PATCH errors
+- expanded university academic profile tests for all default standing ranges, disabled standing output, custom threshold changes, repeatPolicy official GPA feeding standing, and response shape
+- added regressions showing school academic profiles do not expose university-only standing/repeat fields and self-enrollment does not enforce `allowedToContinue`
+```
+
+## Recent Prompt - U6C University Academic Standing List and Summary APIs
+```text
+Implement university-only read-only academic standing summary/list APIs.
+
+Key result:
+- admin/owner institution-wide routes expose standing counts and compact student rows
+- instructor routes are scoped to students in sections where `Section.instructorMemberId` matches the active instructor membership
+- standing remains calculated live from active `academicStandingRules`; no stored snapshots, finalization, graduation review, transcript locking, appeals, or self-enrollment enforcement are added
+- filters support standing, GPA range, semester, department, search, and pagination
+- program filtering is deferred until a program/degree requirement model exists
+```
+
+## Recent Prompt - U6C Standing Dashboard Enrollment/Performance Hardening
+```text
+Harden the university academic standing dashboard with small focused fixes.
+
+Key result:
+- semester, department, and instructor dashboard scopes include only `Enrollment.status = enrolled`
+- `dropped` enrollments no longer pull students into scoped standing lists
+- standing rows are still calculated live, but built with bounded local concurrency
+- no stored snapshots, finalization, graduation review, transcript locking, appeals, school changes, or self-enrollment enforcement are added
+```
+
 ## Recent Prompt - AP4 Academic Profile Explanations
 ```text
 Add structured excluded/incomplete explanations to shared academic profile responses.

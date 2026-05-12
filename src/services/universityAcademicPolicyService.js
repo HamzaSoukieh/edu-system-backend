@@ -8,11 +8,15 @@ const {
     resolveRepeatPolicy,
     validateRepeatPolicyInput: validateRepeatPolicyConfig,
 } = require("./universityRepeatPolicyService");
+const {
+    resolveAcademicStandingRules,
+    validateAcademicStandingRulesInput: validateAcademicStandingRulesConfig,
+} = require("./universityAcademicStandingService");
 
 const ACADEMIC_POLICY_STATUSES = ["draft", "active", "archived"];
 const RESOLVABLE_POLICY_STATUSES = ["active", "archived"];
 const ACADEMIC_POLICY_SELECT_FIELDS =
-    "_id institutionId name status effectiveFromSemesterId minimumEnrollmentCreditHours defaultMaxCreditHours overloadMinGpa overloadMaxCreditHours outcomeThresholds gpaBands repeatPolicy createdByUserId updatedByUserId createdAt updatedAt";
+    "_id institutionId name status effectiveFromSemesterId minimumEnrollmentCreditHours defaultMaxCreditHours overloadMinGpa overloadMaxCreditHours outcomeThresholds gpaBands repeatPolicy academicStandingRules createdByUserId updatedByUserId createdAt updatedAt";
 const GPA_SCALE_MAX = 4;
 const POLICY_EPSILON = 1e-9;
 
@@ -313,6 +317,22 @@ function validateRepeatPolicyInput(rawValue, { allowUndefined = false, useDefaul
     }
 }
 
+function validateAcademicStandingRulesInput(
+    rawValue,
+    { allowUndefined = false, useDefaults = true, requireCompleteWhenEnabled = true } = {}
+) {
+    try {
+        return validateAcademicStandingRulesConfig(rawValue, {
+            allowUndefined,
+            useDefaults,
+            requireCompleteWhenEnabled,
+            gpaScaleMax: GPA_SCALE_MAX,
+        });
+    } catch (error) {
+        throw createError(400, error.message);
+    }
+}
+
 function validateCreateAcademicPolicyInput(payload) {
     if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
         throw createError(400, "Invalid request body");
@@ -338,6 +358,9 @@ function validateCreateAcademicPolicyInput(payload) {
         outcomeThresholds: validateOutcomeThresholds(payload.outcomeThresholds),
         gpaBands: validateGpaBands(payload.gpaBands),
         repeatPolicy: validateRepeatPolicyInput(payload.repeatPolicy, { allowUndefined: false }),
+        academicStandingRules: validateAcademicStandingRulesInput(payload.academicStandingRules, {
+            allowUndefined: false,
+        }),
     };
 }
 
@@ -358,6 +381,7 @@ function validateUpdateAcademicPolicyInput(payload) {
         "outcomeThresholds",
         "gpaBands",
         "repeatPolicy",
+        "academicStandingRules",
     ];
     const invalidFields = Object.keys(payload).filter((key) => !allowedFields.includes(key));
     if (invalidFields.length) {
@@ -433,6 +457,14 @@ function validateUpdateAcademicPolicyInput(payload) {
         updates.repeatPolicy = validateRepeatPolicyInput(payload.repeatPolicy, {
             allowUndefined: true,
             useDefaults: false,
+        });
+    }
+
+    if (payload.academicStandingRules !== undefined) {
+        updates.academicStandingRules = validateAcademicStandingRulesInput(payload.academicStandingRules, {
+            allowUndefined: true,
+            useDefaults: false,
+            requireCompleteWhenEnabled: false,
         });
     }
 
@@ -542,6 +574,7 @@ function toAcademicPolicyResponse(policy, { effectiveFromSemester = null } = {})
               }))
             : [],
         repeatPolicy: resolveRepeatPolicy(policy),
+        academicStandingRules: resolveAcademicStandingRules(policy),
         createdByUserId: policy.createdByUserId?.toString() || null,
         updatedByUserId: policy.updatedByUserId?.toString() || null,
         createdAt: policy.createdAt,
@@ -812,6 +845,7 @@ async function createAcademicPolicy({ institutionId, actorUserId, payload }) {
             outcomeThresholds: input.outcomeThresholds,
             gpaBands: input.gpaBands,
             repeatPolicy: input.repeatPolicy,
+            academicStandingRules: input.academicStandingRules,
             createdByUserId: actorUserId,
             updatedByUserId: actorUserId,
         });
@@ -919,12 +953,26 @@ async function updateAcademicPolicy({ institutionId, policyId, actorUserId, payl
         };
     }
 
+    if (updates.academicStandingRules) {
+        const existingAcademicStandingRules = resolveAcademicStandingRules(existingPolicy);
+        updates.academicStandingRules = validateAcademicStandingRulesInput(
+            {
+                ...existingAcademicStandingRules,
+                ...updates.academicStandingRules,
+                bands: updates.academicStandingRules.bands || existingAcademicStandingRules.bands,
+            },
+            { allowUndefined: false }
+        );
+    }
+
     const mergedPolicy = {
         ...existingPolicy,
         ...updates,
         outcomeThresholds: updates.outcomeThresholds || existingPolicy.outcomeThresholds,
         gpaBands: updates.gpaBands || existingPolicy.gpaBands,
         repeatPolicy: updates.repeatPolicy || resolveRepeatPolicy(existingPolicy),
+        academicStandingRules:
+            updates.academicStandingRules || resolveAcademicStandingRules(existingPolicy),
     };
     validateAcademicPolicyBusinessRules(mergedPolicy);
     await loadSemesterRecord({
@@ -1060,6 +1108,7 @@ module.exports = {
     validateOutcomeThresholds,
     validateGpaBands,
     validateRepeatPolicyInput,
+    validateAcademicStandingRulesInput,
     validateCreateAcademicPolicyInput,
     validateUpdateAcademicPolicyInput,
     resolveAllowedMaxCreditHours,

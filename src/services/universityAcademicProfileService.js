@@ -9,6 +9,10 @@ const Subject = require("../models/Subject");
 const { ROLE_PERMISSIONS } = require("../auth/permissions");
 const universityAcademicOutcomeService = require("./universityAcademicOutcomeService");
 const { resolveRepeatPolicy } = require("./universityRepeatPolicyService");
+const {
+    resolveAcademicStanding,
+    resolveAcademicStandingRules,
+} = require("./universityAcademicStandingService");
 
 const UNIVERSITY_ACADEMIC_PROFILE_READ_PERMISSION = "section.manage";
 const ACTIVE_MEMBERSHIP_STATUS = Membership.schema.path("status").defaultValue;
@@ -670,16 +674,24 @@ async function buildUniversityAcademicProfile({
         subjectAttempts,
         subjectById: decorations.subjectById,
     });
+    const summary = outcomes.length
+        ? buildProfileSummary({
+              ...outcomeResult,
+              subjectOutcomeSummaries,
+          })
+        : buildEmptySummary();
+    const academicStanding = resolveAcademicStanding({
+        academicStandingRules: resolveAcademicStandingRules(outcomeResult),
+        summary,
+        outcomes,
+        excluded,
+        warnings,
+    });
 
     return {
         institutionType: "university",
         student,
-        summary: outcomes.length
-            ? buildProfileSummary({
-                  ...outcomeResult,
-                  subjectOutcomeSummaries,
-              })
-            : buildEmptySummary(),
+        summary,
         semesters: buildSemesterSummaries({
             outcomes,
             subjectAttempts,
@@ -688,6 +700,7 @@ async function buildUniversityAcademicProfile({
         subjectAttempts,
         subjectOutcomeSummaries,
         repeatPolicy,
+        academicStanding,
         gpaCalculation: buildGpaCalculationNote(repeatPolicy),
         earnedCreditCalculation: buildEarnedCreditCalculationNote(repeatPolicy),
         warnings,

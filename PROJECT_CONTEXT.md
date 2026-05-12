@@ -62,7 +62,7 @@
   - institution-level university academic policy
   - university-only semester-effective academic policy version
   - MVP resolves forward from `effectiveFromSemesterId` until a later policy starts
-  - source of truth for outcome thresholds, GPA bands, and semester load rules
+  - source of truth for outcome thresholds, GPA bands, repeat rules, academic standing rules, and semester load rules
   - graduation credit requirements are deferred to a future department/program requirement model
 - `SchoolAcademicPolicy`
   - institution-level school academic policy
@@ -203,6 +203,14 @@
   - university academic policy now includes `repeatPolicy` for GPA, earned-credit, prerequisite, and same-subject repeat behavior
   - default university repeat behavior counts the best finalized repeated attempt in official GPA and counts earned credits once per subject
   - explicit legacy repeat behavior is still available with `repeatPolicy.enabled=false` or configured `all_attempts` / `count_each_passed_attempt`
+  - university academic policy now includes `academicStandingRules` for admin-configurable GPA-based standing thresholds
+  - university academic profiles now include live/read-only `academicStanding` derived from the official cumulative GPA and active standing rules
+  - default university standing is good standing at GPA >= 2.0, academic warning at 1.7 to < 2.0, probation at 1.0 to < 1.7, suspension below 1.0, and `no_standing_yet` when there are no finalized outcomes
+  - `allowedToContinue` in university standing is informational only for now and is not enforced in self-enrollment
+  - university academic standing dashboards now expose read-only live summary/list APIs for admins and assigned-section instructors
+  - admin standing dashboards are institution-wide; instructor standing dashboards are scoped through `Section.instructorMemberId` and dedupe students across assigned sections
+  - standing dashboard filters support standing, GPA range, semester, department, search, and pagination; scoped semester/department/instructor candidate lists use only `Enrollment.status = enrolled`
+  - standing dashboard row calculation remains live and now uses bounded local concurrency; program filtering is deferred until a program model exists
   - student self-enrollment now exposes:
     - a lightweight active-semester browse/list discovery route for university section candidates
     - a detailed preview eligibility route that remains the canonical explanation surface
@@ -214,8 +222,9 @@
   - per-section preview keeps structural/duplicate/prerequisite/capacity guidance, while minimum enrollment is now deferred to final multi-section submission validation
   - policy now uses a blocking `minimumEnrollmentCreditHours` field for final registration validation
   - current remaining gap:
-    - university read-only academic report / transcript APIs comparable to school report-card projections
+    - broader university transcript/report exports beyond the current profile and standing-dashboard projections
     - university final academic outcome confirmation / override workflow, if product needs explicit administrative finalization
+    - university academic standing finalization/enforcement/manual-review workflow, if product later needs stored standing snapshots
     - near-graduation exception logic backed by a future department/program graduation requirement model
 - School Structure
   - class level create/list/get/update

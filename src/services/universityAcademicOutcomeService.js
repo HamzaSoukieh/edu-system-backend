@@ -15,6 +15,9 @@ const {
     compareAttemptsByAcademicOrder,
     resolveRepeatPolicy,
 } = require("./universityRepeatPolicyService");
+const {
+    resolveAcademicStandingRules,
+} = require("./universityAcademicStandingService");
 
 const FINALIZED_SECTION_WEIGHT_TOTAL = 100;
 const CLOSED_SECTION_STATUS = "closed";
@@ -435,6 +438,7 @@ async function listStudentAcademicOutcomes({ institutionId, studentMemberId }) {
             summary: buildOutcomeSummary([]),
             subjectOutcomeSummaries: [],
             repeatPolicy: resolveRepeatPolicy({}),
+            academicStandingRules: resolveAcademicStandingRules({}),
             excluded: [],
         };
     }
@@ -477,6 +481,7 @@ async function listStudentAcademicOutcomes({ institutionId, studentMemberId }) {
             summary: buildOutcomeSummary([]),
             subjectOutcomeSummaries: [],
             repeatPolicy: resolveRepeatPolicy({}),
+            academicStandingRules: resolveAcademicStandingRules({}),
             excluded: uniqueExclusions(excluded),
         };
     }
@@ -592,6 +597,7 @@ async function listStudentAcademicOutcomes({ institutionId, studentMemberId }) {
             summary: buildOutcomeSummary([]),
             subjectOutcomeSummaries: [],
             repeatPolicy: resolveRepeatPolicy({}),
+            academicStandingRules: resolveAcademicStandingRules({}),
             excluded: uniqueExclusions(excluded),
         };
     }
@@ -619,6 +625,7 @@ async function listStudentAcademicOutcomes({ institutionId, studentMemberId }) {
             summary: buildOutcomeSummary([]),
             subjectOutcomeSummaries: [],
             repeatPolicy: resolveRepeatPolicy({}),
+            academicStandingRules: resolveAcademicStandingRules({}),
             excluded: uniqueExclusions(excluded),
         };
     }
@@ -777,9 +784,9 @@ async function listStudentAcademicOutcomes({ institutionId, studentMemberId }) {
     }
 
     const latestOutcome = resolveLatestAcademicOutcome(outcomes, semesterById);
-    const activeRepeatPolicy = resolveRepeatPolicy(
-        policyBySemesterId.get(normalizeId(latestOutcome?.semesterId)) || {}
-    );
+    const activePolicy = policyBySemesterId.get(normalizeId(latestOutcome?.semesterId)) || {};
+    const activeRepeatPolicy = resolveRepeatPolicy(activePolicy);
+    const activeAcademicStandingRules = resolveAcademicStandingRules(activePolicy);
     const gpaClassifiedOutcomes = applyGpaRepeatPolicy({
         outcomes,
         repeatPolicy: activeRepeatPolicy,
@@ -814,6 +821,7 @@ async function listStudentAcademicOutcomes({ institutionId, studentMemberId }) {
         summary: buildOutcomeSummary(officialOutcomes),
         subjectOutcomeSummaries: buildSubjectOutcomeSummaries(officialOutcomes),
         repeatPolicy: activeRepeatPolicy,
+        academicStandingRules: activeAcademicStandingRules,
         excluded: uniqueExclusions(excluded),
     };
 }

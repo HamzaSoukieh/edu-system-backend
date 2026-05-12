@@ -1,0 +1,752 @@
+{
+  "info": {
+    "_postman_id": "a7d3d5d6-u6-academic-standing",
+    "name": "Edu SaaS - U6 Academic Standing",
+    "description": "Manual API checks for U6B academicStandingRules and U6C university academic standing dashboards. Fixture creation is documented in the guide because finalized academic outcomes require existing semesters, sections, enrollments, assessments, and results.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "01 Auth",
+      "item": [
+        {
+          "name": "Login Owner/Admin",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('owner login returns accessToken', () => {",
+                  "  pm.response.to.have.status(200);",
+                  "  pm.expect(pm.response.json().accessToken).to.be.a('string');",
+                  "});",
+                  "pm.environment.set('ownerToken', pm.response.json().accessToken);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{ownerEmail}}\",\n  \"password\": \"{{ownerPassword}}\"\n}"
+            },
+            "url": "{{baseUrl}}/auth/login"
+          }
+        },
+        {
+          "name": "Login Instructor",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('instructor login returns accessToken', () => {",
+                  "  pm.response.to.have.status(200);",
+                  "  pm.expect(pm.response.json().accessToken).to.be.a('string');",
+                  "});",
+                  "pm.environment.set('instructorToken', pm.response.json().accessToken);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{instructorEmail}}\",\n  \"password\": \"{{instructorPassword}}\"\n}"
+            },
+            "url": "{{baseUrl}}/auth/login",
+            "description": "Required only for instructor-scoped dashboard checks."
+          }
+        },
+        {
+          "name": "Login Student",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('student login returns accessToken', () => {",
+                  "  pm.response.to.have.status(200);",
+                  "  pm.expect(pm.response.json().accessToken).to.be.a('string');",
+                  "});",
+                  "pm.environment.set('studentToken', pm.response.json().accessToken);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{studentEmail}}\",\n  \"password\": \"{{studentPassword}}\"\n}"
+            },
+            "url": "{{baseUrl}}/auth/login",
+            "description": "Used for student self profile and negative dashboard access checks."
+          }
+        }
+      ]
+    },
+    {
+      "name": "02 Academic Policy Standing Rules",
+      "item": [
+        {
+          "name": "List Academic Policies",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('policy list succeeds', () => pm.response.to.have.status(200));",
+                  "const policies = pm.response.json().academicPolicies || [];",
+                  "pm.test('academicPolicies is an array', () => pm.expect(policies).to.be.an('array'));",
+                  "if (policies.length && !pm.environment.get('academicPolicyId')) {",
+                  "  pm.environment.set('academicPolicyId', policies[0].id || policies[0]._id);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{ownerToken}}", "type": "string" }] },
+            "method": "GET",
+            "url": "{{baseUrl}}/institutions/{{institutionId}}/academic-policies"
+          }
+        },
+        {
+          "name": "Get Academic Policy - academicStandingRules Present",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('get policy succeeds', () => pm.response.to.have.status(200));",
+                  "const policy = pm.response.json().academicPolicy;",
+                  "pm.test('policy has academicStandingRules', () => {",
+                  "  pm.expect(policy).to.be.an('object');",
+                  "  pm.expect(policy.academicStandingRules).to.be.an('object');",
+                  "  pm.expect(policy.academicStandingRules.bands).to.be.an('array');",
+                  "});",
+                  "if (policy && (policy.id || policy._id)) pm.environment.set('academicPolicyId', policy.id || policy._id);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{ownerToken}}", "type": "string" }] },
+            "method": "GET",
+            "url": "{{baseUrl}}/institutions/{{institutionId}}/academic-policies/{{academicPolicyId}}"
+          }
+        },
+        {
+          "name": "Create Policy - academicStandingRules Omitted",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('create succeeds or conflicts with existing effective semester', () => pm.expect([201, 409]).to.include(pm.response.code));",
+                  "if (pm.response.code === 201) {",
+                  "  const policy = pm.response.json().academicPolicy;",
+                  "  pm.environment.set('createdAcademicPolicyId', policy.id || policy._id);",
+                  "  pm.test('created policy resolves default academicStandingRules', () => {",
+                  "    pm.expect(policy.academicStandingRules).to.be.an('object');",
+                  "    pm.expect(policy.academicStandingRules.enabled).to.eql(true);",
+                  "    pm.expect(policy.academicStandingRules.noOutcomeStanding).to.eql('no_standing_yet');",
+                  "  });",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{ownerToken}}", "type": "string" }] },
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"U6 Standing Policy {{$timestamp}}\",\n  \"effectiveFromSemesterId\": \"{{semesterId}}\",\n  \"minimumEnrollmentCreditHours\": 0,\n  \"defaultMaxCreditHours\": 18,\n  \"overloadMinGpa\": 3.5,\n  \"overloadMaxCreditHours\": 24,\n  \"outcomeThresholds\": {\n    \"failedMaxPercentage\": 59.99,\n    \"improvableMinPercentage\": 60,\n    \"improvableMaxPercentage\": 69.99,\n    \"finalPassMinPercentage\": 70\n  },\n  \"gpaBands\": [\n    { \"minPercentage\": 0, \"maxPercentage\": 60, \"gradePoint\": 0 },\n    { \"minPercentage\": 60, \"maxPercentage\": 70, \"gradePoint\": 2 },\n    { \"minPercentage\": 70, \"maxPercentage\": 85, \"gradePoint\": 3 },\n    { \"minPercentage\": 85, \"maxPercentage\": 100, \"gradePoint\": 4 }\n  ]\n}"
+            },
+            "url": "{{baseUrl}}/institutions/{{institutionId}}/academic-policies",
+            "description": "Optional fixture helper. If a policy already exists for semesterId, a 409 conflict is expected."
+          }
+        },
+        {
+          "name": "Patch Policy - Default Enabled Rules",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('patch default rules succeeds', () => pm.response.to.have.status(200));",
+                  "const rules = pm.response.json().academicPolicy.academicStandingRules;",
+                  "pm.test('default standing rules returned', () => {",
+                  "  pm.expect(rules.enabled).to.eql(true);",
+                  "  pm.expect(rules.noOutcomeStanding).to.eql('no_standing_yet');",
+                  "  pm.expect(rules.requireManualReviewIfIncompleteProfile).to.eql(true);",
+                  "  pm.expect(rules.bands.map(b => b.standing)).to.include.members(['good_standing', 'academic_warning', 'probation', 'suspension']);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{ownerToken}}", "type": "string" }] },
+            "method": "PATCH",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"academicStandingRules\": {\n    \"enabled\": true,\n    \"bands\": [\n      {\n        \"standing\": \"good_standing\",\n        \"minCumulativeGpa\": 2.0,\n        \"allowedToContinue\": true,\n        \"requiresAdvisorReview\": false\n      },\n      {\n        \"standing\": \"academic_warning\",\n        \"minCumulativeGpa\": 1.7,\n        \"maxCumulativeGpaExclusive\": 2.0,\n        \"allowedToContinue\": true,\n        \"requiresAdvisorReview\": false\n      },\n      {\n        \"standing\": \"probation\",\n        \"minCumulativeGpa\": 1.0,\n        \"maxCumulativeGpaExclusive\": 1.7,\n        \"allowedToContinue\": true,\n        \"requiresAdvisorReview\": true\n      },\n      {\n        \"standing\": \"suspension\",\n        \"maxCumulativeGpaExclusive\": 1.0,\n        \"allowedToContinue\": false,\n        \"requiresAdvisorReview\": true\n      }\n    ],\n    \"requireManualReviewIfIncompleteProfile\": true,\n    \"noOutcomeStanding\": \"no_standing_yet\",\n    \"allowManualReview\": true\n  }\n}"
+            },
+            "url": "{{baseUrl}}/institutions/{{institutionId}}/academic-policies/{{academicPolicyId}}"
+          }
+        },
+        {
+          "name": "Patch Policy - Custom Suspension Below 1.2",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('patch custom rules succeeds', () => pm.response.to.have.status(200));",
+                  "const bands = pm.response.json().academicPolicy.academicStandingRules.bands;",
+                  "const suspension = bands.find(b => b.standing === 'suspension');",
+                  "pm.test('custom suspension threshold is 1.2', () => pm.expect(suspension.maxCumulativeGpaExclusive).to.eql(1.2));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{ownerToken}}", "type": "string" }] },
+            "method": "PATCH",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"academicStandingRules\": {\n    \"enabled\": true,\n    \"bands\": [\n      {\n        \"standing\": \"suspension\",\n        \"maxCumulativeGpaExclusive\": 1.2,\n        \"allowedToContinue\": false,\n        \"requiresAdvisorReview\": true\n      },\n      {\n        \"standing\": \"probation\",\n        \"minCumulativeGpa\": 1.2,\n        \"maxCumulativeGpaExclusive\": 2.0,\n        \"allowedToContinue\": true,\n        \"requiresAdvisorReview\": true\n      },\n      {\n        \"standing\": \"academic_warning\",\n        \"minCumulativeGpa\": 2.0,\n        \"maxCumulativeGpaExclusive\": 2.5,\n        \"allowedToContinue\": true,\n        \"requiresAdvisorReview\": false\n      },\n      {\n        \"standing\": \"good_standing\",\n        \"minCumulativeGpa\": 2.5,\n        \"allowedToContinue\": true,\n        \"requiresAdvisorReview\": false\n      }\n    ],\n    \"requireManualReviewIfIncompleteProfile\": true,\n    \"noOutcomeStanding\": \"no_standing_yet\",\n    \"allowManualReview\": true\n  }\n}"
+            },
+            "url": "{{baseUrl}}/institutions/{{institutionId}}/academic-policies/{{academicPolicyId}}"
+          }
+        },
+        {
+          "name": "Patch Policy - Disable academicStandingRules",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('disable rules succeeds', () => pm.response.to.have.status(200));",
+                  "pm.test('rules disabled in response', () => pm.expect(pm.response.json().academicPolicy.academicStandingRules.enabled).to.eql(false));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{ownerToken}}", "type": "string" }] },
+            "method": "PATCH",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"academicStandingRules\": {\n    \"enabled\": false\n  }\n}" },
+            "url": "{{baseUrl}}/institutions/{{institutionId}}/academic-policies/{{academicPolicyId}}"
+          }
+        },
+        {
+          "name": "Patch Policy - Restore Default Enabled Rules",
+          "request": {
+            "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{ownerToken}}", "type": "string" }] },
+            "method": "PATCH",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"academicStandingRules\": {\n    \"enabled\": true,\n    \"bands\": [\n      { \"standing\": \"suspension\", \"maxCumulativeGpaExclusive\": 1.0, \"allowedToContinue\": false, \"requiresAdvisorReview\": true },\n      { \"standing\": \"probation\", \"minCumulativeGpa\": 1.0, \"maxCumulativeGpaExclusive\": 1.7, \"allowedToContinue\": true, \"requiresAdvisorReview\": true },\n      { \"standing\": \"academic_warning\", \"minCumulativeGpa\": 1.7, \"maxCumulativeGpaExclusive\": 2.0, \"allowedToContinue\": true, \"requiresAdvisorReview\": false },\n      { \"standing\": \"good_standing\", \"minCumulativeGpa\": 2.0, \"allowedToContinue\": true, \"requiresAdvisorReview\": false }\n    ],\n    \"requireManualReviewIfIncompleteProfile\": true,\n    \"noOutcomeStanding\": \"no_standing_yet\",\n    \"allowManualReview\": true\n  }\n}"
+            },
+            "url": "{{baseUrl}}/institutions/{{institutionId}}/academic-policies/{{academicPolicyId}}"
+          }
+        }
+      ]
+    },
+    {
+      "name": "03 Single Student Academic Profile",
+      "item": [
+        {
+          "name": "Get Academic Profile - Standing Metadata",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('profile succeeds', () => pm.response.to.have.status(200));",
+                  "const profile = pm.response.json().academicProfile;",
+                  "pm.test('academicStanding response shape exists', () => {",
+                  "  pm.expect(profile).to.be.an('object');",
+                  "  pm.expect(profile.academicStanding).to.be.an('object');",
+                  "  pm.expect(profile.academicStanding).to.have.property('enabled');",
+                  "  pm.expect(profile.academicStanding).to.have.property('standing');",
+                  "  pm.expect(profile.academicStanding).to.have.property('allowedToContinue');",
+                  "  pm.expect(profile.academicStanding).to.have.property('requiresAdvisorReview');",
+                  "  pm.expect(profile.academicStanding.reasonCodes).to.be.an('array');",
+                  "  pm.expect(profile.academicStanding.warnings).to.be.an('array');",
+                  "  pm.expect(profile.academicStanding).to.have.property('appliedBand');",
+                  "  pm.expect(profile.academicStanding.calculationMode).to.eql('live');",
+                  "  pm.expect(profile.academicStanding.source).to.eql('academic_profile');",
+                  "});",
+                  "pm.test('U5B profile metadata remains available when present', () => {",
+                  "  if (profile.repeatPolicy !== undefined) pm.expect(profile.repeatPolicy).to.be.an('object');",
+                  "  if (profile.gpaCalculation !== undefined) pm.expect(profile.gpaCalculation).to.be.an('object');",
+                  "  if (profile.earnedCreditCalculation !== undefined) pm.expect(profile.earnedCreditCalculation).to.be.an('object');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{ownerToken}}", "type": "string" }] },
+            "method": "GET",
+            "url": "{{baseUrl}}/institutions/{{institutionId}}/students/{{studentMembershipId}}/academic-profile"
+          }
+        },
+        {
+          "name": "Get My Academic Profile - Student",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('student self profile succeeds', () => pm.response.to.have.status(200));",
+                  "pm.test('self profile includes academicProfile envelope', () => pm.expect(pm.response.json().academicProfile).to.be.an('object'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{studentToken}}", "type": "string" }] },
+            "method": "GET",
+            "url": "{{baseUrl}}/institutions/{{institutionId}}/students/me/academic-profile"
+          }
+        }
+      ]
+    },
+    {
+      "name": "04 Admin Standing Dashboard",
+      "item": [
+        {
+          "name": "Standing Summary",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('summary succeeds', () => pm.response.to.have.status(200));",
+                  "const s = pm.response.json().standingSummary;",
+                  "pm.test('summary has all standing buckets', () => {",
+                  "  ['totalStudents', 'good_standing', 'academic_warning', 'probation', 'suspension', 'review_required', 'no_standing_yet'].forEach(k => pm.expect(s).to.have.property(k));",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{ownerToken}}", "type": "string" }] },
+            "method": "GET",
+            "url": "{{baseUrl}}/institutions/{{institutionId}}/academic-standing/university/summary"
+          }
+        },
+        {
+          "name": "Standing Summary - Filter Suspension",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('filtered summary succeeds', () => pm.response.to.have.status(200));",
+                  "const s = pm.response.json().standingSummary;",
+                  "pm.test('filtered summary still has all standing buckets', () => {",
+                  "  ['totalStudents', 'good_standing', 'academic_warning', 'probation', 'suspension', 'review_required', 'no_standing_yet'].forEach(k => pm.expect(s).to.have.property(k));",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{ownerToken}}", "type": "string" }] },
+            "method": "GET",
+            "url": "{{baseUrl}}/institutions/{{institutionId}}/academic-standing/university/summary?standing=suspension"
+          }
+        },
+        {
+          "name": "Standing Students - Page 1",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('list succeeds', () => pm.response.to.have.status(200));",
+                  "const body = pm.response.json();",
+                  "pm.test('list has summary, students, pagination', () => {",
+                  "  pm.expect(body.standingSummary).to.be.an('object');",
+                  "  pm.expect(body.students).to.be.an('array');",
+                  "  pm.expect(body.pagination).to.be.an('object');",
+                  "});",
+                  "if (body.students.length) {",
+                  "  const row = body.students[0];",
+                  "  pm.test('student row has compact standing fields', () => {",
+                  "    ['studentMembershipId', 'academicStanding'].forEach(k => pm.expect(row).to.have.property(k));",
+                  "    pm.expect(row.academicStanding).to.be.an('object');",
+                  "    pm.expect(row.academicStanding.calculationMode).to.eql('live');",
+                  "    pm.expect(row.academicStanding.source).to.eql('academic_profile');",
+                  "  });",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{ownerToken}}", "type": "string" }] },
+            "method": "GET",
+            "url": "{{baseUrl}}/institutions/{{institutionId}}/academic-standing/university/students?page=1&limit=25"
+          }
+        },
+        {
+          "name": "Filter - Standing Suspension",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('suspension filter succeeds', () => pm.response.to.have.status(200));",
+                  "pm.test('all returned rows are suspension', () => {",
+                  "  (pm.response.json().students || []).forEach(row => pm.expect(row.academicStanding.standing).to.eql('suspension'));",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{ownerToken}}", "type": "string" }] },
+            "method": "GET",
+            "url": "{{baseUrl}}/institutions/{{institutionId}}/academic-standing/university/students?standing=suspension"
+          }
+        },
+        {
+          "name": "Filter - Standing Probation",
+          "request": {
+            "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{ownerToken}}", "type": "string" }] },
+            "method": "GET",
+            "url": "{{baseUrl}}/institutions/{{institutionId}}/academic-standing/university/students?standing=probation"
+          }
+        },
+        {
+          "name": "Filter - GPA Range 0 to 1.2",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('GPA range filter succeeds', () => pm.response.to.have.status(200));",
+                  "pm.test('rows are inside GPA range when GPA exists', () => {",
+                  "  (pm.response.json().students || []).forEach(row => {",
+                  "    pm.expect(row.cumulativeGpa).to.be.at.least(0);",
+                  "    pm.expect(row.cumulativeGpa).to.be.at.most(1.2);",
+                  "  });",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{ownerToken}}", "type": "string" }] },
+            "method": "GET",
+            "url": "{{baseUrl}}/institutions/{{institutionId}}/academic-standing/university/students?minGpa=0&maxGpa=1.2"
+          }
+        },
+        {
+          "name": "Filter - Search",
+          "request": {
+            "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{ownerToken}}", "type": "string" }] },
+            "method": "GET",
+            "url": "{{baseUrl}}/institutions/{{institutionId}}/academic-standing/university/students?search={{studentSearch}}"
+          }
+        },
+        {
+          "name": "Filter - Semester",
+          "request": {
+            "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{ownerToken}}", "type": "string" }] },
+            "method": "GET",
+            "url": "{{baseUrl}}/institutions/{{institutionId}}/academic-standing/university/students?semesterId={{semesterId}}"
+          }
+        },
+        {
+          "name": "Filter - Department",
+          "request": {
+            "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{ownerToken}}", "type": "string" }] },
+            "method": "GET",
+            "url": "{{baseUrl}}/institutions/{{institutionId}}/academic-standing/university/students?departmentId={{departmentId}}"
+          }
+        },
+        {
+          "name": "Pagination - limit 25",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('pagination request succeeds', () => pm.response.to.have.status(200));",
+                  "pm.test('pagination fields are present', () => {",
+                  "  const p = pm.response.json().pagination;",
+                  "  pm.expect(p.page).to.eql(1);",
+                  "  pm.expect(p.limit).to.eql(25);",
+                  "  pm.expect(p).to.have.property('total');",
+                  "  pm.expect(p).to.have.property('totalPages');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{ownerToken}}", "type": "string" }] },
+            "method": "GET",
+            "url": "{{baseUrl}}/institutions/{{institutionId}}/academic-standing/university/students?page=1&limit=25"
+          }
+        }
+      ]
+    },
+    {
+      "name": "05 Instructor Scoped Dashboard",
+      "item": [
+        {
+          "name": "Instructor Standing Summary",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('instructor summary succeeds', () => pm.response.to.have.status(200));",
+                  "const s = pm.response.json().standingSummary;",
+                  "pm.test('instructor summary has all standing buckets', () => {",
+                  "  ['totalStudents', 'good_standing', 'academic_warning', 'probation', 'suspension', 'review_required', 'no_standing_yet'].forEach(k => pm.expect(s).to.have.property(k));",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{instructorToken}}", "type": "string" }] },
+            "method": "GET",
+            "url": "{{baseUrl}}/institutions/{{institutionId}}/instructors/me/academic-standing/summary",
+            "description": "Instructor scope is derived from Section.instructorMemberId."
+          }
+        },
+        {
+          "name": "Instructor Standing Students",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('instructor list succeeds', () => pm.response.to.have.status(200));",
+                  "const body = pm.response.json();",
+                  "pm.test('instructor list is compact', () => {",
+                  "  pm.expect(body.students).to.be.an('array');",
+                  "  pm.expect(body.pagination).to.be.an('object');",
+                  "  if (body.students.length) {",
+                  "    pm.expect(body.students[0].academicStanding).to.be.an('object');",
+                  "    pm.expect(body.students[0]).to.not.have.property('subjectAttempts');",
+                  "  }",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{instructorToken}}", "type": "string" }] },
+            "method": "GET",
+            "url": "{{baseUrl}}/institutions/{{institutionId}}/instructors/me/academic-standing/students?page=1&limit=25"
+          }
+        }
+      ]
+    },
+    {
+      "name": "06 Negative Access",
+      "item": [
+        {
+          "name": "Student Cannot Access Institution Summary",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('student is blocked', () => pm.expect([403]).to.include(pm.response.code));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{studentToken}}", "type": "string" }] },
+            "method": "GET",
+            "url": "{{baseUrl}}/institutions/{{institutionId}}/academic-standing/university/summary"
+          }
+        },
+        {
+          "name": "No Token Returns Unauthorized",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('unauthorized without token', () => pm.expect([401]).to.include(pm.response.code));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "GET",
+            "url": "{{baseUrl}}/institutions/{{institutionId}}/academic-standing/university/summary"
+          }
+        },
+        {
+          "name": "Wrong Institution Is Rejected",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('wrong institution rejected', () => pm.expect([403, 404]).to.include(pm.response.code));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{ownerToken}}", "type": "string" }] },
+            "method": "GET",
+            "url": "{{baseUrl}}/institutions/{{wrongInstitutionId}}/academic-standing/university/summary"
+          }
+        },
+        {
+          "name": "School Institution Is Not Supported",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('school institution is rejected or access-denied before type check', () => pm.expect([403, 404, 409]).to.include(pm.response.code));",
+                  "if (pm.response.code === 409) {",
+                  "  pm.expect(pm.response.json().message).to.include('university');",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{ownerToken}}", "type": "string" }] },
+            "method": "GET",
+            "url": "{{baseUrl}}/institutions/{{schoolInstitutionId}}/academic-standing/university/summary",
+            "description": "Use a token that has access to the school institution if you want the university-only 409 conflict instead of tenant access denial."
+          }
+        }
+      ]
+    },
+    {
+      "name": "07 academicStandingRules Validation Errors",
+      "item": [
+        {
+          "name": "Invalid - Overlapping Bands",
+          "request": {
+            "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{ownerToken}}", "type": "string" }] },
+            "method": "PATCH",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"academicStandingRules\": {\n    \"bands\": [\n      { \"standing\": \"suspension\", \"maxCumulativeGpaExclusive\": 2.0, \"allowedToContinue\": false, \"requiresAdvisorReview\": true },\n      { \"standing\": \"good_standing\", \"minCumulativeGpa\": 1.5, \"allowedToContinue\": true, \"requiresAdvisorReview\": false }\n    ]\n  }\n}" },
+            "url": "{{baseUrl}}/institutions/{{institutionId}}/academic-policies/{{academicPolicyId}}"
+          },
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.test('returns 400', () => pm.response.to.have.status(400));"] } }]
+        },
+        {
+          "name": "Invalid - Gap Between Bands",
+          "request": {
+            "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{ownerToken}}", "type": "string" }] },
+            "method": "PATCH",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"academicStandingRules\": {\n    \"bands\": [\n      { \"standing\": \"suspension\", \"maxCumulativeGpaExclusive\": 1.0, \"allowedToContinue\": false, \"requiresAdvisorReview\": true },\n      { \"standing\": \"probation\", \"minCumulativeGpa\": 1.2, \"maxCumulativeGpaExclusive\": 2.0, \"allowedToContinue\": true, \"requiresAdvisorReview\": true },\n      { \"standing\": \"good_standing\", \"minCumulativeGpa\": 2.0, \"allowedToContinue\": true, \"requiresAdvisorReview\": false }\n    ]\n  }\n}" },
+            "url": "{{baseUrl}}/institutions/{{institutionId}}/academic-policies/{{academicPolicyId}}"
+          },
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.test('returns 400', () => pm.response.to.have.status(400));"] } }]
+        },
+        {
+          "name": "Invalid - Standing Enum",
+          "request": {
+            "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{ownerToken}}", "type": "string" }] },
+            "method": "PATCH",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"academicStandingRules\": {\n    \"bands\": [\n      { \"standing\": \"review_required\", \"maxCumulativeGpaExclusive\": 2.0, \"allowedToContinue\": false, \"requiresAdvisorReview\": true },\n      { \"standing\": \"good_standing\", \"minCumulativeGpa\": 2.0, \"allowedToContinue\": true, \"requiresAdvisorReview\": false }\n    ]\n  }\n}" },
+            "url": "{{baseUrl}}/institutions/{{institutionId}}/academic-policies/{{academicPolicyId}}"
+          },
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.test('returns 400', () => pm.response.to.have.status(400));"] } }]
+        },
+        {
+          "name": "Invalid - noOutcomeStanding",
+          "request": {
+            "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{ownerToken}}", "type": "string" }] },
+            "method": "PATCH",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"academicStandingRules\": {\n    \"noOutcomeStanding\": \"review_required\"\n  }\n}" },
+            "url": "{{baseUrl}}/institutions/{{institutionId}}/academic-policies/{{academicPolicyId}}"
+          },
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.test('returns 400', () => pm.response.to.have.status(400));"] } }]
+        },
+        {
+          "name": "Invalid - GPA Bound Above 4",
+          "request": {
+            "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{ownerToken}}", "type": "string" }] },
+            "method": "PATCH",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"academicStandingRules\": {\n    \"bands\": [\n      { \"standing\": \"suspension\", \"maxCumulativeGpaExclusive\": 4.5, \"allowedToContinue\": false, \"requiresAdvisorReview\": true },\n      { \"standing\": \"good_standing\", \"minCumulativeGpa\": 4.5, \"allowedToContinue\": true, \"requiresAdvisorReview\": false }\n    ]\n  }\n}" },
+            "url": "{{baseUrl}}/institutions/{{institutionId}}/academic-policies/{{academicPolicyId}}"
+          },
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.test('returns 400', () => pm.response.to.have.status(400));"] } }]
+        },
+        {
+          "name": "Invalid - Non-Boolean allowedToContinue",
+          "request": {
+            "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{ownerToken}}", "type": "string" }] },
+            "method": "PATCH",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"academicStandingRules\": {\n    \"bands\": [\n      { \"standing\": \"suspension\", \"maxCumulativeGpaExclusive\": 1.0, \"allowedToContinue\": \"false\", \"requiresAdvisorReview\": true },\n      { \"standing\": \"probation\", \"minCumulativeGpa\": 1.0, \"maxCumulativeGpaExclusive\": 2.0, \"allowedToContinue\": true, \"requiresAdvisorReview\": true },\n      { \"standing\": \"good_standing\", \"minCumulativeGpa\": 2.0, \"allowedToContinue\": true, \"requiresAdvisorReview\": false }\n    ]\n  }\n}" },
+            "url": "{{baseUrl}}/institutions/{{institutionId}}/academic-policies/{{academicPolicyId}}"
+          },
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.test('returns 400', () => pm.response.to.have.status(400));"] } }]
+        }
+      ]
+    }
+  ],
+  "variable": [
+    { "key": "baseUrl", "value": "http://localhost:3000" }
+  ]
+}

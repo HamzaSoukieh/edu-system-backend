@@ -270,6 +270,14 @@
     - `prerequisiteMethod`
     - `allowGradeImprovementRepeats`
     - `blockRepeatAfterFinalPass`
+  - policy now stores university-only `academicStandingRules`:
+    - `enabled`
+    - GPA `bands` for `good_standing`, `academic_warning`, `probation`, and `suspension`
+    - `allowedToContinue`
+    - `requiresAdvisorReview`
+    - `requireManualReviewIfIncompleteProfile`
+    - `noOutcomeStanding`
+    - `allowManualReview`
   - old policy records without `repeatPolicy` resolve to defaults:
     - GPA: `best_attempt_only`
     - earned credits: `count_once_per_subject`
@@ -277,6 +285,14 @@
     - grade-improvement repeats allowed
     - final-pass repeats blocked
   - explicit legacy behavior is available by configuring `gpaCalculationMethod=all_attempts` and `earnedCreditsMethod=count_each_passed_attempt`, or by setting `repeatPolicy.enabled=false`
+  - old policy records without `academicStandingRules` resolve to defaults:
+    - GPA >= 2.0: `good_standing`
+    - 1.7 <= GPA < 2.0: `academic_warning`
+    - 1.0 <= GPA < 1.7: `probation`
+    - GPA < 1.0: `suspension`
+    - no finalized outcomes: `no_standing_yet`
+    - incomplete official profile data can return `review_required`
+    - GPA exactly at the GPA scale maximum matches the top standing band
   - policy stores blocking `minimumEnrollmentCreditHours` rather than warning-only `minCreditHours`
   - `InstitutionAcademicPolicy` does not store graduation required credits; that is deferred to a future department/program requirement model
   - dangerous academic-field edits are blocked once the policy is already used by finalized outcomes
@@ -305,6 +321,8 @@
     - `attemptLabel`
   - university `subjectOutcomeSummaries` now include decorated transcript fields such as subject code/name, compact attempt rows, best/latest outcome ids/status/percentage, and repeat-history booleans like `failedThenPassed`, `passedThenRepeated`, and `repeatedAfterFinalPass`
   - university profiles now include active `repeatPolicy`, `gpaCalculation`, and `earnedCreditCalculation` notes
+  - university profiles now include live/read-only `academicStanding` with standing, continuation/advisor-review flags, reason codes, applied band, and calculation source
+  - `section_not_closed` profile explanations remain visible, but do not by themselves force `academicStanding.standing=review_required` when finalized GPA exists
   - university `subjectAttempts` and compact summary attempt rows show `includedInOfficialGpa`, repeat-policy exclusion reason codes, and earned-credit counted/excluded flags
   - TODO/verify: `semesterId` is accepted and validated by the provider, but filtering is documented as not applied until the university outcome service supports a semester-scoped source contract
 - the self-enrollment preview route now loads tenant-scoped context in `enrollmentService` and delegates shared rule evaluation to an internal reusable eligibility decision service
@@ -317,6 +335,38 @@
 - Still missing:
   - university academic report/finalization APIs, if needed separately from calculated outcome summaries
   - broader repeat forgiveness/audit workflows beyond calculated policy classification
+  - academic standing finalization, enforcement, appeals/manual override, transcript locking, and graduation review
+
+### University Academic Standing Dashboard
+- `GET /institutions/:institutionId/academic-standing/university/summary`
+- `GET /institutions/:institutionId/academic-standing/university/students`
+- `GET /institutions/:institutionId/instructors/me/academic-standing/summary`
+- `GET /institutions/:institutionId/instructors/me/academic-standing/students`
+- Current implemented rules:
+  - university-only, read-only standing summary/list APIs
+  - admin/owner institution-wide routes use current `section.manage` access
+  - instructor routes are scoped through sections where `Section.instructorMemberId` matches the active instructor membership
+  - instructor summaries/lists dedupe students enrolled in multiple assigned sections
+  - semester, department, and instructor dashboard scopes use only active/current `Enrollment.status = enrolled` rows
+  - `Enrollment.status = dropped` rows are excluded from dashboard scoping, though existing outcome services still own finalized transcript/GPA calculation behavior
+  - standing is calculated live from the existing university outcome/profile standing services and active `academicStandingRules`
+  - supported filters:
+    - `standing`
+    - `minGpa`
+    - `maxGpa`
+    - `semesterId`
+    - `departmentId`
+    - `search`
+    - `page`
+    - `limit`
+  - department filtering is derived through `Subject -> Section -> Enrollment`
+  - response includes `standingSummary`, compact student rows, and pagination for list routes
+  - no standing snapshots, finalization, graduation review, transcript locking, appeals, or self-enrollment enforcement are added
+  - live per-student calculation is intentionally simple for MVP and now builds standing rows with bounded local concurrency
+  - TODO/verify: revisit batch outcome aggregation or denormalized term-close standing snapshots if tenant dashboard volume grows
+- Still missing:
+  - `programId` filtering until a first-class program/degree requirement model exists
+  - broader instructor responsibility scopes beyond direct `Section.instructorMemberId`
 
 ### Shared Academic Profile Facade
 - `GET /institutions/:institutionId/students/me/academic-profile`
@@ -327,6 +377,7 @@
   - university institutions delegate to `buildUniversityAcademicProfile`
   - response uses `{ academicProfile: ... }` as the common envelope
   - providers may include `warnings` and deduped/sanitized `excluded` arrays inside the envelope for incomplete or excluded academic data explanations
+  - university profiles may include live/read-only `academicStanding`; school profiles keep their separate report-card/promotion/final-outcome shape
   - the facade is read-only and does not calculate marks, promotion decisions, GPA, credits, final outcomes, or self-enrollment eligibility itself
   - student self route:
     - uses the authenticated active membership from `institutionAccess()`
