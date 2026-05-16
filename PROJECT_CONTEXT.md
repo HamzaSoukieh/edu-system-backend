@@ -262,6 +262,17 @@
   - class promotion summary reads assigned students for the policy semesters and applies the same outcome + promotion decision services per student
   - missing results are returned as warnings with explicit `complete` / `hasMissingResults` fields
   - does not write final outcomes, move students, or update class assignments
+- School Promotion Dashboard APIs
+  - admin/staff read-only summary/list routes expose school-native promotion outcomes for an explicit `academicYearId`
+  - admin/staff dashboard decisions use `promoted`, `repeat_year`, `conditional_promotion`, `manual_review`, `incomplete`, and `no_final_outcome_yet`
+  - admin/staff dashboard uses non-cancelled `SchoolFinalOutcome` records when present; otherwise rows use existing school outcome and promotion decision services
+  - admin/staff yearly live calculation tolerates transfers across policy semesters by using the latest resolvable active class assignment; ambiguous same-semester assignments return a normalized warning row
+  - instructor read-only summary/list routes are scoped through `Section.instructorMemberId` plus active enrolled section rows
+  - instructor dashboard returns section-owned outcome rows only, not full yearly promotion decisions, final outcomes, yearly averages, or failed-subject summaries from other sections
+  - instructor list responses use `sectionOutcomes` because a student may appear once per instructor-owned section
+  - dashboard warnings are normalized to safe `{ code, message, ...safe ids }` objects
+  - admin dashboard filters support decision, school class, class level, completion, missing-result state, finalized/live state, search, and pagination; instructor filters support section-row class, class level, completion, missing-result state, search, and pagination, and reject promotion-only `decision` / `finalized` filters
+  - read-only; does not finalize, override, promote, place students, create academic years, or write dashboard snapshots
 - School Final Outcome Foundation
   - admin/staff can finalize one yearly school outcome per student + academic year
   - finalization resolves the active `SchoolAcademicPolicy`, recalculates the student yearly outcome, applies the school promotion decision service, then stores a tenant-scoped `SchoolFinalOutcome`

@@ -21,6 +21,7 @@ const universityAcademicPolicyController = require("../controllers/universityAca
 const schoolAcademicPolicyController = require("../controllers/schoolAcademicPolicyController");
 const schoolReportCardController = require("../controllers/schoolReportCardController");
 const schoolFinalOutcomeController = require("../controllers/schoolFinalOutcomeController");
+const schoolPromotionDashboardController = require("../controllers/schoolPromotionDashboardController");
 const enrollmentController = require("../controllers/enrollmentController");
 const sectionSessionController = require("../controllers/sectionSessionController");
 
@@ -125,6 +126,36 @@ router.get(
     institutionAccess(),
     requirePermission("class.manage"),
     schoolReportCardController.getClassPromotionSummary
+);
+router.get(
+    "/:institutionId/school-outcomes/academic-years/:academicYearId/promotion-dashboard/summary",
+    authJwt,
+    requireEmailVerified,
+    institutionAccess(),
+    requirePermission("class.manage"),
+    schoolPromotionDashboardController.getSchoolPromotionDashboardSummary
+);
+router.get(
+    "/:institutionId/school-outcomes/academic-years/:academicYearId/promotion-dashboard/students",
+    authJwt,
+    requireEmailVerified,
+    institutionAccess(),
+    requirePermission("class.manage"),
+    schoolPromotionDashboardController.listSchoolPromotionDashboardStudents
+);
+router.get(
+    "/:institutionId/instructors/me/school-outcomes/academic-years/:academicYearId/promotion-dashboard/summary",
+    authJwt,
+    requireEmailVerified,
+    institutionAccess(),
+    schoolPromotionDashboardController.getMyInstructorSchoolPromotionDashboardSummary
+);
+router.get(
+    "/:institutionId/instructors/me/school-outcomes/academic-years/:academicYearId/promotion-dashboard/students",
+    authJwt,
+    requireEmailVerified,
+    institutionAccess(),
+    schoolPromotionDashboardController.listMyInstructorSchoolPromotionDashboardStudents
 );
 router.post(
     "/:institutionId/school-outcomes/students/:studentMembershipId/academic-years/:academicYearId/finalize",

@@ -120,6 +120,11 @@
   - `POST /institutions/:institutionId/school-outcomes/students/:studentMembershipId/academic-years/:academicYearId/finalize`
   - `PATCH /institutions/:institutionId/school-outcomes/final-outcomes/:outcomeId/override`
   - `GET /institutions/:institutionId/school-outcomes/students/:studentMembershipId/academic-years/:academicYearId/final-outcome`
+- Current school promotion dashboard routes:
+  - `GET /institutions/:institutionId/school-outcomes/academic-years/:academicYearId/promotion-dashboard/summary`
+  - `GET /institutions/:institutionId/school-outcomes/academic-years/:academicYearId/promotion-dashboard/students`
+  - `GET /institutions/:institutionId/instructors/me/school-outcomes/academic-years/:academicYearId/promotion-dashboard/summary`
+  - `GET /institutions/:institutionId/instructors/me/school-outcomes/academic-years/:academicYearId/promotion-dashboard/students`
 - Current shared academic profile routes:
   - `GET /institutions/:institutionId/students/me/academic-profile`
   - `GET /institutions/:institutionId/students/:studentMembershipId/academic-profile`
@@ -336,6 +341,32 @@
   - finalization does not update `SchoolClass`, `ClassLevel`, or class roster assignments
   - no GPA or credit-hour fields should appear in final outcome responses
   - TODO/verify: future automatic next-year placement remains deferred and should be a separate explicit workflow
+- School promotion dashboard checks:
+  - admin/staff summary counts school-native decisions and finalized/live rows
+  - list returns compact rows with student identity, class context, yearly summary, decision fields, completion fields, and warnings
+  - non-cancelled `SchoolFinalOutcome` wins over live calculation
+  - live rows use existing school outcome + promotion decision services
+  - incomplete live yearly outcomes count as `incomplete`
+  - incomplete live yearly rows always return `allowedToPromote=false`
+  - missing class/roster/live context counts as `no_final_outcome_yet`
+  - dashboard warnings are normalized to safe `{ code, message, ...safe ids }` objects
+  - filters work for `decision`, `schoolClassId`, `classLevelId`, `complete`, `hasMissingResults`, `finalized`, and `search`
+  - pagination works with max limit clamping
+  - route requires valid `academicYearId`
+  - tenant isolation excludes other-institution students
+  - non-school institutions are rejected
+  - inactive actor memberships, students, and unauthenticated requests are blocked from institution-wide dashboards
+  - instructor dashboards use `Section.instructorMemberId` plus `Enrollment.status = enrolled`
+  - instructor dashboard returns section-owned subject/semester rows, not full yearly promotion decisions or final outcomes
+  - instructor list response uses `sectionOutcomes`, not `students`, because rows are student-section outcomes
+  - instructor rows do not include `decision`, `finalDecision`, `calculatedDecision`, `allowedToPromote`, `yearlyAveragePercentage`, or `criticalFailedSubjects`
+  - instructor section summary dedupes the `totalStudents` count even when one student appears in multiple instructor sections
+  - instructor section dashboard rejects promotion-only `decision` and `finalized` query filters
+  - instructor section calculation handles numeric string scores, missing scores, missing policies, missing published assessments, and invalid assessment configuration with normalized warnings
+  - instructors cannot use institution-wide dashboard unless they also have an admin/staff permission role
+  - transfer assignments across different semesters are tolerated by using the latest resolvable active assignment for admin yearly live calculation
+  - ambiguous same-semester active assignments return a normalized warning row
+  - no AcademicYear model, year rollover, placement, finalization, or override behavior should be added
 - School academic profile provider checks:
   - returns a school-only profile shape with student, academicYear, summary, reportCards, finalOutcome, and warnings
   - requires `academicYearId`
@@ -1149,6 +1180,62 @@
   - result: 111 passing
   - ran `node --test test/academic-profile.test.js test/school-academic-profile.test.js test/university-academic-profile.test.js test/university-academic-outcome-foundation.test.js test/school-academic-policy.test.js test/school-outcome.test.js test/school-promotion.test.js test/school-report-card.test.js test/school-final-outcome.test.js test/university-academic-policy-foundation.test.js test/university-academic-standing.test.js test/university-academic-standing-report.test.js test/self-enrollment-eligibility.test.js test/self-enrollment-browse.test.js test/self-enrollment-write.test.js`
   - result: 227 passing
+- 2026-05-13 U6B/U6C real standing calculation verification:
+  - added `test/university-academic-standing-calculation.test.js` with finalized university fixtures built from `Enrollment`, `Section`, `Subject`, `Assessment`, `AssessmentResult`, `Semester`, and `InstitutionAcademicPolicy` model rows
+  - verified real academic profile standing results for `good_standing`, `academic_warning`, `probation`, and `suspension`
+  - verified custom `academicStandingRules` thresholds, including GPA `1.1` returning `suspension` when suspension is configured below `1.2`
+  - verified admin standing dashboard summary/list counts, `standing=suspension`, `minGpa/maxGpa`, and pagination using real outcome calculations
+  - verified instructor standing dashboard scope includes only students in assigned enrolled sections
+  - verified `no_standing_yet`, `review_required` from a missing result alongside finalized GPA, and one repeatPolicy interaction where standing uses official GPA after best-attempt repeat calculation
+  - ran `node --test test/university-academic-standing-calculation.test.js`
+  - result: 7 passing
+  - ran `node --test test/university-academic-standing-calculation.test.js test/university-academic-standing-report.test.js test/university-academic-standing.test.js test/university-academic-profile.test.js test/university-academic-outcome-foundation.test.js test/university-academic-policy-foundation.test.js test/self-enrollment-eligibility.test.js`
+  - result: 124 passing
+  - ran `node --test test/academic-profile.test.js test/school-academic-profile.test.js test/university-academic-profile.test.js test/university-academic-outcome-foundation.test.js test/school-academic-policy.test.js test/school-outcome.test.js test/school-promotion.test.js test/school-report-card.test.js test/school-final-outcome.test.js test/university-academic-policy-foundation.test.js test/university-academic-standing.test.js test/university-academic-standing-report.test.js test/university-academic-standing-calculation.test.js test/self-enrollment-eligibility.test.js test/self-enrollment-browse.test.js test/self-enrollment-write.test.js`
+  - result: 234 passing
+- 2026-05-15 S1 school promotion dashboard APIs:
+  - added read-only school promotion dashboard tests for admin/staff summary/list counts, compact rows, pagination, final-outcome precedence, live calculation fallback, incomplete/no-final buckets, filters, tenant isolation, non-school rejection, unauthorized access, and route wiring
+  - added instructor-scoped dashboard coverage using `Section.instructorMemberId` plus active `Enrollment.status = enrolled` rows with student deduping
+  - ran `node --test test/school-promotion-dashboard.test.js`
+  - result: 10 passing
+  - ran `node --test test/school-promotion-dashboard.test.js test/school-report-card.test.js test/school-final-outcome.test.js`
+  - result: 35 passing
+  - ran `node --test test/university-academic-standing-report.test.js`
+  - result: 14 passing
+  - ran `node --test test/academic-profile.test.js test/school-academic-profile.test.js test/university-academic-profile.test.js test/university-academic-outcome-foundation.test.js test/school-academic-policy.test.js test/school-outcome.test.js test/school-promotion.test.js test/school-report-card.test.js test/school-final-outcome.test.js test/school-promotion-dashboard.test.js test/university-academic-policy-foundation.test.js test/university-academic-standing.test.js test/university-academic-standing-report.test.js test/university-academic-standing-calculation.test.js test/self-enrollment-eligibility.test.js test/self-enrollment-browse.test.js test/self-enrollment-write.test.js`
+  - result: 244 passing
+- 2026-05-16 S1 school promotion dashboard instructor-boundary hardening:
+  - fixed incomplete admin live dashboard rows so `allowedToPromote=false` whenever the displayed decision is `incomplete`
+  - added service-level active actor membership defense for school promotion dashboard access
+  - normalized dashboard warnings from final outcomes, missing-context rows, live promotion calculations, and instructor section rows to safe `{ code, message, ...safe ids }` objects
+  - changed instructor dashboard behavior to section-owned outcome rows only; instructor routes no longer expose full yearly promotion decisions, final outcomes, yearly averages, or failed-subject summaries for a student
+  - instructor section rows are scoped through `Section.instructorMemberId` and active `Enrollment.status = enrolled`
+  - instructor list response now uses `sectionOutcomes`; promotion-only `decision` and `finalized` filters are rejected on instructor routes
+  - instructor section calculation now accepts numeric string scores and normalizes missing policy, missing published assessment, invalid assessment configuration, and missing score warnings
+  - added transfer coverage: different-semester class assignments can resolve through the latest active assignment, while ambiguous same-semester active assignments return a normalized warning row
+  - ran `node --test test/school-promotion-dashboard.test.js`
+  - result: 15 passing
+  - ran `node --test test/school-promotion-dashboard.test.js test/school-report-card.test.js test/school-final-outcome.test.js`
+  - result: 40 passing
+  - ran `node --test test/university-academic-standing-report.test.js`
+  - result: 14 passing
+  - ran `node --test test/academic-profile.test.js test/school-academic-profile.test.js test/university-academic-profile.test.js test/university-academic-outcome-foundation.test.js test/school-academic-policy.test.js test/school-outcome.test.js test/school-promotion.test.js test/school-report-card.test.js test/school-final-outcome.test.js test/school-promotion-dashboard.test.js test/university-academic-policy-foundation.test.js test/university-academic-standing.test.js test/university-academic-standing-report.test.js test/university-academic-standing-calculation.test.js test/self-enrollment-eligibility.test.js test/self-enrollment-browse.test.js test/self-enrollment-write.test.js`
+  - result: 249 passing
+- 2026-05-16 school promotion dashboard route testing support:
+  - added `postman/school-promotion-dashboard.postman_collection.json`
+  - added `postman/school-promotion-dashboard.postman_environment.json`
+  - collection covers the four dashboard routes:
+    - `GET /institutions/:institutionId/school-outcomes/academic-years/:academicYearId/promotion-dashboard/summary`
+    - `GET /institutions/:institutionId/school-outcomes/academic-years/:academicYearId/promotion-dashboard/students`
+    - `GET /institutions/:institutionId/instructors/me/school-outcomes/academic-years/:academicYearId/promotion-dashboard/summary`
+    - `GET /institutions/:institutionId/instructors/me/school-outcomes/academic-years/:academicYearId/promotion-dashboard/students`
+  - expanded `test/school-promotion-dashboard.test.js` with controller/route-envelope coverage for the four handlers, admin yearly promotion fields, instructor `sectionOutcomes`, instructor negative `decision` / `finalized` errors, and instructor `hasMissingResults` filtering
+  - run focused check with `node --test test/school-promotion-dashboard.test.js`
+  - result: 17 passing
+  - validate Postman JSON with `node -e "JSON.parse(require('fs').readFileSync('postman/school-promotion-dashboard.postman_collection.json','utf8')); JSON.parse(require('fs').readFileSync('postman/school-promotion-dashboard.postman_environment.json','utf8'));"`
+  - result: Postman JSON parsed successfully
+  - ran `node --test test/school-promotion-dashboard.test.js test/school-report-card.test.js test/school-final-outcome.test.js`
+  - result: 42 passing
 - TODO:
   - add real sample responses when helpful
   - add attendance response examples after first manual Postman pass

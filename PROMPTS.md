@@ -275,6 +275,72 @@ Key result:
 - no stored snapshots, finalization, graduation review, transcript locking, appeals, school changes, or self-enrollment enforcement are added
 ```
 
+## Recent Prompt - U6B/U6C Real Standing Calculation Verification
+```text
+Add automated tests and fixture data proving U6B/U6C academic standing calculations from real finalized university outcome inputs.
+
+Key result:
+- added finalized university fixtures using Enrollment, Section, Subject, Assessment, AssessmentResult, Semester, and InstitutionAcademicPolicy rows
+- verified single-student academic profile standings for good_standing, academic_warning, probation, and suspension with non-null cumulative GPA
+- verified admin-configured academicStandingRules thresholds are used instead of hardcoded defaults
+- verified U6C admin dashboard summary/list counts, standing and GPA filters, pagination, and instructor-scoped dashboards through the real outcome calculation path
+- verified no_standing_yet, review_required with incomplete finalized data, and one repeatPolicy official-GPA interaction
+- no production code changes were needed
+```
+
+## Recent Prompt - S1 School Promotion Dashboard APIs
+```text
+Implement read-only school-only promotion dashboard APIs for admin/owner institution-wide access and instructor-scoped assigned-section access.
+
+Key result:
+- admin/staff dashboard routes expose school-native promotion summary/list data for an explicit academicYearId
+- instructor dashboard routes are scoped through Section.instructorMemberId and active enrolled section rows, with student deduping
+- non-cancelled SchoolFinalOutcome records win over live calculation
+- rows without final outcomes use existing school outcome and promotion decision services
+- dashboard decisions are promoted, repeat_year, conditional_promotion, manual_review, incomplete, and no_final_outcome_yet
+- no AcademicYear model, year rollover, class placement, finalization changes, override changes, university changes, or dashboard snapshots are added
+```
+
+## Recent Prompt - S1 School Promotion Dashboard Instructor-Boundary Hardening
+```text
+Harden the school promotion dashboard implementation with the product boundary that admin/staff dashboards remain full yearly promotion dashboards, while instructor dashboards expose only instructor-owned section outcomes.
+
+Key result:
+- incomplete admin live rows now return `allowedToPromote=false`
+- service-level access rejects inactive actor memberships when membership status is available
+- dashboard warnings are normalized to safe `{ code, message, ...safe ids }` objects
+- instructor dashboard rows are section-owned outcomes scoped through `Section.instructorMemberId` and active enrolled rows
+- instructor routes do not expose full yearly promotion decisions, final outcomes, yearly averages, or failed-subject summaries
+- transfer assignments across different semesters are tolerated for admin yearly live rows through the latest active assignment; ambiguous same-semester assignments return a normalized warning
+- no AcademicYear model, year rollover, finalization changes, override changes, university changes, or dashboard snapshots are added
+```
+
+## Recent Prompt - S1 Dashboard Review Fixes
+```text
+Review and harden the recent school promotion dashboard and instructor section-only dashboard changes.
+
+Key result:
+- verified `getAssignmentSortKey` is declared once and transfer-aware class context receives `semesterOrderById`
+- instructor section outcome score handling now coerces numeric strings before validation
+- instructor section dashboard has its own strict query validator and rejects `decision` / `finalized`
+- instructor list responses use `sectionOutcomes` because rows are student-section outcomes
+- instructor section names fall back through `title`, `name`, then `code`
+- warning normalization coverage now includes no-policy, missing published assessments, invalid assessment configuration, missing scores, live rows, final rows, and transfer ambiguity
+- admin/staff dashboard remains a full promotion dashboard; instructor dashboard remains section-only
+```
+
+## Recent Prompt - School Promotion Dashboard Testing Support
+```text
+Create testing support for the four school promotion dashboard routes.
+
+Key result:
+- added a focused Postman collection/environment for admin full promotion summary/list and instructor section-only summary/list
+- Postman admin examples cover page, limit, search, schoolClassId, classLevelId, complete, hasMissingResults, decision, and finalized query filters
+- Postman instructor examples cover section-safe filters and negative `decision` / `finalized` checks returning 400
+- expanded automated school dashboard tests with controller/route-envelope coverage for the four handlers, admin final/live row fields, instructor `sectionOutcomes`, and instructor hasMissingResults filtering
+- no production route behavior or university modules were changed
+```
+
 ## Recent Prompt - AP4 Academic Profile Explanations
 ```text
 Add structured excluded/incomplete explanations to shared academic profile responses.

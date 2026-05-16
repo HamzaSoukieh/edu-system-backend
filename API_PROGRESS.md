@@ -535,6 +535,57 @@
   - TODO/verify: semester report-card policy resolution ignores stage-scoped policy fallback until a real school-stage source exists
   - TODO/verify: class promotion summaries are unpaginated for now, matching the current small-roster MVP assumption
 
+### School Promotion Dashboard APIs
+- `GET /institutions/:institutionId/school-outcomes/academic-years/:academicYearId/promotion-dashboard/summary`
+- `GET /institutions/:institutionId/school-outcomes/academic-years/:academicYearId/promotion-dashboard/students`
+- `GET /institutions/:institutionId/instructors/me/school-outcomes/academic-years/:academicYearId/promotion-dashboard/summary`
+- `GET /institutions/:institutionId/instructors/me/school-outcomes/academic-years/:academicYearId/promotion-dashboard/students`
+- Current implemented rules:
+  - read-only school-only routes expose promotion dashboard summaries and compact student rows for an explicit `academicYearId`
+  - admin/staff institution-wide routes are guarded by `class.manage`
+  - admin/staff rows use non-cancelled `SchoolFinalOutcome` records when present and return `decisionSource = final_outcome`
+  - admin/staff rows without a final outcome use existing school outcome and promotion services and return `decisionSource = live_promotion_calculation`
+  - unavailable admin class/roster/policy/live context is represented as `no_final_outcome_yet` with a normalized warning
+  - incomplete admin live yearly outcomes are represented as `incomplete`, preserve the calculated promotion decision, and always return `allowedToPromote=false`
+  - admin list responses include `promotionSummary`, compact `students`, and `pagination`
+  - admin `promotionSummary` counts `promoted`, `repeat_year`, `conditional_promotion`, `manual_review`, `incomplete`, `no_final_outcome_yet`, plus `finalized` and `live`
+  - instructor routes are scoped to sections where `Section.instructorMemberId` matches the active instructor membership
+  - instructor scoping uses only current `Enrollment.status = enrolled` rows
+  - instructor rows are section-owned subject/semester outcome rows and do not expose full yearly promotion decisions, final outcomes, yearly averages, or failed-subject summaries outside the instructor's sections
+  - instructor list responses include `sectionOutcomeSummary`, compact `sectionOutcomes`, and `pagination`
+  - instructor `sectionOutcomeSummary` counts `totalRows`, `totalStudents`, `sections`, `complete`, `incomplete`, `passed`, `failed`, and `hasMissingResults`
+  - instructor section outcome rows include student identity, section/subject/class context, percentage, pass/completion flags, missing results, and normalized warnings
+  - instructor section outcome rows do not include full-year `decision`, `finalDecision`, `calculatedDecision`, `allowedToPromote`, `yearlyAveragePercentage`, or `criticalFailedSubjects`
+  - dashboard warnings are normalized to safe `{ code, message, ...safe ids }` objects
+  - admin yearly live calculation tolerates transfers across different policy semesters by using the latest resolvable active class assignment; ambiguous same-semester assignments return a normalized warning row
+  - supported admin filters:
+    - `decision`
+    - `schoolClassId`
+    - `classLevelId`
+    - `complete`
+    - `hasMissingResults`
+    - `finalized`
+    - `search`
+    - `page`
+    - `limit`
+  - supported instructor filters:
+    - `schoolClassId`
+    - `classLevelId`
+    - `complete`
+    - `hasMissingResults`
+    - `search`
+    - `page`
+    - `limit`
+  - instructor routes reject promotion-only `decision` and `finalized` filters with `400`
+  - manual Postman testing artifacts now cover the four dashboard routes, admin filters, instructor section filters, and instructor `decision` / `finalized` negative checks:
+    - `postman/school-promotion-dashboard.postman_collection.json`
+    - `postman/school-promotion-dashboard.postman_environment.json`
+  - no AcademicYear model, year rollover, next-class placement, finalization changes, override changes, or dashboard snapshots are added
+- Still missing:
+  - first-class academic-year and school-stage models
+  - broader teacher responsibility scopes beyond direct `Section.instructorMemberId`
+  - TODO/verify: revisit batch aggregation or year-close reporting snapshots if whole-school dashboard volume grows
+
 ### School Final Outcome Foundation
 - `POST /institutions/:institutionId/school-outcomes/students/:studentMembershipId/academic-years/:academicYearId/finalize`
 - `PATCH /institutions/:institutionId/school-outcomes/final-outcomes/:outcomeId/override`

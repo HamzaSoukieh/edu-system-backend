@@ -270,3 +270,22 @@
   - `programId` filtering is deferred until a real program/degree requirement model exists.
   - Standing remains calculated live and is not stored/finalized. `allowedToContinue` remains informational only and does not affect self-enrollment.
   - Live per-student profile calculation is acceptable for the MVP dashboard with conservative pagination and bounded row-building concurrency; a batch aggregation path or denormalized/reporting store can be revisited if dashboard volume grows.
+
+## D041 - School Promotion Dashboards Use School-Native Outcomes
+- Status: Confirmed
+- Decision: Expose school promotion dashboard summary/list APIs as read-only reports over school promotion/final-outcome data, not university standing.
+- Reason: Schools need promotion outcome dashboards with school-native decisions while preserving separate university GPA/standing semantics.
+- Notes:
+  - Dashboard decisions are `promoted`, `repeat_year`, `conditional_promotion`, `manual_review`, `incomplete`, and `no_final_outcome_yet`.
+  - Admin/staff institution-wide routes are guarded by current `class.manage` access and are school-only.
+  - Instructor routes are scoped through `Section.instructorMemberId` and only active `Enrollment.status = enrolled` rows in policy semesters.
+  - Instructor routes expose only section-owned subject/semester outcome rows under `sectionOutcomes`. They do not expose full yearly promotion decisions, final outcomes, yearly averages, `allowedToPromote`, or failed-subject summaries.
+  - Instructor section dashboards reject promotion-only query filters such as `decision` and `finalized`.
+  - A non-cancelled `SchoolFinalOutcome` is the official source when present. Without a final outcome, rows use live `schoolOutcomeService` + `schoolPromotionService` calculations.
+  - Incomplete live yearly outcomes are counted as `incomplete`; unavailable roster/context/live calculation rows are counted as `no_final_outcome_yet`.
+  - Incomplete live rows always return `allowedToPromote=false`, even if the underlying promotion decision would otherwise be promotable from partial data.
+  - Dashboard warnings are normalized to safe `{ code, message, ...safe ids }` objects before being returned.
+  - Transfers across different policy semesters are tolerated by using the latest resolvable active class assignment for admin yearly live calculation; ambiguous same-semester active assignments return a normalized warning row.
+  - `academicYearId` remains an explicit route parameter because a first-class `AcademicYear` model/current-year resolver is still deferred.
+  - Dashboards are read-only and do not finalize, override, promote, place students into next-year classes, create snapshots, or add year rollover behavior.
+  - Live per-student row calculation uses bounded local concurrency for MVP; year-close snapshots or batch reporting can be revisited later if dashboard volume grows.

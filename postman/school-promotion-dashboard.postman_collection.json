@@ -1,0 +1,412 @@
+{
+  "info": {
+    "_postman_id": "93a2ed50-school-promotion-dashboard",
+    "name": "School Promotion Dashboard",
+    "description": "Manual checks for the four read-only school promotion dashboard routes wired in src/routes/institutionRoutes.js. Admin routes expose full yearly promotion rows; instructor routes expose section-owned outcome rows only.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "00 Auth",
+      "item": [
+        {
+          "name": "Login Admin",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('admin login succeeded', () => pm.response.to.have.status(200));",
+                  "const json = pm.response.json();",
+                  "if (json.accessToken) {",
+                  "  pm.environment.set('adminToken', json.accessToken);",
+                  "  pm.environment.set('authToken', json.accessToken);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{adminEmail}}\",\n  \"password\": \"{{adminPassword}}\"\n}"
+            },
+            "url": "{{baseUrl}}/auth/login"
+          }
+        },
+        {
+          "name": "Login Owner",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('owner login succeeded', () => pm.response.to.have.status(200));",
+                  "const json = pm.response.json();",
+                  "if (json.accessToken) pm.environment.set('ownerToken', json.accessToken);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{ownerEmail}}\",\n  \"password\": \"{{ownerPassword}}\"\n}"
+            },
+            "url": "{{baseUrl}}/auth/login",
+            "description": "Optional. Use this when your owner account is separate from the admin account."
+          }
+        },
+        {
+          "name": "Login Instructor",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('instructor login succeeded', () => pm.response.to.have.status(200));",
+                  "const json = pm.response.json();",
+                  "if (json.accessToken) pm.environment.set('instructorToken', json.accessToken);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{instructorEmail}}\",\n  \"password\": \"{{instructorPassword}}\"\n}"
+            },
+            "url": "{{baseUrl}}/auth/login"
+          }
+        }
+      ]
+    },
+    {
+      "name": "01 Admin Full School Promotion Dashboard",
+      "item": [
+        {
+          "name": "Admin - Promotion Summary",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('summary route succeeds', () => pm.response.to.have.status(200));",
+                  "const summary = pm.response.json().promotionSummary;",
+                  "pm.test('promotionSummary has all buckets', () => {",
+                  "  ['totalStudents', 'promoted', 'repeat_year', 'conditional_promotion', 'manual_review', 'incomplete', 'no_final_outcome_yet', 'finalized', 'live'].forEach((key) => pm.expect(summary).to.have.property(key));",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{adminToken}}", "type": "string" }] },
+            "method": "GET",
+            "url": "{{baseUrl}}/institutions/{{institutionId}}/school-outcomes/academic-years/{{academicYearId}}/promotion-dashboard/summary"
+          }
+        },
+        {
+          "name": "Admin - Promotion Students List",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('list route succeeds', () => pm.response.to.have.status(200));",
+                  "const body = pm.response.json();",
+                  "pm.test('list has expected envelope', () => {",
+                  "  pm.expect(body.promotionSummary).to.be.an('object');",
+                  "  pm.expect(body.students).to.be.an('array');",
+                  "  pm.expect(body.pagination).to.be.an('object');",
+                  "});",
+                  "if (body.students.length) {",
+                  "  const row = body.students[0];",
+                  "  pm.test('admin row has yearly promotion fields', () => {",
+                  "    ['studentMembershipId', 'decisionSource', 'decision', 'calculatedDecision', 'finalDecision', 'allowedToPromote', 'warnings'].forEach((key) => pm.expect(row).to.have.property(key));",
+                  "  });",
+                  "  if (!pm.environment.get('studentMembershipId')) pm.environment.set('studentMembershipId', row.studentMembershipId);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{adminToken}}", "type": "string" }] },
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/institutions/{{institutionId}}/school-outcomes/academic-years/{{academicYearId}}/promotion-dashboard/students?page={{page}}&limit={{limit}}&search={{studentSearch}}&schoolClassId={{schoolClassId}}&classLevelId={{classLevelId}}&complete={{complete}}&hasMissingResults={{hasMissingResults}}&decision={{decision}}&finalized={{finalized}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["institutions", "{{institutionId}}", "school-outcomes", "academic-years", "{{academicYearId}}", "promotion-dashboard", "students"],
+              "query": [
+                { "key": "page", "value": "{{page}}" },
+                { "key": "limit", "value": "{{limit}}" },
+                { "key": "search", "value": "{{studentSearch}}" },
+                { "key": "schoolClassId", "value": "{{schoolClassId}}" },
+                { "key": "classLevelId", "value": "{{classLevelId}}" },
+                { "key": "complete", "value": "{{complete}}" },
+                { "key": "hasMissingResults", "value": "{{hasMissingResults}}" },
+                { "key": "decision", "value": "{{decision}}" },
+                { "key": "finalized", "value": "{{finalized}}" }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Admin - Filter decision=incomplete",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('decision filter succeeds', () => pm.response.to.have.status(200));",
+                  "pm.test('all rows are incomplete', () => {",
+                  "  (pm.response.json().students || []).forEach((row) => {",
+                  "    pm.expect(row.decision).to.eql('incomplete');",
+                  "    pm.expect(row.allowedToPromote).to.eql(false);",
+                  "  });",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{adminToken}}", "type": "string" }] },
+            "method": "GET",
+            "url": "{{baseUrl}}/institutions/{{institutionId}}/school-outcomes/academic-years/{{academicYearId}}/promotion-dashboard/students?decision=incomplete&page=1&limit=25"
+          }
+        },
+        {
+          "name": "Admin - Filter finalized=true",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('finalized filter succeeds', () => pm.response.to.have.status(200));",
+                  "pm.test('all rows are finalized', () => {",
+                  "  (pm.response.json().students || []).forEach((row) => pm.expect(row.finalized).to.eql(true));",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{adminToken}}", "type": "string" }] },
+            "method": "GET",
+            "url": "{{baseUrl}}/institutions/{{institutionId}}/school-outcomes/academic-years/{{academicYearId}}/promotion-dashboard/students?finalized=true&page=1&limit=25"
+          }
+        }
+      ]
+    },
+    {
+      "name": "02 Instructor Section-Only Dashboard",
+      "item": [
+        {
+          "name": "Instructor - Section Outcome Summary",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('instructor summary succeeds', () => pm.response.to.have.status(200));",
+                  "const summary = pm.response.json().sectionOutcomeSummary;",
+                  "pm.test('sectionOutcomeSummary has section buckets', () => {",
+                  "  ['totalRows', 'totalStudents', 'sections', 'complete', 'incomplete', 'passed', 'failed', 'hasMissingResults'].forEach((key) => pm.expect(summary).to.have.property(key));",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{instructorToken}}", "type": "string" }] },
+            "method": "GET",
+            "url": "{{baseUrl}}/institutions/{{institutionId}}/instructors/me/school-outcomes/academic-years/{{academicYearId}}/promotion-dashboard/summary"
+          }
+        },
+        {
+          "name": "Instructor - Section Outcomes List",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('instructor list succeeds', () => pm.response.to.have.status(200));",
+                  "const body = pm.response.json();",
+                  "pm.test('list has section outcome envelope', () => {",
+                  "  pm.expect(body.sectionOutcomeSummary).to.be.an('object');",
+                  "  pm.expect(body.sectionOutcomes).to.be.an('array');",
+                  "  pm.expect(body.pagination).to.be.an('object');",
+                  "});",
+                  "if (body.sectionOutcomes.length) {",
+                  "  const row = body.sectionOutcomes[0];",
+                  "  pm.test('instructor row is section-only', () => {",
+                  "    ['studentMembershipId', 'sectionId', 'subjectId', 'percentage', 'passed', 'complete', 'hasMissingResults', 'warnings'].forEach((key) => pm.expect(row).to.have.property(key));",
+                  "    ['finalDecision', 'calculatedDecision', 'allowedToPromote', 'yearlyAveragePercentage', 'criticalFailedSubjects'].forEach((key) => pm.expect(row).to.not.have.property(key));",
+                  "  });",
+                  "  if (!pm.environment.get('sectionId')) pm.environment.set('sectionId', row.sectionId);",
+                  "  if (!pm.environment.get('studentMembershipId')) pm.environment.set('studentMembershipId', row.studentMembershipId);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{instructorToken}}", "type": "string" }] },
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/institutions/{{institutionId}}/instructors/me/school-outcomes/academic-years/{{academicYearId}}/promotion-dashboard/students?page={{page}}&limit={{limit}}&search={{studentSearch}}&schoolClassId={{schoolClassId}}&classLevelId={{classLevelId}}&complete={{complete}}&hasMissingResults={{hasMissingResults}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["institutions", "{{institutionId}}", "instructors", "me", "school-outcomes", "academic-years", "{{academicYearId}}", "promotion-dashboard", "students"],
+              "query": [
+                { "key": "page", "value": "{{page}}" },
+                { "key": "limit", "value": "{{limit}}" },
+                { "key": "search", "value": "{{studentSearch}}" },
+                { "key": "schoolClassId", "value": "{{schoolClassId}}" },
+                { "key": "classLevelId", "value": "{{classLevelId}}" },
+                { "key": "complete", "value": "{{complete}}" },
+                { "key": "hasMissingResults", "value": "{{hasMissingResults}}" }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Instructor - Filter complete=false",
+          "request": {
+            "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{instructorToken}}", "type": "string" }] },
+            "method": "GET",
+            "url": "{{baseUrl}}/institutions/{{institutionId}}/instructors/me/school-outcomes/academic-years/{{academicYearId}}/promotion-dashboard/students?complete=false&page=1&limit=25"
+          }
+        },
+        {
+          "name": "Instructor - Filter hasMissingResults=true",
+          "request": {
+            "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{instructorToken}}", "type": "string" }] },
+            "method": "GET",
+            "url": "{{baseUrl}}/institutions/{{institutionId}}/instructors/me/school-outcomes/academic-years/{{academicYearId}}/promotion-dashboard/students?hasMissingResults=true&page=1&limit=25"
+          }
+        },
+        {
+          "name": "Instructor Negative - decision filter returns 400",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('decision is rejected', () => pm.response.to.have.status(400));",
+                  "pm.test('message mentions decision', () => pm.expect(pm.response.json().message).to.include('decision'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{instructorToken}}", "type": "string" }] },
+            "method": "GET",
+            "url": "{{baseUrl}}/institutions/{{institutionId}}/instructors/me/school-outcomes/academic-years/{{academicYearId}}/promotion-dashboard/students?decision=promoted"
+          }
+        },
+        {
+          "name": "Instructor Negative - finalized filter returns 400",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('finalized is rejected', () => pm.response.to.have.status(400));",
+                  "pm.test('message mentions finalized', () => pm.expect(pm.response.json().message).to.include('finalized'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{instructorToken}}", "type": "string" }] },
+            "method": "GET",
+            "url": "{{baseUrl}}/institutions/{{institutionId}}/instructors/me/school-outcomes/academic-years/{{academicYearId}}/promotion-dashboard/students?finalized=true"
+          }
+        }
+      ]
+    },
+    {
+      "name": "03 Negative Access Smoke",
+      "item": [
+        {
+          "name": "No Token - Admin Summary",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": ["pm.test('no token is unauthorized', () => pm.response.to.have.status(401));"]
+              }
+            }
+          ],
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "GET",
+            "url": "{{baseUrl}}/institutions/{{institutionId}}/school-outcomes/academic-years/{{academicYearId}}/promotion-dashboard/summary"
+          }
+        },
+        {
+          "name": "Wrong Institution - Admin Summary",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": ["pm.test('wrong tenant is rejected', () => pm.expect([403, 404, 409]).to.include(pm.response.code));"]
+              }
+            }
+          ],
+          "request": {
+            "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{adminToken}}", "type": "string" }] },
+            "method": "GET",
+            "url": "{{baseUrl}}/institutions/{{wrongInstitutionId}}/school-outcomes/academic-years/{{academicYearId}}/promotion-dashboard/summary"
+          }
+        },
+        {
+          "name": "Non-School Institution - Admin Summary",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('non-school is rejected or access denied before type check', () => pm.expect([403, 404, 409]).to.include(pm.response.code));",
+                  "if (pm.response.code === 409) pm.expect(pm.response.json().message).to.include('school');"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{adminToken}}", "type": "string" }] },
+            "method": "GET",
+            "url": "{{baseUrl}}/institutions/{{universityInstitutionId}}/school-outcomes/academic-years/{{academicYearId}}/promotion-dashboard/summary"
+          }
+        }
+      ]
+    }
+  ],
+  "variable": [
+    { "key": "baseUrl", "value": "http://localhost:5000" }
+  ]
+}
