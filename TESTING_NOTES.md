@@ -37,6 +37,48 @@
   - `Content-Type: application/json`
   - raw JSON body
 
+## AcademicYear Postman
+- Focused collection:
+  - `postman/academic-year.postman_collection.json`
+- Safe environment template:
+  - `postman/academic-year.postman_environment.json`
+- Fill manually before running:
+  - `baseUrl`
+  - `adminEmail`
+  - `adminPassword`
+  - `institutionId`, or run `Get My Institution Context` after login to save the active institution
+- Optional variables for integration and negative checks:
+  - `semesterId`
+  - `schoolAcademicPolicyId`
+  - `institutionWithoutActiveAcademicYearId`
+- Auth flow:
+  - run `00 Auth And Context / Login Admin`
+  - the test script saves `accessToken` from the `/auth/login` response
+  - protected requests inherit `Authorization: Bearer {{accessToken}}`
+- AcademicYear flow:
+  - `Create Active Academic Year` saves `academicYearId`
+  - if the created year is `active`, it also saves `activeAcademicYearId`
+  - `Create Draft Academic Year` saves `draftAcademicYearId` and sets `academicYearId` for update/archive checks
+  - `List Academic Years` can save the first active year as `activeAcademicYearId`
+  - `Get Active Academic Year` saves `activeAcademicYearId`
+  - `Archive Academic Year` saves `archivedAcademicYearId`
+- Suggested manual sequence:
+  - login
+  - get institution context if `institutionId` is blank
+  - create or list academic years
+  - get active year
+  - get by id
+  - update a disposable draft year
+  - optionally patch a semester with `academicYearId`
+  - optionally patch an existing school academic policy with `appliesTo.academicYearId`
+  - archive only a disposable/manual-test year
+- Failure-case folder includes invalid date range, duplicate name, invalid `academicYearId`, no active year, update archived year, and second active year checks.
+- Optional local DB fill:
+  - local-only generated file: `postman/academic-year.local.postman_environment.json`
+  - this file is ignored by git and may contain local/dev ObjectIds
+  - the committed template remains safe and blank for credentials, tokens, and private data
+  - if no `AcademicYear` rows exist yet, create one through Postman and the collection will save `academicYearId` / `activeAcademicYearId`
+
 ## Route Patterns To Remember
 - Auth routes:
   - `/auth/...`
@@ -72,6 +114,13 @@
   - `GET /institutions/:institutionId/classes/:classId/students`
   - `GET /institutions/:institutionId/classes/:classId/students/:assignmentId`
   - `PATCH /institutions/:institutionId/classes/:classId/students/:assignmentId/status`
+- Current academic-year routes:
+  - `POST /institutions/:institutionId/academic-years`
+  - `GET /institutions/:institutionId/academic-years`
+  - `GET /institutions/:institutionId/academic-years/active`
+  - `GET /institutions/:institutionId/academic-years/:academicYearId`
+  - `PATCH /institutions/:institutionId/academic-years/:academicYearId`
+  - `POST /institutions/:institutionId/academic-years/:academicYearId/archive`
 - Current school subject create route:
   - `POST /institutions/:institutionId/class-levels/:classLevelId/subjects`
 - Current section session routes:
@@ -245,6 +294,7 @@
   - fail for `institution.type = university`
   - require `name`
   - require `appliesTo.academicYearId`
+  - require `appliesTo.academicYearId` to reference a real non-archived same-institution `AcademicYear`
   - accept optional `appliesTo.schoolStageId`
   - accept optional `appliesTo.classLevelId`
   - require `gradingRules.gradingMode = percentage`
@@ -262,6 +312,8 @@
   - reject `fail_semester` because school promotion decisions are year-based for now
   - reject invalid `failAction` or promotion decision enums
   - when `appliesTo.classLevelId` is provided, require critical subjects to belong to that same class level
+  - when weighted semesters have `academicYearId`, require them to match `appliesTo.academicYearId`
+  - old semesters without `academicYearId` should not break school policy validation
   - allow only one `active` policy per exact tenant + academicYearId + schoolStageId + classLevelId scope
 - School academic policy resolver checks:
   - prefer exact class-level + stage policy over class-level no-stage policy
@@ -269,8 +321,7 @@
   - prefer stage-level policy over academic-year default policy
   - ignore `draft` and `archived` policies
   - keep tenant scoping by `institutionId`
-  - TODO/verify: `academicYearId` and `schoolStageId` are currently validated ObjectIds because first-class models do not yet exist
-  - TODO/verify: semester weight academic-year membership validation will activate if `Semester.academicYearId` is added later
+  - TODO/verify: `schoolStageId` is currently a validated ObjectId because a first-class school-stage model does not yet exist
 - School outcome aggregation checks:
   - calculate subject semester percentage from published `AssessmentResult` rows
   - restrict subject semester aggregation to the student's active `Enrollment.status = enrolled` section ids
@@ -366,7 +417,7 @@
   - instructors cannot use institution-wide dashboard unless they also have an admin/staff permission role
   - transfer assignments across different semesters are tolerated by using the latest resolvable active assignment for admin yearly live calculation
   - ambiguous same-semester active assignments return a normalized warning row
-  - no AcademicYear model, year rollover, placement, finalization, or override behavior should be added
+  - AcademicYear is first-class elsewhere, but dashboards still take explicit `academicYearId`; year rollover, placement, finalization, and override behavior should not be added
 - School academic profile provider checks:
   - returns a school-only profile shape with student, academicYear, summary, reportCards, finalOutcome, and warnings
   - requires `academicYearId`
@@ -1236,6 +1287,38 @@
   - result: Postman JSON parsed successfully
   - ran `node --test test/school-promotion-dashboard.test.js test/school-report-card.test.js test/school-final-outcome.test.js`
   - result: 42 passing
+- 2026-05-17 AcademicYear first-class module:
+  - added `test/academic-year.test.js` for AcademicYear model/service/controller/routes, Semester `academicYearId` linking, and SchoolAcademicPolicy academic-year/semester validation
+  - updated `test/school-academic-policy.test.js` mocks for real AcademicYear validation
+  - updated school promotion dashboard Postman artifacts with AcademicYear create/list/active/get/update/archive requests and `activeAcademicYearId`
+  - ran `node --test test/academic-year.test.js test/school-academic-policy.test.js`
+  - result: 37 passing
+  - ran `node --test test/academic-year.test.js test/academic-profile.test.js test/school-academic-profile.test.js test/university-academic-profile.test.js test/university-academic-outcome-foundation.test.js test/school-academic-policy.test.js test/school-outcome.test.js test/school-promotion.test.js test/school-report-card.test.js test/school-final-outcome.test.js test/school-promotion-dashboard.test.js test/university-academic-policy-foundation.test.js test/university-academic-standing.test.js test/university-academic-standing-report.test.js test/university-academic-standing-calculation.test.js test/self-enrollment-eligibility.test.js test/self-enrollment-browse.test.js test/self-enrollment-write.test.js`
+  - result: 267 passing
+  - after tightening the AcademicYear status index shape and adding update-path policy validation coverage, reran `node --test test/academic-year.test.js`
+  - result: 16 passing
+  - validated Postman JSON with `node -e "JSON.parse(require('fs').readFileSync('postman/school-promotion-dashboard.postman_collection.json','utf8')); JSON.parse(require('fs').readFileSync('postman/school-promotion-dashboard.postman_environment.json','utf8'));"`
+  - result: Postman JSON parsed successfully
+- 2026-05-22 AcademicYear integration hardening:
+  - normalized optional Semester `academicYearId` input before storing or validating it
+  - hardened SchoolAcademicPolicy semester weight reference validation for array shape, duplicate ids, tenant-scoped lookup counts, and normalized academic-year comparisons
+  - added focused tests for trimmed Semester `academicYearId`, omitted/null Semester links, archived school policy AcademicYear rejection, missing weighted semester references, and missing `semesterWeights.semesterId`
+  - TODO/verify: strict Semester date containment inside AcademicYear date ranges remains deferred for backward compatibility
+  - ran `node --test test/academic-year.test.js test/school-academic-policy.test.js`
+  - result: 41 passing
+  - ran `node --test test/academic-year.test.js test/school-academic-policy.test.js test/school-report-card.test.js test/school-final-outcome.test.js test/school-promotion-dashboard.test.js`
+  - result: 83 passing
+- 2026-05-22 AcademicYear Postman testing support:
+  - added `postman/academic-year.postman_collection.json`
+  - added `postman/academic-year.postman_environment.json`
+  - collection covers login/context, create/list/active/get/update/archive AcademicYear flows, optional Semester and SchoolAcademicPolicy reference checks, and focused failure cases
+  - generated local-only `postman/academic-year.local.postman_environment.json` from the local/dev DB with non-secret ObjectIds where available
+  - added `postman/academic-year.local.postman_environment.json` to `.gitignore`
+  - no reusable DB-fill helper script was committed
+  - validated Postman JSON with `node -e "const fs=require('fs'); const files=['postman/academic-year.postman_collection.json','postman/academic-year.postman_environment.json']; for (const file of files) { JSON.parse(fs.readFileSync(file,'utf8')); console.log(file+' OK'); }"`
+  - result: Postman JSON parsed successfully
+  - validated collection variables against the environment template
+  - result: no missing variables
 - TODO:
   - add real sample responses when helpful
   - add attendance response examples after first manual Postman pass

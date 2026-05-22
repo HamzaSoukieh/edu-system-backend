@@ -94,7 +94,157 @@
       ]
     },
     {
-      "name": "01 Admin Full School Promotion Dashboard",
+      "name": "01 Academic Years",
+      "item": [
+        {
+          "name": "Create Academic Year",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('academic year created', () => pm.expect([200, 201, 409]).to.include(pm.response.code));",
+                  "if (pm.response.code === 201) {",
+                  "  const json = pm.response.json();",
+                  "  if (json.academicYear?.id) {",
+                  "    pm.environment.set('academicYearId', json.academicYear.id);",
+                  "    if (json.academicYear.status === 'active') pm.environment.set('activeAcademicYearId', json.academicYear.id);",
+                  "  }",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{adminToken}}", "type": "string" }] },
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"{{academicYearName}}\",\n  \"startDate\": \"{{academicYearStartDate}}\",\n  \"endDate\": \"{{academicYearEndDate}}\",\n  \"status\": \"draft\"\n}"
+            },
+            "url": "{{baseUrl}}/institutions/{{institutionId}}/academic-years"
+          }
+        },
+        {
+          "name": "List Academic Years",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('academic years list succeeds', () => pm.response.to.have.status(200));",
+                  "const json = pm.response.json();",
+                  "pm.expect(json.academicYears).to.be.an('array');",
+                  "if (json.academicYears.length && !pm.environment.get('academicYearId')) pm.environment.set('academicYearId', json.academicYears[0].id);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{adminToken}}", "type": "string" }] },
+            "method": "GET",
+            "url": "{{baseUrl}}/institutions/{{institutionId}}/academic-years?status=all&page=1&limit=25"
+          }
+        },
+        {
+          "name": "Get Active Academic Year",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('active academic year response is clear', () => pm.expect([200, 404]).to.include(pm.response.code));",
+                  "if (pm.response.code === 200) {",
+                  "  const json = pm.response.json();",
+                  "  pm.environment.set('activeAcademicYearId', json.academicYear.id);",
+                  "  pm.environment.set('academicYearId', json.academicYear.id);",
+                  "} else {",
+                  "  pm.expect(pm.response.json().message).to.eql('Active academic year not found');",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{adminToken}}", "type": "string" }] },
+            "method": "GET",
+            "url": "{{baseUrl}}/institutions/{{institutionId}}/academic-years/active"
+          }
+        },
+        {
+          "name": "Get Academic Year By Id",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('academic year detail succeeds', () => pm.response.to.have.status(200));",
+                  "pm.expect(pm.response.json().academicYear.id).to.eql(pm.environment.get('academicYearId'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{adminToken}}", "type": "string" }] },
+            "method": "GET",
+            "url": "{{baseUrl}}/institutions/{{institutionId}}/academic-years/{{academicYearId}}"
+          }
+        },
+        {
+          "name": "Update Academic Year",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('academic year update succeeds', () => pm.response.to.have.status(200));",
+                  "pm.expect(pm.response.json().academicYear.name).to.eql(pm.environment.get('academicYearName'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{adminToken}}", "type": "string" }] },
+            "method": "PATCH",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"{{academicYearName}}\"\n}"
+            },
+            "url": "{{baseUrl}}/institutions/{{institutionId}}/academic-years/{{academicYearId}}"
+          }
+        },
+        {
+          "name": "Archive Academic Year",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('academic year archive succeeds', () => pm.response.to.have.status(200));",
+                  "pm.expect(pm.response.json().academicYear.status).to.eql('archived');"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{adminToken}}", "type": "string" }] },
+            "method": "POST",
+            "url": "{{baseUrl}}/institutions/{{institutionId}}/academic-years/{{academicYearId}}/archive",
+            "description": "Use on disposable/manual-test academic years only. Existing dashboard examples still use {{academicYearId}}, so reset it after archiving if needed."
+          }
+        }
+      ]
+    },
+    {
+      "name": "02 Admin Full School Promotion Dashboard",
       "item": [
         {
           "name": "Admin - Promotion Summary",
@@ -216,7 +366,7 @@
       ]
     },
     {
-      "name": "02 Instructor Section-Only Dashboard",
+      "name": "03 Instructor Section-Only Dashboard",
       "item": [
         {
           "name": "Instructor - Section Outcome Summary",
@@ -347,7 +497,7 @@
       ]
     },
     {
-      "name": "03 Negative Access Smoke",
+      "name": "04 Negative Access Smoke",
       "item": [
         {
           "name": "No Token - Admin Summary",

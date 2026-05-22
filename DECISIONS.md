@@ -286,6 +286,19 @@
   - Incomplete live rows always return `allowedToPromote=false`, even if the underlying promotion decision would otherwise be promotable from partial data.
   - Dashboard warnings are normalized to safe `{ code, message, ...safe ids }` objects before being returned.
   - Transfers across different policy semesters are tolerated by using the latest resolvable active class assignment for admin yearly live calculation; ambiguous same-semester active assignments return a normalized warning row.
-  - `academicYearId` remains an explicit route parameter because a first-class `AcademicYear` model/current-year resolver is still deferred.
+  - `academicYearId` remains an explicit route parameter for dashboard backward compatibility; callers can use the shared active AcademicYear resolver to discover it.
   - Dashboards are read-only and do not finalize, override, promote, place students into next-year classes, create snapshots, or add year rollover behavior.
   - Live per-student row calculation uses bounded local concurrency for MVP; year-close snapshots or batch reporting can be revisited later if dashboard volume grows.
+
+## D042 - AcademicYear Is A First-Class Tenant Record
+- Status: Confirmed
+- Decision: Store academic years in a shared tenant-scoped `AcademicYear` model for both school and university institutions.
+- Reason: `academicYearId` should no longer be only an opaque ObjectId invented by clients; policies, semesters, report cards, final outcomes, and dashboards need a real year record and active-year discovery.
+- Notes:
+  - One active academic year is allowed per institution, enforced by service checks and a partial unique index.
+  - Academic year names are unique per institution through normalized-name uniqueness; the same name is allowed in different institutions.
+  - `Semester.academicYearId` is optional initially for backward compatibility with existing records and tests.
+  - School academic policy `appliesTo.academicYearId` validates a real, non-archived academic year.
+  - School policy semester weights compare `Semester.academicYearId` to the policy year when the semester link exists, but old unlinked semesters are still accepted.
+  - Existing explicit `academicYearId` routes remain stable; active-year resolution is additive.
+  - Year rollover, automatic next-year placement, graduation eligibility, transcript locking, and historical snapshots remain deferred.

@@ -1,5 +1,6 @@
 const mongoose = require("mongoose");
 const Semester = require("../models/Semester");
+const { validateAcademicYearReference } = require("./academicYearService");
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const TEACHING_DAY_LABELS = [
@@ -39,9 +40,9 @@ const SEMESTER_LINKED_COLLECTIONS = [
     },
 ];
 const SEMESTER_SELECT_FIELDS =
-    "_id institutionId name startDate endDate teachingDays calendarOverrides examDates weekCount status createdByUserId createdAt updatedAt";
+    "_id institutionId academicYearId name startDate endDate teachingDays calendarOverrides examDates weekCount status createdByUserId createdAt updatedAt";
 const SEMESTER_LIST_SELECT_FIELDS =
-    "_id name startDate endDate teachingDays calendarOverrides examDates weekCount status createdAt updatedAt";
+    "_id academicYearId name startDate endDate teachingDays calendarOverrides examDates weekCount status createdAt updatedAt";
 
 function createError(statusCode, message) {
     const error = new Error(message);
@@ -57,12 +58,21 @@ function normalizeString(value) {
     return value.trim();
 }
 
+function normalizeId(value) {
+    if (value === undefined || value === null) {
+        return null;
+    }
+
+    return value.toString().trim();
+}
+
 function isDuplicateKeyError(error) {
     return Boolean(error) && error.name === "MongoServerError" && error.code === 11000;
 }
 
 function isValidObjectId(value) {
-    return Boolean(value) && mongoose.Types.ObjectId.isValid(value);
+    const normalizedValue = normalizeId(value);
+    return Boolean(normalizedValue) && mongoose.Types.ObjectId.isValid(normalizedValue);
 }
 
 function formatDateOnly(value) {
@@ -569,6 +579,27 @@ function validateSemesterStatus(rawValue) {
     return status;
 }
 
+function validateOptionalAcademicYearId(rawValue) {
+    if (rawValue === undefined) {
+        return undefined;
+    }
+
+    if (rawValue === null) {
+        return null;
+    }
+
+    const academicYearId = normalizeId(rawValue);
+    if (!academicYearId) {
+        return null;
+    }
+
+    if (!isValidObjectId(academicYearId)) {
+        throw createError(400, "academicYearId is invalid");
+    }
+
+    return academicYearId;
+}
+
 function toCalendarOverrideResponse(calendarOverride, { startDate, teachingDays }) {
     const date = parseDateOnly(calendarOverride.date, "calendarOverride date");
     const dayName = TEACHING_DAY_LABELS[date.getUTCDay()];
@@ -671,6 +702,7 @@ function toSemesterResponse(semester, { includeWeeks = false } = {}) {
     const response = {
         id: semester._id.toString(),
         institutionId: semester.institutionId.toString(),
+        academicYearId: semester.academicYearId?.toString() || null,
         name: semester.name || null,
         startDate: formatDateOnly(semester.startDate),
         endDate: formatDateOnly(semester.endDate),
@@ -706,6 +738,7 @@ function toSemesterListItemResponse(semester) {
 
     return {
         id: semester._id.toString(),
+        academicYearId: semester.academicYearId?.toString() || null,
         name: semester.name || null,
         startDate: formatDateOnly(semester.startDate),
         endDate: formatDateOnly(semester.endDate),
@@ -767,6 +800,7 @@ function validateCreateSemesterInput(payload) {
     });
 
     return {
+        academicYearId: validateOptionalAcademicYearId(payload.academicYearId) || null,
         name,
         startDate,
         endDate,
@@ -832,6 +866,10 @@ function validateUpdateSemesterInput(payload, existingSemester) {
 
     if (payload.status !== undefined) {
         updates.status = nextStatus;
+    }
+
+    if (payload.academicYearId !== undefined) {
+        updates.academicYearId = validateOptionalAcademicYearId(payload.academicYearId);
     }
 
     const holidayRanges = normalizeHolidayRangesInput(payload);
@@ -995,8 +1033,15 @@ async function createSemester({ institutionId, createdByUserId, payload }) {
         throw createError(401, "Unauthorized");
     }
 
-    const { name, startDate, endDate, teachingDays, calendarOverrides, examDates, weekCount, status } =
+    const { academicYearId, name, startDate, endDate, teachingDays, calendarOverrides, examDates, weekCount, status } =
         validateCreateSemesterInput(payload);
+
+    if (academicYearId) {
+        await validateAcademicYearReference({
+            institutionId,
+            academicYearId,
+        });
+    }
 
     if (status === "active") {
         await ensureSingleActiveSemester({
@@ -1008,6 +1053,7 @@ async function createSemester({ institutionId, createdByUserId, payload }) {
     try {
         semester = await Semester.create({
             institutionId,
+            academicYearId,
             name,
             startDate,
             endDate,
@@ -1146,6 +1192,13 @@ async function updateSemester({ institutionId, semesterId, payload }) {
     }
 
     const { updates, nextState } = validateUpdateSemesterInput(payload, existingSemester);
+
+    if (updates.academicYearId) {
+        await validateAcademicYearReference({
+            institutionId,
+            academicYearId: updates.academicYearId,
+        });
+    }
 
     if (
         nextState.status === "active" &&

@@ -43,6 +43,30 @@
 - `GET /institutions/:institutionId/semesters/:semesterId`
 - `PATCH /institutions/:institutionId/semesters/:semesterId`
 - `DELETE /institutions/:institutionId/semesters/:semesterId`
+- Current implemented rules:
+  - `academicYearId` is optional for backward compatibility
+  - when provided on create/update, `academicYearId` must reference a non-archived same-institution `AcademicYear`
+  - TODO/verify: strict semester date containment inside the AcademicYear date range is deferred for backward compatibility
+
+### Academic Years
+- `POST /institutions/:institutionId/academic-years`
+- `GET /institutions/:institutionId/academic-years`
+- `GET /institutions/:institutionId/academic-years/active`
+- `GET /institutions/:institutionId/academic-years/:academicYearId`
+- `PATCH /institutions/:institutionId/academic-years/:academicYearId`
+- `POST /institutions/:institutionId/academic-years/:academicYearId/archive`
+- Current implemented rules:
+  - shared by school and university institutions
+  - tenant-scoped by `institutionId`
+  - supports `draft`, `active`, and `archived`
+  - one active academic year is allowed per institution
+  - names are unique per institution by normalized name
+  - active resolver returns `404` with `Active academic year not found` when none exists
+  - archived academic years cannot be updated or activated
+  - no year rollover, next-year placement, transcript locking, or historical snapshots are introduced
+  - manual Postman testing artifacts:
+    - `postman/academic-year.postman_collection.json`
+    - `postman/academic-year.postman_environment.json`
 
 ### Members
 - `POST /institutions/:institutionId/members`
@@ -414,6 +438,7 @@
   - critical-subject fail actions currently support `warning`, `manual_review`, and `repeat_year`; `fail_semester` is excluded because school promotion decisions are year-based for now
   - service validation enforces:
     - valid status and enum values
+    - `appliesTo.academicYearId` must reference a real non-archived same-institution `AcademicYear`
     - non-empty weighted semester configuration with total weight = `100`
     - duplicate semester and duplicate critical-subject rejection
     - positive scale and bounded pass thresholds
@@ -422,15 +447,15 @@
     - conditional-promotion decisions require `allowConditionalPromotion = true`
     - manual-review decisions require `allowManualReview = true`
     - class-level scoped policies require critical subjects to belong to the same `classLevelId`
+    - semester weights with populated `Semester.academicYearId` must match `appliesTo.academicYearId`
   - only one `active` school policy is allowed for the same exact tenant + academicYearId + schoolStageId + classLevelId scope through service-level conflict checks
   - resolver uses only `active` policies and prefers:
     - exact class-level + stage scope
     - then class-level scope with no stage
     - then stage scope with no class level
     - then academic-year default scope
-  - TODO/verify: semester weight academic-year membership validation will activate if `Semester.academicYearId` is added later
 - Still missing:
-  - first-class academic-year and school-stage models to replace the current validated scope-id placeholders
+  - first-class school-stage model to replace the current validated `schoolStageId` placeholder
 
 ### School Outcome Aggregation Foundation
 - Internal service only; no public routes yet
@@ -531,7 +556,7 @@
 - Still missing:
   - final-outcome read integration back into report-card responses
   - student/parent report-card access
-  - first-class academic-year and school-stage models
+  - first-class school-stage model
   - TODO/verify: semester report-card policy resolution ignores stage-scoped policy fallback until a real school-stage source exists
   - TODO/verify: class promotion summaries are unpaginated for now, matching the current small-roster MVP assumption
 
@@ -580,9 +605,9 @@
   - manual Postman testing artifacts now cover the four dashboard routes, admin filters, instructor section filters, and instructor `decision` / `finalized` negative checks:
     - `postman/school-promotion-dashboard.postman_collection.json`
     - `postman/school-promotion-dashboard.postman_environment.json`
-  - no AcademicYear model, year rollover, next-class placement, finalization changes, override changes, or dashboard snapshots are added
+  - AcademicYear is first-class elsewhere, but dashboards still use explicit `academicYearId`; no year rollover, next-class placement, finalization changes, override changes, or dashboard snapshots are added
 - Still missing:
-  - first-class academic-year and school-stage models
+  - first-class school-stage model
   - broader teacher responsibility scopes beyond direct `Section.instructorMemberId`
   - TODO/verify: revisit batch aggregation or year-close reporting snapshots if whole-school dashboard volume grows
 
@@ -627,7 +652,7 @@
   - read-only; does not finalize outcomes, override outcomes, or update school class/class-level/assignment/assessment/result/final-outcome records
 - Still missing:
   - parent self-service access
-  - first-class academic-year resolver
+  - automatic defaulting to the active AcademicYear resolver
 
 ### School Structure
 - `POST /institutions/:institutionId/class-levels`

@@ -1,0 +1,530 @@
+{
+  "info": {
+    "_postman_id": "93a2ed50-academic-year",
+    "name": "AcademicYear API",
+    "description": "Manual checks for the first-class tenant-scoped AcademicYear API plus optional Semester and SchoolAcademicPolicy reference checks. Import with postman/academic-year.postman_environment.json and fill adminEmail, adminPassword, and institutionId for your local/dev tenant.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "auth": {
+    "type": "bearer",
+    "bearer": [
+      { "key": "token", "value": "{{accessToken}}", "type": "string" }
+    ]
+  },
+  "item": [
+    {
+      "name": "00 Auth And Context",
+      "item": [
+        {
+          "name": "Login Admin",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('login succeeded', () => pm.response.to.have.status(200));",
+                  "const json = pm.response.json();",
+                  "pm.expect(json.accessToken).to.be.a('string');",
+                  "pm.environment.set('accessToken', json.accessToken);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{adminEmail}}\",\n  \"password\": \"{{adminPassword}}\"\n}"
+            },
+            "url": "{{baseUrl}}/auth/login"
+          }
+        },
+        {
+          "name": "Get My Institution Context",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('institution context succeeds', () => pm.response.to.have.status(200));",
+                  "const json = pm.response.json();",
+                  "if (!pm.environment.get('institutionId') && json.activeInstitutionId) {",
+                  "  pm.environment.set('institutionId', json.activeInstitutionId);",
+                  "}",
+                  "pm.expect(json.institutions).to.be.an('array');"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/institutions/me",
+            "description": "Optional helper. If institutionId is blank, this saves activeInstitutionId from the logged-in user's context."
+          }
+        }
+      ]
+    },
+    {
+      "name": "01 AcademicYear Happy Path",
+      "item": [
+        {
+          "name": "Create Active Academic Year",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('active academic year created', () => pm.response.to.have.status(201));",
+                  "const json = pm.response.json();",
+                  "pm.expect(json.academicYear).to.be.an('object');",
+                  "pm.expect(json.academicYear.id).to.be.a('string');",
+                  "pm.environment.set('academicYearId', json.academicYear.id);",
+                  "if (json.academicYear.status === 'active') {",
+                  "  pm.environment.set('activeAcademicYearId', json.academicYear.id);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"{{testAcademicYearName}}\",\n  \"startDate\": \"{{testAcademicYearStartDate}}\",\n  \"endDate\": \"{{testAcademicYearEndDate}}\",\n  \"status\": \"active\"\n}"
+            },
+            "url": "{{baseUrl}}/institutions/{{institutionId}}/academic-years",
+            "description": "Run on an institution that does not already have an active academic year. If it already has one, use the Get Active request or the second-active negative check."
+          }
+        },
+        {
+          "name": "Create Draft Academic Year",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('draft academic year created', () => pm.response.to.have.status(201));",
+                  "const json = pm.response.json();",
+                  "pm.expect(json.academicYear.status).to.eql('draft');",
+                  "pm.environment.set('draftAcademicYearId', json.academicYear.id);",
+                  "pm.environment.set('academicYearId', json.academicYear.id);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Draft 2027-2028\",\n  \"startDate\": \"2027-09-01\",\n  \"endDate\": \"2028-06-30\",\n  \"status\": \"draft\"\n}"
+            },
+            "url": "{{baseUrl}}/institutions/{{institutionId}}/academic-years",
+            "description": "Creates a disposable draft year and saves it as both draftAcademicYearId and academicYearId for get/update/archive checks."
+          }
+        },
+        {
+          "name": "List Academic Years",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('academic years list succeeds', () => pm.response.to.have.status(200));",
+                  "const json = pm.response.json();",
+                  "pm.expect(json.academicYears).to.be.an('array');",
+                  "const active = json.academicYears.find((year) => year.status === 'active');",
+                  "if (active) pm.environment.set('activeAcademicYearId', active.id);",
+                  "if (!pm.environment.get('academicYearId') && json.academicYears.length) {",
+                  "  pm.environment.set('academicYearId', json.academicYears[0].id);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/institutions/{{institutionId}}/academic-years?status=all&page={{page}}&limit={{limit}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["institutions", "{{institutionId}}", "academic-years"],
+              "query": [
+                { "key": "status", "value": "all" },
+                { "key": "page", "value": "{{page}}" },
+                { "key": "limit", "value": "{{limit}}" }
+              ]
+            }
+          }
+        },
+        {
+          "name": "List Academic Years - Search Name",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('academic years search succeeds', () => pm.response.to.have.status(200));",
+                  "pm.expect(pm.response.json().academicYears).to.be.an('array');"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/institutions/{{institutionId}}/academic-years?search={{testAcademicYearName}}&page=1&limit=10"
+          }
+        },
+        {
+          "name": "Get Active Academic Year",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('active academic year exists', () => pm.response.to.have.status(200));",
+                  "const json = pm.response.json();",
+                  "pm.expect(json.academicYear.id).to.be.a('string');",
+                  "pm.expect(json.academicYear.status).to.eql('active');",
+                  "pm.environment.set('activeAcademicYearId', json.academicYear.id);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/institutions/{{institutionId}}/academic-years/active"
+          }
+        },
+        {
+          "name": "Get Academic Year By Id",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('academic year detail succeeds', () => pm.response.to.have.status(200));",
+                  "const json = pm.response.json();",
+                  "pm.expect(json.academicYear.id).to.eql(pm.environment.get('academicYearId'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/institutions/{{institutionId}}/academic-years/{{academicYearId}}"
+          }
+        },
+        {
+          "name": "Update Academic Year",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('academic year update succeeds', () => pm.response.to.have.status(200));",
+                  "const json = pm.response.json();",
+                  "pm.expect(json.academicYear.name).to.eql(pm.environment.get('updatedAcademicYearName'));",
+                  "pm.expect(json.academicYear.endDate).to.eql(pm.environment.get('updatedAcademicYearEndDate'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "PATCH",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"{{updatedAcademicYearName}}\",\n  \"endDate\": \"{{updatedAcademicYearEndDate}}\"\n}"
+            },
+            "url": "{{baseUrl}}/institutions/{{institutionId}}/academic-years/{{academicYearId}}",
+            "description": "Best used on draftAcademicYearId or another disposable non-archived year."
+          }
+        },
+        {
+          "name": "Archive Academic Year",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('academic year archive succeeds', () => pm.response.to.have.status(200));",
+                  "const json = pm.response.json();",
+                  "pm.expect(json.academicYear.status).to.eql('archived');",
+                  "pm.environment.set('archivedAcademicYearId', json.academicYear.id);",
+                  "if (pm.environment.get('activeAcademicYearId') === json.academicYear.id) {",
+                  "  pm.environment.unset('activeAcademicYearId');",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/institutions/{{institutionId}}/academic-years/{{academicYearId}}/archive",
+            "description": "Destructive for the selected academicYearId. Use on a disposable draft/manual-test year."
+          }
+        }
+      ]
+    },
+    {
+      "name": "02 Optional Integration Checks",
+      "item": [
+        {
+          "name": "Patch Semester academicYearId",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('semester update succeeds', () => pm.response.to.have.status(200));",
+                  "const json = pm.response.json();",
+                  "pm.expect(json.semester.academicYearId).to.eql(pm.environment.get('activeAcademicYearId'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "PATCH",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"academicYearId\": \"{{activeAcademicYearId}}\"\n}"
+            },
+            "url": "{{baseUrl}}/institutions/{{institutionId}}/semesters/{{semesterId}}",
+            "description": "Requires semesterId and a non-archived same-institution activeAcademicYearId. Run Get Active Academic Year first if this variable is blank."
+          }
+        },
+        {
+          "name": "Clear Semester academicYearId",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('semester academicYearId clear succeeds', () => pm.response.to.have.status(200));",
+                  "pm.expect(pm.response.json().semester.academicYearId).to.eql(null);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "PATCH",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"academicYearId\": null\n}"
+            },
+            "url": "{{baseUrl}}/institutions/{{institutionId}}/semesters/{{semesterId}}",
+            "description": "Optional compatibility check proving Semester.academicYearId can be cleared."
+          }
+        },
+        {
+          "name": "Patch SchoolAcademicPolicy appliesTo.academicYearId",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('school academic policy update succeeds', () => pm.response.to.have.status(200));",
+                  "const json = pm.response.json();",
+                  "pm.expect(json.schoolAcademicPolicy.appliesTo.academicYearId).to.eql(pm.environment.get('activeAcademicYearId'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "PATCH",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"appliesTo\": {\n    \"academicYearId\": \"{{activeAcademicYearId}}\"\n  }\n}"
+            },
+            "url": "{{baseUrl}}/institutions/{{institutionId}}/academic-policies/school/{{schoolAcademicPolicyId}}",
+            "description": "Requires an existing schoolAcademicPolicyId and activeAcademicYearId. This can fail with 400 if the policy's semesterWeights point to semesters linked to a different AcademicYear."
+          }
+        }
+      ]
+    },
+    {
+      "name": "03 Negative Checks",
+      "item": [
+        {
+          "name": "Create Academic Year - Invalid Date Range",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('invalid date range is rejected', () => pm.response.to.have.status(400));",
+                  "pm.expect(pm.response.json().message).to.include('endDate');"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Invalid Year\",\n  \"startDate\": \"2026-09-01\",\n  \"endDate\": \"2026-01-01\"\n}"
+            },
+            "url": "{{baseUrl}}/institutions/{{institutionId}}/academic-years"
+          }
+        },
+        {
+          "name": "Create Academic Year - Duplicate Name",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('duplicate academic year name is rejected', () => pm.response.to.have.status(409));",
+                  "pm.expect(pm.response.json().message).to.include('Academic year name already exists');"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"{{testAcademicYearName}}\",\n  \"startDate\": \"{{testAcademicYearStartDate}}\",\n  \"endDate\": \"{{testAcademicYearEndDate}}\",\n  \"status\": \"draft\"\n}"
+            },
+            "url": "{{baseUrl}}/institutions/{{institutionId}}/academic-years",
+            "description": "Set testAcademicYearName to an existing year name first, or run this immediately after creating that name."
+          }
+        },
+        {
+          "name": "Get Academic Year - Invalid Id",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('invalid academicYearId is rejected', () => pm.response.to.have.status(400));",
+                  "pm.expect(pm.response.json().message).to.eql('Invalid academicYearId');"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/institutions/{{institutionId}}/academic-years/not-a-valid-id"
+          }
+        },
+        {
+          "name": "Get Active Academic Year - None Exists",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('missing active academic year returns 404', () => pm.response.to.have.status(404));",
+                  "pm.expect(pm.response.json().message).to.eql('Active academic year not found');"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/institutions/{{institutionWithoutActiveAcademicYearId}}/academic-years/active",
+            "description": "Optional. Fill institutionWithoutActiveAcademicYearId with a tenant that has no active AcademicYear."
+          }
+        },
+        {
+          "name": "Update Archived Academic Year",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('archived academic year update is rejected', () => pm.response.to.have.status(400));",
+                  "pm.expect(pm.response.json().message).to.eql('Archived academic years cannot be updated');"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "PATCH",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Should Not Update Archived Year\"\n}"
+            },
+            "url": "{{baseUrl}}/institutions/{{institutionId}}/academic-years/{{archivedAcademicYearId}}",
+            "description": "Run after Archive Academic Year saves archivedAcademicYearId."
+          }
+        },
+        {
+          "name": "Create Second Active Academic Year",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('second active academic year is rejected', () => pm.response.to.have.status(409));",
+                  "pm.expect(pm.response.json().message).to.include('Another active academic year already exists');"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"{{secondActiveAcademicYearName}}\",\n  \"startDate\": \"2028-09-01\",\n  \"endDate\": \"2029-06-30\",\n  \"status\": \"active\"\n}"
+            },
+            "url": "{{baseUrl}}/institutions/{{institutionId}}/academic-years",
+            "description": "Run only when the institution already has an active AcademicYear. If none exists, this request will create one."
+          }
+        }
+      ]
+    }
+  ]
+}

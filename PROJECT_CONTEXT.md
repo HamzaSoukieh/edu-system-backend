@@ -26,6 +26,11 @@
 - `Institution`
   - tenant root
   - type supports `school` and `university`
+- `AcademicYear`
+  - shared tenant-scoped academic year record for school and university institutions
+  - stores year name/date range/status
+  - one active academic year is allowed per institution
+  - used to resolve active/current academic-year context instead of frontends inventing ids
 - `Membership`
   - institution access + role
 - `MemberProfile`
@@ -44,6 +49,7 @@
   - school links through `classLevelId`
 - `Semester`
   - semester calendar and teaching days
+  - can optionally link to `AcademicYear` through `academicYearId` for migration-safe year grouping
 - `Section`
   - one offered instance of a subject in one semester
 - `Enrollment`
@@ -109,6 +115,11 @@
   - get by id
   - update
   - delete
+- Academic Years
+  - create/list/get/update/archive
+  - active academic year resolver
+  - shared by school and university institutions
+  - one active academic year per institution
 - Members
   - create
   - list
@@ -237,10 +248,12 @@
 - School Academic Policy Foundation
   - admin/staff create/list/get/update/archive for school-only academic policy
   - class-level / stage / academic-year fallback resolver
+  - `appliesTo.academicYearId` now references a real tenant-scoped `AcademicYear`
+  - semester weights validate linked `Semester.academicYearId` when present while tolerating old unlinked semesters
   - percentage-based grading, semester aggregation, failure, and promotion rule configuration
   - stays separate from university GPA, credit-hour, and self-enrollment policy behavior
   - current remaining gap:
-    - first-class academic-year and school-stage models are not yet present
+    - first-class school-stage model is not yet present
 - School Outcome Aggregation Foundation
   - calculation-only school outcome service
   - derives marks/percentage outcomes from existing published `Assessment` and `AssessmentResult` data
@@ -285,7 +298,7 @@
 - School Academic Profile Provider
   - internal school-only provider for the shared academic profile facade
   - composes existing school yearly report-card, optional semester report-card, and optional final-outcome reads
-  - requires `academicYearId` for now because there is no first-class academic-year/current-year resolver yet
+  - still accepts explicit `academicYearId`; callers can now discover the active year through the shared AcademicYear API
   - supports staff access through school report-card/final-outcome style `class.manage` access
   - supports student self access only when the actor is the target student membership
   - returns `finalOutcome: null` when no non-cancelled final outcome exists
@@ -341,7 +354,7 @@
 - Verify whether session cancellation should later support richer notification flows beyond basic email.
 - Verify whether attendance should later support coordinator/admin oversight after instructor-first flow is stable.
 - Verify whether old section schedules without `schedule[].sessionType` should get a dedicated backfill path before bulk session generation is used broadly.
-- Verify whether school policy `academicYearId` and `schoolStageId` should later point to first-class tenant models instead of the current validated opaque ObjectId scope ids.
+- Verify whether school policy `schoolStageId` should later point to a first-class tenant model instead of the current validated opaque ObjectId scope id.
 - Verify whether school yearly subject aggregation should later require full semester coverage instead of averaging over available weighted semesters when some results are missing.
 - Verify whether school subjects need configurable subject weights for yearly student averages; current school outcome aggregation averages yearly subject percentages equally.
 - Verify whether `AssessmentResult` needs its own final/published lifecycle later; current school outcome aggregation relies on `Assessment.status = published`.

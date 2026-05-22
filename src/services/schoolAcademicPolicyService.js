@@ -4,6 +4,7 @@ const ClassLevel = require("../models/ClassLevel");
 const Semester = require("../models/Semester");
 const Subject = require("../models/Subject");
 const { ensureSchoolInstitution } = require("./classLevelService");
+const { validateAcademicYearReference } = require("./academicYearService");
 
 const SCHOOL_ACADEMIC_POLICY_STATUSES = ["draft", "active", "archived"];
 const SCHOOL_ACADEMIC_POLICY_GRADING_MODES = ["percentage"];
@@ -687,37 +688,51 @@ async function ensureClassLevelExistsIfProvided({ institutionId, classLevelId })
     return classLevel;
 }
 
-function semesterSchemaHasAcademicYearId() {
-    return Boolean(Semester.schema.path("academicYearId"));
-}
-
 async function ensureSemesterWeightsExist({ institutionId, policyInput }) {
-    const semesterWeights = policyInput.aggregationRules.semesterWeights;
+    const semesterWeights = policyInput.aggregationRules?.semesterWeights || [];
+    if (!Array.isArray(semesterWeights)) {
+        throw createError(400, "aggregationRules.semesterWeights must be an array");
+    }
+
     if (!semesterWeights.length) {
         return;
     }
 
-    const semesterIds = semesterWeights.map((row) => row.semesterId);
-    const query = {
+    const seenSemesterIds = new Set();
+    const semesterIds = semesterWeights.map((row, index) => {
+        const semesterId = validateObjectIdField(
+            row?.semesterId,
+            `aggregationRules.semesterWeights[${index}].semesterId`
+        );
+
+        if (seenSemesterIds.has(semesterId)) {
+            throw createError(400, "aggregationRules.semesterWeights must not contain duplicate semesterIds");
+        }
+
+        seenSemesterIds.add(semesterId);
+        return semesterId;
+    });
+
+    const semesters = await Semester.find({
         institutionId,
         _id: { $in: semesterIds },
-    };
-
-    if (semesterSchemaHasAcademicYearId()) {
-        query.academicYearId = policyInput.appliesTo.academicYearId;
-    }
-
-    const semesters = await Semester.find(query)
-        .select("_id")
+    })
+        .select("_id academicYearId")
         .lean();
 
     if (semesters.length !== semesterIds.length) {
-        throw createError(
-            404,
-            semesterSchemaHasAcademicYearId()
-                ? "One or more semesterWeights.semesterId values were not found for this academicYearId"
-                : "One or more semesterWeights.semesterId values were not found"
-        );
+        throw createError(404, "One or more semesterWeights.semesterId values were not found");
+    }
+
+    const academicYearId = normalizeId(policyInput.appliesTo.academicYearId);
+    const hasDifferentAcademicYear = semesters.some(
+        (semester) =>
+            semester.academicYearId &&
+            normalizeId(semester.academicYearId) !== academicYearId
+    );
+
+    if (hasDifferentAcademicYear) {
+        throw createError(400, "aggregationRules.semesterWeights must belong to appliesTo.academicYearId");
     }
 }
 
@@ -760,6 +775,10 @@ async function ensureCriticalSubjectsExist({ institutionId, policyInput }) {
 }
 
 async function validateSchoolAcademicPolicyScopeAndReferences({ institutionId, policyInput }) {
+    await validateAcademicYearReference({
+        institutionId,
+        academicYearId: policyInput.appliesTo.academicYearId,
+    });
     await ensureClassLevelExistsIfProvided({
         institutionId,
         classLevelId: policyInput.appliesTo.classLevelId,

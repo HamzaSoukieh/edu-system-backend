@@ -341,6 +341,47 @@ Key result:
 - no production route behavior or university modules were changed
 ```
 
+## Recent Prompt - AcademicYear First-Class Module
+```text
+Build a small shared AcademicYear module for school and university institutions.
+
+Key result:
+- added tenant-scoped AcademicYear model/service/controller/routes under /institutions/:institutionId/academic-years
+- active academic year resolver returns the single active year or "Active academic year not found"
+- one active year per institution is enforced by service checks and a partial unique index
+- Semester.academicYearId is optional initially for backward compatibility and validates same-institution non-archived years when provided
+- SchoolAcademicPolicy now validates appliesTo.academicYearId against AcademicYear and checks semesterWeights against Semester.academicYearId when present
+- existing explicit academicYearId school report-card, final-outcome, profile, and promotion dashboard routes remain stable
+- no university repeat/standing/self-enrollment rewrites, year rollover, automatic placement, graduation eligibility, transcript locking, or snapshots
+```
+
+## Recent Prompt - AcademicYear Integration Hardening
+```text
+Audit and harden AcademicYear integration points in Semester and SchoolAcademicPolicy.
+
+Key requirements:
+- normalize optional Semester academicYearId input and preserve omitted/null backward compatibility
+- validate linked AcademicYear references as same-tenant and non-archived
+- harden SchoolAcademicPolicy semesterWeights lookup, duplicate handling, and academic-year comparison
+- keep old semesters without academicYearId working
+- do not enforce semester date containment yet unless clearly safe
+- add focused tests and document any deferred TODOs
+```
+
+## Recent Prompt - AcademicYear Postman Testing Support
+```text
+Create focused Postman collection/environment support for manually testing the first-class AcademicYear APIs.
+
+Key requirements:
+- add login/context setup that saves accessToken from /auth/login
+- cover create/list/get active/get by id/update/archive AcademicYear routes
+- save academicYearId, activeAcademicYearId, and archivedAcademicYearId from responses
+- include optional Semester and SchoolAcademicPolicy academicYearId integration checks
+- include focused negative requests for invalid dates, duplicate names, invalid ids, no active year, archived update, and second active year
+- keep committed environment files free of real secrets, tokens, production URLs, and private user data
+- document manual variable fill and skip DB-assisted env generation unless it fits existing project style
+```
+
 ## Recent Prompt - AP4 Academic Profile Explanations
 ```text
 Add structured excluded/incomplete explanations to shared academic profile responses.

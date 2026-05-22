@@ -2,6 +2,7 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 
 const Institution = require("../src/models/Institution");
+const AcademicYear = require("../src/models/AcademicYear");
 const ClassLevel = require("../src/models/ClassLevel");
 const Semester = require("../src/models/Semester");
 const Subject = require("../src/models/Subject");
@@ -52,6 +53,15 @@ function buildSemester(overrides = {}) {
     return {
         _id: "507f1f77bcf86cd799439031",
         institutionId: "507f1f77bcf86cd799439011",
+        ...overrides,
+    };
+}
+
+function buildAcademicYear(overrides = {}) {
+    return {
+        _id: "507f1f77bcf86cd799439051",
+        institutionId: "507f1f77bcf86cd799439011",
+        status: "active",
         ...overrides,
     };
 }
@@ -185,7 +195,12 @@ function mockSchoolInstitution(t, institution = buildInstitution()) {
     return t.mock.method(Institution, "findOne", () => createQuery(institution));
 }
 
+function mockAcademicYear(t, academicYear = buildAcademicYear()) {
+    return t.mock.method(AcademicYear, "findOne", () => createQuery(academicYear));
+}
+
 function mockScopeReferences(t) {
+    mockAcademicYear(t);
     t.mock.method(ClassLevel, "findOne", () => createQuery(buildClassLevel()));
     t.mock.method(Semester, "find", () =>
         createQuery([buildSemester(), buildSemester({ _id: "507f1f77bcf86cd799439032" })])
@@ -269,6 +284,24 @@ test("validateCreateSchoolAcademicPolicyInput rejects duplicate semesterIds", ()
                 })
             ),
         /aggregationRules\.semesterWeights must not contain duplicate semesterIds/
+    );
+});
+
+test("validateCreateSchoolAcademicPolicyInput rejects missing semesterWeight semesterId", () => {
+    assert.throws(
+        () =>
+            validateCreateSchoolAcademicPolicyInput(
+                buildPolicyPayload({
+                    aggregationRules: {
+                        yearCalculationMethod: "weighted_semesters",
+                        semesterWeights: [
+                            { weight: 50 },
+                            { semesterId: "507f1f77bcf86cd799439032", weight: 50 },
+                        ],
+                    },
+                })
+            ),
+        /aggregationRules\.semesterWeights\[0\]\.semesterId is required/
     );
 });
 
@@ -440,6 +473,7 @@ test("createSchoolAcademicPolicy creates a valid school academic policy", async 
 
 test("createSchoolAcademicPolicy rejects critical subjects outside appliesTo.classLevelId", async (t) => {
     mockSchoolInstitution(t);
+    mockAcademicYear(t);
     t.mock.method(ClassLevel, "findOne", () => createQuery(buildClassLevel()));
     t.mock.method(Semester, "find", () =>
         createQuery([buildSemester(), buildSemester({ _id: "507f1f77bcf86cd799439032" })])

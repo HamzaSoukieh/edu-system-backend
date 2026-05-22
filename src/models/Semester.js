@@ -17,6 +17,12 @@ const semesterSchema = new mongoose.Schema(
             ref: "Institution",
             required: true,
         },
+        academicYearId: {
+            type: mongoose.Schema.Types.ObjectId,
+            ref: "AcademicYear",
+            default: null,
+            index: true,
+        },
         name: {
             type: String,
             required: true,

@@ -16,6 +16,7 @@ const sectionController = require("../controllers/sectionController");
 const attendanceController = require("../controllers/attendanceController");
 const assessmentController = require("../controllers/assessmentController");
 const academicProfileController = require("../controllers/academicProfileController");
+const academicYearController = require("../controllers/academicYearController");
 const universityAcademicStandingController = require("../controllers/universityAcademicStandingController");
 const universityAcademicPolicyController = require("../controllers/universityAcademicPolicyController");
 const schoolAcademicPolicyController = require("../controllers/schoolAcademicPolicyController");
@@ -46,6 +47,54 @@ router.post(
     requirePermission("institution.manage"),
     uploadInstitutionLogo,
     institutionController.uploadInstitutionLogo
+);
+router.post(
+    "/:institutionId/academic-years",
+    authJwt,
+    requireEmailVerified,
+    institutionAccess(),
+    requirePermission("institution.manage"),
+    academicYearController.createAcademicYear
+);
+router.get(
+    "/:institutionId/academic-years",
+    authJwt,
+    requireEmailVerified,
+    institutionAccess(),
+    requirePermission("institution.manage"),
+    academicYearController.listAcademicYears
+);
+router.get(
+    "/:institutionId/academic-years/active",
+    authJwt,
+    requireEmailVerified,
+    institutionAccess(),
+    requirePermission("institution.manage"),
+    academicYearController.getActiveAcademicYear
+);
+router.get(
+    "/:institutionId/academic-years/:academicYearId",
+    authJwt,
+    requireEmailVerified,
+    institutionAccess(),
+    requirePermission("institution.manage"),
+    academicYearController.getAcademicYearById
+);
+router.patch(
+    "/:institutionId/academic-years/:academicYearId",
+    authJwt,
+    requireEmailVerified,
+    institutionAccess(),
+    requirePermission("institution.manage"),
+    academicYearController.updateAcademicYear
+);
+router.post(
+    "/:institutionId/academic-years/:academicYearId/archive",
+    authJwt,
+    requireEmailVerified,
+    institutionAccess(),
+    requirePermission("institution.manage"),
+    academicYearController.archiveAcademicYear
 );
 router.post(
     "/:institutionId/academic-policies",
