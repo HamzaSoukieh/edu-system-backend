@@ -64,6 +64,13 @@
 - `AssessmentResult`
   - one student result row for one assessment
   - anchored through existing section `Enrollment`
+- `Homework`
+  - one section-scoped task/workflow for homework or projects
+  - may optionally link to a `SectionSession` and/or `Assessment`
+- `HomeworkSubmission`
+  - one current submission/manual tracking row per homework + enrollment
+  - stores offline/manual submission state or private online upload metadata
+  - stays separate from `AssessmentResult`, which remains the score/result row
 - `InstitutionAcademicPolicy`
   - institution-level university academic policy
   - university-only semester-effective academic policy version
@@ -198,6 +205,26 @@
     - school class-level coordinator/head for the parent section class level
   - current remaining gap:
     - broader grading/reporting beyond section-level assessment results, such as GPA/transcript/report-card flows
+- Homework / Projects
+  - create/list/get/update/status for section-scoped homework and project tasks
+  - optional `assessmentId` links a homework/project to an existing same-section assessment when the task counts toward grades
+  - homework can exist without an assessment and does not create or alter `AssessmentResult`
+  - submission modes:
+    - `none` for task/instruction-only items
+    - `offline` for school/classroom paper or in-person submissions marked by the instructor
+    - `online_upload` for student PDF uploads into private non-static storage
+  - student visibility uses active enrolled `Enrollment` rows and only shows `assigned|closed` homework
+  - student uploads require `assigned` + `online_upload`; late uploads require `allowLate=true`
+  - best-effort email notifications are sent to active enrolled students when homework is created as `assigned` or transitions from `draft -> assigned`
+  - instructor roster joins active section enrollments with homework submissions so missing students appear without stored rows
+  - private submission files are downloaded only through a protected route after student-owner or section/scoped staff authorization
+  - scoped staff access reuses the same safe section-derived oversight pattern as assessments:
+    - admin
+    - parent section instructor
+    - university department coordinator/head for the parent subject department
+    - school class-level coordinator/head for the parent section class level
+  - current remaining gap:
+    - multiple resubmission history, reminders, grading/resubmission notifications, cloud storage, and plagiarism checks are deferred
 - University Academic Policy / Self-Enrollment Foundation
   - admin create/list/get/update for institution-level university academic policy
   - implementation files use university-prefixed service/controller names while keeping existing public `/academic-policies` routes stable

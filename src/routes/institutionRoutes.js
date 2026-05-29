@@ -4,6 +4,7 @@ const requireEmailVerified = require("../middleware/requireEmailVerified");
 const { institutionAccess, requirePermission } = require("../middleware/authorize");
 const uploadInstitutionLogo = require("../middleware/uploadInstitutionLogo");
 const uploadMemberProfilePicture = require("../middleware/uploadMemberProfilePicture");
+const uploadHomeworkSubmission = require("../middleware/uploadHomeworkSubmission");
 const institutionController = require("../controllers/institutionController");
 const departmentController = require("../controllers/departmentController");
 const classLevelController = require("../controllers/classLevelController");
@@ -15,6 +16,7 @@ const memberController = require("../controllers/memberController");
 const sectionController = require("../controllers/sectionController");
 const attendanceController = require("../controllers/attendanceController");
 const assessmentController = require("../controllers/assessmentController");
+const homeworkController = require("../controllers/homeworkController");
 const academicProfileController = require("../controllers/academicProfileController");
 const academicYearController = require("../controllers/academicYearController");
 const universityAcademicStandingController = require("../controllers/universityAcademicStandingController");
@@ -629,6 +631,13 @@ router.get(
     attendanceController.listMyAttendanceHistory
 );
 router.get(
+    "/:institutionId/students/me/homeworks",
+    authJwt,
+    requireEmailVerified,
+    institutionAccess(),
+    homeworkController.listStudentHomeworks
+);
+router.get(
     "/:institutionId/students/me/assessments",
     authJwt,
     requireEmailVerified,
@@ -777,6 +786,84 @@ router.get(
     requireEmailVerified,
     institutionAccess(),
     assessmentController.getSectionResults
+);
+router.post(
+    "/:institutionId/sections/:sectionId/homeworks",
+    authJwt,
+    requireEmailVerified,
+    institutionAccess(),
+    homeworkController.createHomework
+);
+router.get(
+    "/:institutionId/sections/:sectionId/homeworks",
+    authJwt,
+    requireEmailVerified,
+    institutionAccess(),
+    homeworkController.listSectionHomeworks
+);
+router.get(
+    "/:institutionId/sections/:sectionId/homeworks/:homeworkId/submissions",
+    authJwt,
+    requireEmailVerified,
+    institutionAccess(),
+    homeworkController.getHomeworkSubmissionsRoster
+);
+router.put(
+    "/:institutionId/sections/:sectionId/homeworks/:homeworkId/enrollments/:enrollmentId/submission",
+    authJwt,
+    requireEmailVerified,
+    institutionAccess(),
+    homeworkController.markEnrollmentHomeworkSubmission
+);
+router.patch(
+    "/:institutionId/sections/:sectionId/homeworks/:homeworkId/submissions/:submissionId",
+    authJwt,
+    requireEmailVerified,
+    institutionAccess(),
+    homeworkController.updateHomeworkSubmission
+);
+router.get(
+    "/:institutionId/sections/:sectionId/homeworks/:homeworkId/submissions/:submissionId/file",
+    authJwt,
+    requireEmailVerified,
+    institutionAccess(),
+    homeworkController.downloadHomeworkSubmissionFile
+);
+router.get(
+    "/:institutionId/sections/:sectionId/homeworks/:homeworkId/submission",
+    authJwt,
+    requireEmailVerified,
+    institutionAccess(),
+    homeworkController.getMyHomeworkSubmission
+);
+router.post(
+    "/:institutionId/sections/:sectionId/homeworks/:homeworkId/submission",
+    authJwt,
+    requireEmailVerified,
+    institutionAccess(),
+    uploadHomeworkSubmission,
+    homeworkController.submitHomework
+);
+router.patch(
+    "/:institutionId/sections/:sectionId/homeworks/:homeworkId/status",
+    authJwt,
+    requireEmailVerified,
+    institutionAccess(),
+    homeworkController.updateHomeworkStatus
+);
+router.get(
+    "/:institutionId/sections/:sectionId/homeworks/:homeworkId",
+    authJwt,
+    requireEmailVerified,
+    institutionAccess(),
+    homeworkController.getHomeworkById
+);
+router.patch(
+    "/:institutionId/sections/:sectionId/homeworks/:homeworkId",
+    authJwt,
+    requireEmailVerified,
+    institutionAccess(),
+    homeworkController.updateHomework
 );
 router.patch(
     "/:institutionId/sections/:sectionId/enrollments/:enrollmentId/status",

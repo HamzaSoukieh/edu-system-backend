@@ -382,6 +382,59 @@ Key requirements:
 - document manual variable fill and skip DB-assisted env generation unless it fits existing project style
 ```
 
+## Recent Prompt - Homework / Project Section Module
+```text
+Build a shared section-linked Homework / Project module with optional Assessment integration.
+
+Key result:
+- Homework is the task/instructions/deadline/submission workflow
+- HomeworkSubmission stores offline/manual status or private online upload metadata
+- Assessment remains optional and AssessmentResult remains the score/result source
+- offline mode supports school paper/in-class submissions marked by teachers
+- online_upload mode supports student PDF uploads stored outside public /uploads
+- instructor roster joins active enrollments with submissions so missing students appear without persisted missing rows
+- protected download authorizes the submitting student, section instructor/admin, or existing scoped coordinator/head paths
+```
+
+## Recent Prompt - Homework Upload Hardening
+```text
+Review and harden the existing Homework / Project service and upload flow.
+
+Key result:
+- student online uploads do not set `markedByUserId`; staff-only marking remains distinct
+- online resubmission clears old instructor feedback and removes the replaced private file after successful update
+- manual marking requires active enrollments and only applies to `submissionMode=offline`
+- `submissionMode` changes are blocked after submissions exist
+- setting a submission to `missing` clears submitted/file metadata and removes old private files
+- private download path safety, missing-file behavior, and virtual roster missing rows are verified by focused tests
+```
+
+## Recent Prompt - Homework Upload Middleware and Controller Hardening
+```text
+Review and harden the homework submission upload middleware and controller flow.
+
+Key result:
+- homework upload middleware keeps files in private `storage/homework-submissions`
+- `submissionFile` remains the multipart field, with PDF extension/MIME checks and default 10MB limit
+- `storage/` and `homework-submissions/` are not exposed by static middleware
+- controller cleanup deletes saved private upload files when the service rejects, without hiding the original error
+- service rejects missing and empty upload files
+- download controller delegates file access and permission checks to the homework service
+- TODO/verify: PDF magic-byte validation is deferred unless stricter file sniffing becomes required
+```
+
+## Recent Prompt - Homework Assigned Email Notifications
+```text
+Add best-effort student email notifications when homework/project becomes assigned.
+
+Key result:
+- notifications send only after successful homework create with status assigned or successful draft -> assigned status transition
+- recipients are active enrolled section students with active same-institution student memberships and usable deduplicated emails
+- email failures are logged and do not fail or roll back the homework API
+- emails include title/type/section/dueAt/submissionMode/login instruction and never include private file paths or file keys
+- reminders, grading, resubmission, plagiarism, and notification tracking remain deferred
+```
+
 ## Recent Prompt - AP4 Academic Profile Explanations
 ```text
 Add structured excluded/incomplete explanations to shared academic profile responses.

@@ -305,6 +305,69 @@ function buildAssessmentResultsPublishedHtml({
 </div>`;
 }
 
+function buildHomeworkSectionLabel({ sectionCode, sectionTitle }) {
+    return [sectionCode, sectionTitle].filter(Boolean).join(" - ") || sectionCode || "N/A";
+}
+
+function buildHomeworkAssignedText({
+    subjectName,
+    subjectCode,
+    sectionCode,
+    sectionTitle,
+    homeworkTitle,
+    homeworkType,
+    dueAt,
+    submissionMode,
+}) {
+    const sectionLabel = buildHomeworkSectionLabel({ sectionCode, sectionTitle });
+    const lines = [
+        `A new ${homeworkType} has been assigned in ${sectionLabel}.`,
+        `Subject: ${subjectName}${subjectCode ? ` (${subjectCode})` : ""}`,
+        `Title: ${homeworkTitle}`,
+        `Submission mode: ${submissionMode}`,
+    ];
+
+    if (dueAt) {
+        lines.push(`Due: ${dueAt}`);
+    }
+
+    lines.push("Log in to view the details and submit if required.");
+    return lines.join("\n");
+}
+
+function buildHomeworkAssignedHtml({
+    subjectName,
+    subjectCode,
+    sectionCode,
+    sectionTitle,
+    homeworkTitle,
+    homeworkType,
+    dueAt,
+    submissionMode,
+}) {
+    const sectionLabel = buildHomeworkSectionLabel({ sectionCode, sectionTitle });
+    const dueAtBlock = dueAt
+        ? `<p style="margin:0 0 10px;color:#475569;font-size:14px;line-height:1.6;">Due: <strong>${dueAt}</strong></p>`
+        : "";
+
+    return `
+<div style="margin:0;padding:24px;background:#f4f6fb;font-family:Arial,sans-serif;">
+  <div style="max-width:560px;margin:0 auto;background:#ffffff;border:1px solid #dbe2ee;border-radius:12px;overflow:hidden;">
+    <div style="background:#0f172a;color:#ffffff;padding:18px 24px;">
+      <h1 style="margin:0;font-size:20px;line-height:1.3;">${homeworkType === "project" ? "Project Assigned" : "Homework Assigned"}</h1>
+    </div>
+    <div style="padding:24px;">
+      <p style="margin:0 0 12px;color:#334155;font-size:15px;line-height:1.6;">A new ${homeworkType} has been assigned in <strong>${sectionLabel}</strong>.</p>
+      <p style="margin:0 0 10px;color:#475569;font-size:14px;line-height:1.6;">Subject: <strong>${subjectName}${subjectCode ? ` (${subjectCode})` : ""}</strong></p>
+      <p style="margin:0 0 10px;color:#475569;font-size:14px;line-height:1.6;">Title: <strong>${homeworkTitle}</strong></p>
+      ${dueAtBlock}
+      <p style="margin:0 0 14px;color:#475569;font-size:14px;line-height:1.6;">Submission mode: <strong>${submissionMode}</strong></p>
+      <p style="margin:0;color:#64748b;font-size:13px;line-height:1.6;">Log in to view the details and submit if required.</p>
+    </div>
+  </div>
+</div>`;
+}
+
 async function sendOtpEmail({ to, code, purpose, expiresInMinutes }) {
     const mailTransporter = getTransporter();
     const from = process.env.EMAIL_FROM || process.env.GMAIL_USER;
@@ -481,10 +544,55 @@ async function sendAssessmentResultsPublishedEmail({
     });
 }
 
+async function sendHomeworkAssignedEmail({
+    to,
+    subjectName,
+    subjectCode,
+    sectionCode,
+    sectionTitle,
+    homeworkTitle,
+    homeworkType,
+    dueAt,
+    submissionMode,
+}) {
+    const mailTransporter = getTransporter();
+    const from = process.env.EMAIL_FROM || process.env.GMAIL_USER;
+    const subject = homeworkType === "project" ? "New project assigned" : "New homework assigned";
+    const text = buildHomeworkAssignedText({
+        subjectName,
+        subjectCode,
+        sectionCode,
+        sectionTitle,
+        homeworkTitle,
+        homeworkType,
+        dueAt,
+        submissionMode,
+    });
+    const html = buildHomeworkAssignedHtml({
+        subjectName,
+        subjectCode,
+        sectionCode,
+        sectionTitle,
+        homeworkTitle,
+        homeworkType,
+        dueAt,
+        submissionMode,
+    });
+
+    await mailTransporter.sendMail({
+        from,
+        to,
+        subject,
+        text,
+        html,
+    });
+}
+
 module.exports = {
     sendOtpEmail,
     sendMemberAccountCreatedEmail,
     sendSectionSessionStatusUpdatedEmail,
     sendAssessmentAnnouncedEmail,
     sendAssessmentResultsPublishedEmail,
+    sendHomeworkAssignedEmail,
 };

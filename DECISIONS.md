@@ -302,3 +302,34 @@
   - School policy semester weights compare `Semester.academicYearId` to the policy year when the semester link exists, but old unlinked semesters are still accepted.
   - Existing explicit `academicYearId` routes remain stable; active-year resolution is additive.
   - Year rollover, automatic next-year placement, graduation eligibility, transcript locking, and historical snapshots remain deferred.
+
+## D043 - Homework Is A Section-Linked Submission Workflow Separate From Assessment Results
+- Status: Confirmed
+- Decision: Add shared `Homework` and `HomeworkSubmission` models for section-linked homework/project workflows, with optional `Homework.assessmentId` for graded tasks.
+- Reason: Schools need offline/manual tracking and universities need online PDF submission, while assessment grading already belongs in `Assessment` / `AssessmentResult`.
+- Notes:
+  - `Homework` stores task instructions, due date, submission mode, status, and optional assessment/session links.
+  - `HomeworkSubmission` stores one current offline/manual or online-upload submission state per homework + enrollment.
+  - `AssessmentResult` remains unchanged and continues to store scores/results only.
+  - `assessmentId` is optional; ungraded homework can exist without an assessment.
+  - Student visibility and submission are controlled through active section `Enrollment`.
+  - Online upload files are stored outside public `/uploads` and are served only through protected download authorization.
+  - Homework submission storage must not be exposed through `express.static`; only the protected download route may serve files after service-level authorization.
+  - Student uploads do not set `markedByUserId`; that field is reserved for staff/instructor marking or review.
+  - Instructor/manual marking is limited to active enrollments and `submissionMode=offline`.
+  - Missing roster rows are computed from active enrollments; persisted `missing` rows exist only when staff manually records them.
+  - `submissionMode` cannot change after submissions exist, to avoid mixing offline and online workflow meaning.
+  - Multiple resubmission history, reminders, grading/resubmission notifications, plagiarism checks, and cloud storage are deferred.
+
+## D044 - Homework Assigned Notifications Are Best-Effort And Enrollment-Scoped
+- Status: Confirmed
+- Decision: Send lightweight homework/project assignment emails only when homework becomes `assigned`.
+- Reason: Students should be notified when work is actually assigned, while draft edits and later workflow changes should not spam them.
+- Notes:
+  - Notifications are sent after a successful homework create with `status=assigned` or after a successful `draft -> assigned` status transition.
+  - Draft, closed, archived, failed transitions, same-status updates, and generic homework edits do not send assignment emails.
+  - Recipients are current active enrolled section students with active same-institution student memberships and usable emails.
+  - Email sending is best-effort: failures are logged and never roll back or fail the homework API.
+  - Emails include homework/project title, type, section, due date when present, submission mode, and a login instruction.
+  - Emails must not include private submission file paths, file keys, raw DB documents, scores, grading data, or internal audit fields.
+  - Reminder, grading, resubmission, plagiarism, and notification-tracking workflows are deferred.

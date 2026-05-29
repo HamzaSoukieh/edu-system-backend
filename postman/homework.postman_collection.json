@@ -1,0 +1,371 @@
+{
+  "info": {
+    "name": "Edu SaaS Homework APIs",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+    "description": "Focused manual checks for section-linked Homework / Project APIs. Fill environment variables before running."
+  },
+  "item": [
+    {
+      "name": "00 Auth",
+      "item": [
+        {
+          "name": "Login Admin",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/auth/login",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{adminEmail}}\",\n  \"password\": \"{{adminPassword}}\"\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "const json = pm.response.json();",
+                  "if (json.accessToken) pm.environment.set('accessToken', json.accessToken);",
+                  "if (json.token) pm.environment.set('accessToken', json.token);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Login Student",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/auth/login",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{studentEmail}}\",\n  \"password\": \"{{studentPassword}}\"\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "const json = pm.response.json();",
+                  "if (json.accessToken) pm.environment.set('studentAccessToken', json.accessToken);",
+                  "if (json.token) pm.environment.set('studentAccessToken', json.token);"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Staff Homework",
+      "item": [
+        {
+          "name": "Create Offline School Homework",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/institutions/{{institutionId}}/sections/{{sectionId}}/homeworks",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"title\": \"Math worksheet page 20\",\n  \"instructions\": \"Solve questions 1 to 10 and submit in class.\",\n  \"type\": \"homework\",\n  \"dueAt\": \"2026-06-10T08:00:00.000Z\",\n  \"submissionMode\": \"offline\",\n  \"allowLate\": true,\n  \"status\": \"assigned\"\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "const json = pm.response.json();",
+                  "if (json.homework?.id) pm.environment.set('homeworkId', json.homework.id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Create Online Project Linked To Assessment",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/institutions/{{institutionId}}/sections/{{sectionId}}/homeworks",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"title\": \"Research Project PDF\",\n  \"instructions\": \"Upload your final project as a PDF.\",\n  \"type\": \"project\",\n  \"assessmentId\": \"{{assessmentId}}\",\n  \"dueAt\": \"2026-06-20T23:59:00.000Z\",\n  \"submissionMode\": \"online_upload\",\n  \"allowLate\": false,\n  \"status\": \"assigned\"\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "const json = pm.response.json();",
+                  "if (json.homework?.id) pm.environment.set('onlineHomeworkId', json.homework.id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "List Section Homework",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
+            ],
+            "url": "{{baseUrl}}/institutions/{{institutionId}}/sections/{{sectionId}}/homeworks?status=all&page=1&limit=20"
+          }
+        },
+        {
+          "name": "Get Homework By Id",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
+            ],
+            "url": "{{baseUrl}}/institutions/{{institutionId}}/sections/{{sectionId}}/homeworks/{{homeworkId}}"
+          }
+        },
+        {
+          "name": "Update Homework",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/institutions/{{institutionId}}/sections/{{sectionId}}/homeworks/{{homeworkId}}",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"instructions\": \"Updated classroom instructions.\",\n  \"allowLate\": true\n}"
+            }
+          }
+        },
+        {
+          "name": "Update Homework Status",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/institutions/{{institutionId}}/sections/{{sectionId}}/homeworks/{{homeworkId}}/status",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"status\": \"closed\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Instructor Roster",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
+            ],
+            "url": "{{baseUrl}}/institutions/{{institutionId}}/sections/{{sectionId}}/homeworks/{{homeworkId}}/submissions"
+          }
+        },
+        {
+          "name": "Instructor Mark Offline Submitted",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/institutions/{{institutionId}}/sections/{{sectionId}}/homeworks/{{homeworkId}}/enrollments/{{enrollmentId}}/submission",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"status\": \"submitted\",\n  \"instructorFeedback\": \"Received in class.\"\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "const json = pm.response.json();",
+                  "if (json.submission?.id) pm.environment.set('homeworkSubmissionId', json.submission.id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Instructor Update Submission",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/institutions/{{institutionId}}/sections/{{sectionId}}/homeworks/{{homeworkId}}/submissions/{{homeworkSubmissionId}}",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"status\": \"returned\",\n  \"instructorFeedback\": \"Please revise and resubmit on paper.\"\n}"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Student Homework",
+      "item": [
+        {
+          "name": "Student List My Homework",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{studentAccessToken}}"
+              }
+            ],
+            "url": "{{baseUrl}}/institutions/{{institutionId}}/students/me/homeworks?status=all&page=1&limit=20"
+          }
+        },
+        {
+          "name": "Student Submit PDF",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{studentAccessToken}}"
+              }
+            ],
+            "url": "{{baseUrl}}/institutions/{{institutionId}}/sections/{{sectionId}}/homeworks/{{onlineHomeworkId}}/submission",
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "studentNote",
+                  "value": "Final project attached.",
+                  "type": "text"
+                },
+                {
+                  "key": "submissionFile",
+                  "type": "file",
+                  "src": "{{submissionPdfPath}}"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "const json = pm.response.json();",
+                  "if (json.submission?.id) pm.environment.set('homeworkSubmissionId', json.submission.id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Student Get My Submission",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{studentAccessToken}}"
+              }
+            ],
+            "url": "{{baseUrl}}/institutions/{{institutionId}}/sections/{{sectionId}}/homeworks/{{onlineHomeworkId}}/submission"
+          }
+        },
+        {
+          "name": "Student Download Own File",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{studentAccessToken}}"
+              }
+            ],
+            "url": "{{baseUrl}}/institutions/{{institutionId}}/sections/{{sectionId}}/homeworks/{{onlineHomeworkId}}/submissions/{{homeworkSubmissionId}}/file"
+          }
+        },
+        {
+          "name": "Staff Download Online Submission File",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
+            ],
+            "url": "{{baseUrl}}/institutions/{{institutionId}}/sections/{{sectionId}}/homeworks/{{onlineHomeworkId}}/submissions/{{homeworkSubmissionId}}/file"
+          }
+        }
+      ]
+    }
+  ]
+}

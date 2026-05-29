@@ -275,6 +275,47 @@
 - Still missing:
   - broader grading/reporting beyond section-level assessment results
 
+### Homework / Projects
+- `POST /institutions/:institutionId/sections/:sectionId/homeworks`
+- `GET /institutions/:institutionId/sections/:sectionId/homeworks`
+- `GET /institutions/:institutionId/sections/:sectionId/homeworks/:homeworkId`
+- `PATCH /institutions/:institutionId/sections/:sectionId/homeworks/:homeworkId`
+- `PATCH /institutions/:institutionId/sections/:sectionId/homeworks/:homeworkId/status`
+- `GET /institutions/:institutionId/sections/:sectionId/homeworks/:homeworkId/submissions`
+- `PUT /institutions/:institutionId/sections/:sectionId/homeworks/:homeworkId/enrollments/:enrollmentId/submission`
+- `PATCH /institutions/:institutionId/sections/:sectionId/homeworks/:homeworkId/submissions/:submissionId`
+- `GET /institutions/:institutionId/sections/:sectionId/homeworks/:homeworkId/submissions/:submissionId/file`
+- `GET /institutions/:institutionId/students/me/homeworks`
+- `GET /institutions/:institutionId/sections/:sectionId/homeworks/:homeworkId/submission`
+- `POST /institutions/:institutionId/sections/:sectionId/homeworks/:homeworkId/submission`
+- Current implemented rules:
+  - homework/projects are shared for university and school and stay anchored to `Section`
+  - optional `assessmentId` can link to an existing same-institution, same-section non-archived assessment
+  - homework can exist without `assessmentId`; grading remains in existing assessment/result endpoints
+  - `submissionMode=none` prevents student submissions
+  - `submissionMode=offline` supports instructor/manual marking for paper or in-class school work
+  - `submissionMode=online_upload` supports student PDF upload into private non-static storage
+  - best-effort assignment emails are sent only after homework is successfully created with `status=assigned` or successfully transitions from `draft` to `assigned`
+  - assignment email recipients are active enrolled section students with active same-institution student memberships and usable deduplicated email addresses
+  - assignment email failures are logged and do not fail or roll back the homework API
+  - online uploads use multipart field `submissionFile`, require `.pdf` plus `application/pdf`, and default to a 10MB limit unless `MAX_HOMEWORK_SUBMISSION_SIZE_MB` is configured
+  - TODO/verify: current PDF validation uses MIME type and extension only; PDF magic-byte validation can be added later if product/security requirements need stricter file sniffing
+  - student homework visibility uses active `Enrollment.status = enrolled` and only returns `assigned|closed` homework
+  - student uploads require active enrollment, `assigned` status, `online_upload`, and a non-empty PDF file
+  - student uploads keep `markedByUserId=null`; resubmission clears old instructor feedback and removes the replaced private file after a successful update
+  - late student uploads become `late` only when `allowLate=true`; otherwise they are rejected
+  - instructor/manual marking requires an active enrollment and is limited to `submissionMode=offline`; `none` and `online_upload` are rejected
+  - changing `submissionMode` is blocked once any tenant/section-scoped submissions exist for the homework
+  - staff changing a submission to `missing` clears `submittedAt` plus file metadata and removes the old private file
+  - instructor roster reads active enrollments and joins existing submissions so missing students appear without stored missing rows
+  - private upload files are not served from `/uploads` or any storage static route; the download route checks submitting-student or section/scoped staff access first
+  - staff homework access reuses the same safe scoped section oversight pattern as assessments
+- Still missing:
+  - multiple resubmission history
+  - reminders and grading/resubmission notifications
+  - plagiarism checks
+  - cloud/object storage integration
+
 ### Academic Policies / University Registration Foundation
 - `POST /institutions/:institutionId/academic-policies`
 - `GET /institutions/:institutionId/academic-policies`

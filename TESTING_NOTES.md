@@ -15,6 +15,7 @@
   - `node --test test/self-enrollment-eligibility.test.js`
   - `node --test test/self-enrollment-browse.test.js`
   - `node --test test/self-enrollment-write.test.js`
+  - `node --test test/homework.test.js`
   - `node --test test/university-academic-policy-foundation.test.js test/school-academic-policy.test.js`
   - `node --test test/school-academic-policy.test.js test/school-outcome.test.js`
   - `node --test test/school-academic-policy.test.js test/school-outcome.test.js test/school-promotion.test.js test/school-report-card.test.js`
@@ -150,6 +151,19 @@
   - `GET /institutions/:institutionId/sections/:sectionId/results`
   - `GET /institutions/:institutionId/students/me/assessments`
   - `GET /institutions/:institutionId/students/me/results`
+- Current homework/project routes:
+  - `POST /institutions/:institutionId/sections/:sectionId/homeworks`
+  - `GET /institutions/:institutionId/sections/:sectionId/homeworks`
+  - `GET /institutions/:institutionId/sections/:sectionId/homeworks/:homeworkId`
+  - `PATCH /institutions/:institutionId/sections/:sectionId/homeworks/:homeworkId`
+  - `PATCH /institutions/:institutionId/sections/:sectionId/homeworks/:homeworkId/status`
+  - `GET /institutions/:institutionId/sections/:sectionId/homeworks/:homeworkId/submissions`
+  - `PUT /institutions/:institutionId/sections/:sectionId/homeworks/:homeworkId/enrollments/:enrollmentId/submission`
+  - `PATCH /institutions/:institutionId/sections/:sectionId/homeworks/:homeworkId/submissions/:submissionId`
+  - `GET /institutions/:institutionId/sections/:sectionId/homeworks/:homeworkId/submissions/:submissionId/file`
+  - `GET /institutions/:institutionId/students/me/homeworks`
+  - `GET /institutions/:institutionId/sections/:sectionId/homeworks/:homeworkId/submission`
+  - `POST /institutions/:institutionId/sections/:sectionId/homeworks/:homeworkId/submission`
 - Current academic policy routes:
   - `POST /institutions/:institutionId/academic-policies`
   - `GET /institutions/:institutionId/academic-policies`
@@ -1319,6 +1333,85 @@
   - result: Postman JSON parsed successfully
   - validated collection variables against the environment template
   - result: no missing variables
+- 2026-05-23 Homework / Project section module:
+  - added shared `Homework` and `HomeworkSubmission` models
+  - added section-linked homework/project service, controller, routes, private PDF upload middleware, and protected download flow
+  - homework can optionally link to a same-section non-archived `Assessment`; `AssessmentResult` remains unchanged for scores/results
+  - offline mode supports instructor/manual tracking for paper or in-class school submissions
+  - online_upload mode supports student PDF uploads into private `storage/homework-submissions`
+  - roster joins active enrollments with submissions so missing students appear without persisted missing rows
+  - added focused tests in `test/homework.test.js`
+  - added Postman testing artifacts:
+    - `postman/homework.postman_collection.json`
+    - `postman/homework.postman_environment.json`
+  - validated Postman JSON with `node -e "const fs=require('fs'); for (const file of ['postman/homework.postman_collection.json','postman/homework.postman_environment.json']) { JSON.parse(fs.readFileSync(file,'utf8')); console.log(file+' OK'); }"`
+  - result: Postman JSON parsed successfully
+  - ran `node --test test/homework.test.js test/academic-year.test.js`
+  - result: 31 passing
+  - ran `node --test test/homework.test.js test/academic-year.test.js test/academic-profile.test.js test/school-academic-profile.test.js test/university-academic-profile.test.js test/university-academic-outcome-foundation.test.js test/school-academic-policy.test.js test/school-outcome.test.js test/school-promotion.test.js test/school-report-card.test.js test/school-final-outcome.test.js test/school-promotion-dashboard.test.js test/university-academic-policy-foundation.test.js test/university-academic-standing.test.js test/university-academic-standing-report.test.js test/university-academic-standing-calculation.test.js test/self-enrollment-eligibility.test.js test/self-enrollment-browse.test.js test/self-enrollment-write.test.js`
+  - result: 283 passing
+- 2026-05-29 Homework upload/manual-marking hardening:
+  - student online uploads now keep `markedByUserId=null`, clear old instructor feedback on resubmission, and remove the replaced private file after a successful update
+  - manual marking now rejects dropped/inactive enrollments and only runs for `submissionMode=offline`
+  - homework `submissionMode` changes are blocked after tenant/section-scoped submissions exist
+  - staff `status=missing` submission updates clear submitted/file metadata and remove the old private file
+  - upload controller cleanup on service errors remains covered by controller tests
+  - private downloads now have focused tests for unsafe `fileKey` path traversal and missing files
+  - validated Homework Postman JSON with `node -e "const fs=require('fs'); for (const file of ['postman/homework.postman_collection.json','postman/homework.postman_environment.json']) { JSON.parse(fs.readFileSync(file,'utf8')); console.log(file+' OK'); }"`
+  - result: Postman JSON parsed successfully
+  - ran `node --test test/homework.test.js`
+  - result: 20 passing
+  - ran `node --test test/homework.test.js test/academic-year.test.js test/academic-profile.test.js test/school-academic-profile.test.js test/university-academic-profile.test.js test/university-academic-outcome-foundation.test.js test/school-academic-policy.test.js test/school-outcome.test.js test/school-promotion.test.js test/school-report-card.test.js test/school-final-outcome.test.js test/school-promotion-dashboard.test.js test/university-academic-policy-foundation.test.js test/university-academic-standing.test.js test/university-academic-standing-report.test.js test/university-academic-standing-calculation.test.js test/self-enrollment-eligibility.test.js test/self-enrollment-browse.test.js test/self-enrollment-write.test.js`
+  - result: 290 passing
+- 2026-05-29 Homework upload middleware/controller hardening:
+  - verified homework uploads store under private `storage/homework-submissions`, generate safe disk filenames, and keep `submissionFile` as the multipart field
+  - verified `storage/` and `homework-submissions/` are not exposed through `express.static`; only public `/uploads` remains static
+  - added service validation rejecting empty or malformed uploaded file sizes with `400`
+  - tightened controller cleanup so saved files are deleted only when they resolve inside private homework storage; cleanup failures do not hide the original service error
+  - kept PDF-only middleware behavior: `.pdf`, `application/pdf`, and default 10MB size limit
+  - verified download controller delegates path resolution and permission checks to `homeworkService.getHomeworkSubmissionFileAccess`
+  - TODO/verify: current PDF validation uses MIME type and extension only; add magic-byte sniffing later if stricter validation becomes a requirement
+  - ran `node --check src/controllers/homeworkController.js`
+  - result: passed
+  - ran `node --check src/services/homeworkService.js`
+  - result: passed
+  - ran `node --check test/homework.test.js`
+  - result: passed
+  - ran `node --test test/homework.test.js`
+  - result: 23 passing
+  - ran `node --test test/homework.test.js test/academic-year.test.js test/academic-profile.test.js test/school-academic-profile.test.js test/university-academic-profile.test.js test/university-academic-outcome-foundation.test.js test/school-academic-policy.test.js test/school-outcome.test.js test/school-promotion.test.js test/school-report-card.test.js test/school-final-outcome.test.js test/school-promotion-dashboard.test.js test/university-academic-policy-foundation.test.js test/university-academic-standing.test.js test/university-academic-standing-report.test.js test/university-academic-standing-calculation.test.js test/self-enrollment-eligibility.test.js test/self-enrollment-browse.test.js test/self-enrollment-write.test.js`
+  - result: 293 passing
+- 2026-05-29 Homework service/model placement verification:
+  - verified the `HomeworkSubmission` model allows `online_upload + missing` without file metadata, still requires metadata for submitted online uploads, and clears file metadata for offline rows
+  - verified staff missing-status updates delete the old private file only after the database update succeeds
+  - reran syntax checks for homework service, controller, and tests
+  - ran `node --check src/services/homeworkService.js`
+  - result: passed
+  - ran `node --check src/controllers/homeworkController.js`
+  - result: passed
+  - ran `node --check test/homework.test.js`
+  - result: passed
+  - ran `node --test test/homework.test.js`
+  - result: 24 passing
+  - ran `node --test test/homework.test.js test/academic-year.test.js test/academic-profile.test.js test/school-academic-profile.test.js test/university-academic-profile.test.js test/university-academic-outcome-foundation.test.js test/school-academic-policy.test.js test/school-outcome.test.js test/school-promotion.test.js test/school-report-card.test.js test/school-final-outcome.test.js test/school-promotion-dashboard.test.js test/university-academic-policy-foundation.test.js test/university-academic-standing.test.js test/university-academic-standing-report.test.js test/university-academic-standing-calculation.test.js test/self-enrollment-eligibility.test.js test/self-enrollment-browse.test.js test/self-enrollment-write.test.js`
+  - result: 294 passing
+- 2026-05-30 Homework assigned email notifications:
+  - added best-effort student assignment emails for homework/project created as `assigned` and successful `draft -> assigned` status transitions
+  - verified notification prep and sends happen only after successful homework database writes
+  - verified draft, closed, archived, failed create, invalid/same-status transitions, and non-assignment status changes do not send assignment emails
+  - verified recipients are filtered to active enrolled section students with active same-institution student memberships and usable deduplicated email addresses
+  - verified email failures are logged and do not fail or roll back homework creation/status assignment
+  - verified email payloads include title/type/section/dueAt/submissionMode/login instruction and do not include private file keys or private storage paths
+  - ran `node --check src/services/emailService.js`
+  - result: passed
+  - ran `node --check src/services/homeworkService.js`
+  - result: passed
+  - ran `node --check test/homework.test.js`
+  - result: passed
+  - ran `node --test test/homework.test.js`
+  - result: 28 passing
+  - ran `node --test test/homework.test.js test/academic-year.test.js test/academic-profile.test.js test/school-academic-profile.test.js test/university-academic-profile.test.js test/university-academic-outcome-foundation.test.js test/school-academic-policy.test.js test/school-outcome.test.js test/school-promotion.test.js test/school-report-card.test.js test/school-final-outcome.test.js test/school-promotion-dashboard.test.js test/university-academic-policy-foundation.test.js test/university-academic-standing.test.js test/university-academic-standing-report.test.js test/university-academic-standing-calculation.test.js test/self-enrollment-eligibility.test.js test/self-enrollment-browse.test.js test/self-enrollment-write.test.js`
+  - result: 298 passing
 - TODO:
   - add real sample responses when helpful
   - add attendance response examples after first manual Postman pass
