@@ -5,6 +5,7 @@ const { institutionAccess, requirePermission } = require("../middleware/authoriz
 const uploadInstitutionLogo = require("../middleware/uploadInstitutionLogo");
 const uploadMemberProfilePicture = require("../middleware/uploadMemberProfilePicture");
 const uploadHomeworkSubmission = require("../middleware/uploadHomeworkSubmission");
+const uploadSectionMaterial = require("../middleware/uploadSectionMaterial");
 const institutionController = require("../controllers/institutionController");
 const departmentController = require("../controllers/departmentController");
 const classLevelController = require("../controllers/classLevelController");
@@ -17,6 +18,7 @@ const sectionController = require("../controllers/sectionController");
 const attendanceController = require("../controllers/attendanceController");
 const assessmentController = require("../controllers/assessmentController");
 const homeworkController = require("../controllers/homeworkController");
+const sectionMaterialController = require("../controllers/sectionMaterialController");
 const academicProfileController = require("../controllers/academicProfileController");
 const academicYearController = require("../controllers/academicYearController");
 const universityAcademicStandingController = require("../controllers/universityAcademicStandingController");
@@ -638,6 +640,13 @@ router.get(
     homeworkController.listStudentHomeworks
 );
 router.get(
+    "/:institutionId/students/me/materials",
+    authJwt,
+    requireEmailVerified,
+    institutionAccess(),
+    sectionMaterialController.listMySectionMaterials
+);
+router.get(
     "/:institutionId/students/me/assessments",
     authJwt,
     requireEmailVerified,
@@ -786,6 +795,50 @@ router.get(
     requireEmailVerified,
     institutionAccess(),
     assessmentController.getSectionResults
+);
+router.post(
+    "/:institutionId/sections/:sectionId/materials",
+    authJwt,
+    requireEmailVerified,
+    institutionAccess(),
+    uploadSectionMaterial,
+    sectionMaterialController.createSectionMaterial
+);
+router.get(
+    "/:institutionId/sections/:sectionId/materials",
+    authJwt,
+    requireEmailVerified,
+    institutionAccess(),
+    sectionMaterialController.listSectionMaterialsForStaff
+);
+router.patch(
+    "/:institutionId/sections/:sectionId/materials/:materialId/status",
+    authJwt,
+    requireEmailVerified,
+    institutionAccess(),
+    sectionMaterialController.updateSectionMaterialStatus
+);
+router.get(
+    "/:institutionId/sections/:sectionId/materials/:materialId/file",
+    authJwt,
+    requireEmailVerified,
+    institutionAccess(),
+    sectionMaterialController.downloadSectionMaterialFile
+);
+router.get(
+    "/:institutionId/sections/:sectionId/materials/:materialId",
+    authJwt,
+    requireEmailVerified,
+    institutionAccess(),
+    sectionMaterialController.getSectionMaterialByIdForStaff
+);
+router.patch(
+    "/:institutionId/sections/:sectionId/materials/:materialId",
+    authJwt,
+    requireEmailVerified,
+    institutionAccess(),
+    uploadSectionMaterial,
+    sectionMaterialController.updateSectionMaterial
 );
 router.post(
     "/:institutionId/sections/:sectionId/homeworks",

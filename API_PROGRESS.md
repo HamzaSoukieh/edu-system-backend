@@ -316,6 +316,39 @@
   - plagiarism checks
   - cloud/object storage integration
 
+### Section Materials
+- `POST /institutions/:institutionId/sections/:sectionId/materials`
+- `GET /institutions/:institutionId/sections/:sectionId/materials`
+- `GET /institutions/:institutionId/sections/:sectionId/materials/:materialId`
+- `PATCH /institutions/:institutionId/sections/:sectionId/materials/:materialId`
+- `PATCH /institutions/:institutionId/sections/:sectionId/materials/:materialId/status`
+- `GET /institutions/:institutionId/sections/:sectionId/materials/:materialId/file`
+- `GET /institutions/:institutionId/students/me/materials`
+- Current implemented rules:
+  - materials are shared section-scoped learning resources, separate from Homework / HomeworkSubmission
+  - V1 supports PDF file resources only through multipart field `materialFile`
+  - private uploads use `storage/section-materials`, require `.pdf` plus `application/pdf`, and default to 10MB unless `MAX_SECTION_MATERIAL_SIZE_MB` is configured
+  - service-level file validation also rejects missing/empty uploads, non-PDF MIME or extension, and unsafe generated file keys if middleware is bypassed
+  - optional `sectionSessionId` must reference a same-institution, same-section `SectionSession`
+  - create accepts `draft` or `published`; published create sets `publishedAt`
+  - status transitions are `draft -> published`, `draft -> archived`, and `published -> archived`
+  - archive sets `archivedAt`; archived materials are read-only and restore is not supported in V1
+  - staff list supports `status`, `materialType`, `sectionSessionId`, `search`, `page`, and `limit`
+  - student list supports optional `sectionId`, `materialType`, `search`, `page`, and `limit`
+  - student visibility uses active `Enrollment.status = enrolled` and returns only `published` materials
+  - draft and archived materials are hidden from students and cannot be downloaded by students
+  - protected download route delegates permission checks and private path resolution to `sectionMaterialService.getSectionMaterialFileAccess`
+  - file responses do not expose private `fileKey` or storage paths
+  - updating/replacing `materialFile` removes the old private file only after the database update succeeds
+  - controller cleanup removes newly saved uploads when the service rejects, ignores unlink errors, and refuses unsafe cleanup paths
+  - scoped staff access reuses the same safe section-derived oversight pattern as assessments/homework:
+    - admin
+    - parent section instructor
+    - university department coordinator/head for the parent subject department
+    - school class-level coordinator/head for the parent section class level
+- Still missing:
+  - folders/categories, link/video material sources, notifications, cloud storage, and PDF magic-byte validation
+
 ### Academic Policies / University Registration Foundation
 - `POST /institutions/:institutionId/academic-policies`
 - `GET /institutions/:institutionId/academic-policies`

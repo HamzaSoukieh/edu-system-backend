@@ -333,3 +333,18 @@
   - Emails include homework/project title, type, section, due date when present, submission mode, and a login instruction.
   - Emails must not include private submission file paths, file keys, raw DB documents, scores, grading data, or internal audit fields.
   - Reminder, grading, resubmission, plagiarism, and notification-tracking workflows are deferred.
+
+## D045 - Section Materials Are Separate Private Learning Resources
+- Status: Confirmed
+- Decision: Add a dedicated `SectionMaterial` module for section learning resources such as lecture PDFs and study PDFs, separate from `Homework`.
+- Reason: Materials are consumed/downloaded by students, while homework is an assigned task/submission workflow.
+- Notes:
+  - `SectionMaterial` never creates `HomeworkSubmission` rows and does not use homework deadline, late, missing, returned, or submission logic.
+  - V1 supports private PDF file resources only, with `sourceType=file` reserved for future expansion.
+  - Material files are stored in private `storage/section-materials`, not public `/uploads`.
+  - The upload middleware and service both validate PDF-only metadata; service validation also rejects unsafe generated file keys as defense-in-depth.
+  - Downloads go through service-level authorization before returning a private file path to the controller.
+  - Students can list/download only `published` materials for sections where they have an active `Enrollment.status = enrolled` row.
+  - Staff management reuses the existing section-derived oversight pattern: admin, parent section instructor, university department coordinator/head, or school class-level coordinator/head.
+  - Draft and archived materials are hidden from students; archived materials are read-only in V1.
+  - Notifications, folders/categories, non-PDF files, links, video/recordings, cloud storage, and PDF magic-byte sniffing are deferred.

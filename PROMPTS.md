@@ -435,6 +435,44 @@ Key result:
 - reminders, grading, resubmission, plagiarism, and notification tracking remain deferred
 ```
 
+## Recent Prompt - Section Materials Module
+```text
+Build a first-class SectionMaterial module for lecture PDFs / study resources.
+
+Key result:
+- SectionMaterial is separate from Homework and never creates HomeworkSubmission rows
+- staff/instructors upload PDF resources through private `storage/section-materials` using multipart field `materialFile`
+- downloads go through service-level permission checks and do not expose private file keys or paths
+- materials may optionally link to a same-section SectionSession
+- students can list/download only published materials for actively enrolled sections
+- draft and archived materials are hidden from students
+- status transitions are draft -> published, draft -> archived, and published -> archived; archived restore is deferred
+- no notifications, folders/categories, video/link support, homework deadline/late/missing/returned logic, or new production dependencies
+```
+
+## Recent Prompt - Section Materials Upload/Download Hardening
+```text
+Review and harden the new SectionMaterial service/upload/download flow without rebuilding the module.
+
+Key result:
+- service-level upload validation now rejects missing files, empty/invalid size, non-PDF MIME, non-.pdf original filenames, and unsafe generated file keys even if multer is bypassed
+- controller create/update cleanup deletes newly uploaded private files on service errors without hiding the original error
+- cleanup refuses unsafe paths and old persisted files are deleted only after successful replacement updates
+- download remains delegated to service-level permission and private path checks
+- strict tenant/section scoped query tests cover material reads, updates, status updates, file access, staff lists, and student lists
+- no Homework/HomeworkSubmission changes, no new production dependencies, and PDF magic-byte validation remains deferred
+```
+
+## Recent Prompt - Section Materials Postman
+```text
+Provide Postman collection and environment files for testing SectionMaterial APIs.
+
+Key result:
+- added a focused SectionMaterial collection with auth, staff create/list/get/update/replace/download, student list/download, and status transition checks
+- added a template environment and local environment mirroring the homework local IDs
+- local environment uses `postman/homework-sample.pdf` as `materialPdfPath`
+```
+
 ## Recent Prompt - AP4 Academic Profile Explanations
 ```text
 Add structured excluded/incomplete explanations to shared academic profile responses.

@@ -1,0 +1,478 @@
+{
+  "info": {
+    "name": "Edu SaaS Section Material APIs",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+    "description": "Focused manual checks for private SectionMaterial PDF APIs. Fill environment variables before running. Use materialFile for uploads."
+  },
+  "item": [
+    {
+      "name": "00 Auth",
+      "item": [
+        {
+          "name": "Login Admin",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/auth/login",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{adminEmail}}\",\n  \"password\": \"{{adminPassword}}\"\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "const json = pm.response.json();",
+                  "if (json.accessToken) pm.environment.set('accessToken', json.accessToken);",
+                  "if (json.token) pm.environment.set('accessToken', json.token);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Login Student",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/auth/login",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{studentEmail}}\",\n  \"password\": \"{{studentPassword}}\"\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "const json = pm.response.json();",
+                  "if (json.accessToken) pm.environment.set('studentAccessToken', json.accessToken);",
+                  "if (json.token) pm.environment.set('studentAccessToken', json.token);"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "01 Staff Section Materials",
+      "item": [
+        {
+          "name": "Create Draft Material",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
+            ],
+            "url": "{{baseUrl}}/institutions/{{institutionId}}/sections/{{sectionId}}/materials",
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "title",
+                  "value": "Lecture 1 Slides",
+                  "type": "text"
+                },
+                {
+                  "key": "description",
+                  "value": "Intro lecture PDF for students.",
+                  "type": "text"
+                },
+                {
+                  "key": "materialType",
+                  "value": "lecture_pdf",
+                  "type": "text"
+                },
+                {
+                  "key": "sourceType",
+                  "value": "file",
+                  "type": "text"
+                },
+                {
+                  "key": "sectionSessionId",
+                  "value": "{{sectionSessionId}}",
+                  "type": "text"
+                },
+                {
+                  "key": "status",
+                  "value": "draft",
+                  "type": "text"
+                },
+                {
+                  "key": "materialFile",
+                  "type": "file",
+                  "src": "{{materialPdfPath}}"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "const json = pm.response.json();",
+                  "if (json.material?.id) {",
+                  "  pm.environment.set('draftMaterialId', json.material.id);",
+                  "  pm.environment.set('materialId', json.material.id);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Create Published Material",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
+            ],
+            "url": "{{baseUrl}}/institutions/{{institutionId}}/sections/{{sectionId}}/materials",
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "title",
+                  "value": "Published Study Resource",
+                  "type": "text"
+                },
+                {
+                  "key": "description",
+                  "value": "Published PDF visible to enrolled students.",
+                  "type": "text"
+                },
+                {
+                  "key": "materialType",
+                  "value": "resource_pdf",
+                  "type": "text"
+                },
+                {
+                  "key": "sourceType",
+                  "value": "file",
+                  "type": "text"
+                },
+                {
+                  "key": "status",
+                  "value": "published",
+                  "type": "text"
+                },
+                {
+                  "key": "materialFile",
+                  "type": "file",
+                  "src": "{{materialPdfPath}}"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "const json = pm.response.json();",
+                  "if (json.material?.id) {",
+                  "  pm.environment.set('publishedMaterialId', json.material.id);",
+                  "  pm.environment.set('materialId', json.material.id);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "List Section Materials",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
+            ],
+            "url": "{{baseUrl}}/institutions/{{institutionId}}/sections/{{sectionId}}/materials?status=all&page=1&limit=20"
+          }
+        },
+        {
+          "name": "List Published Lecture PDFs",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
+            ],
+            "url": "{{baseUrl}}/institutions/{{institutionId}}/sections/{{sectionId}}/materials?status=published&materialType=lecture_pdf&page=1&limit=20"
+          }
+        },
+        {
+          "name": "Search Materials",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
+            ],
+            "url": "{{baseUrl}}/institutions/{{institutionId}}/sections/{{sectionId}}/materials?status=all&search=lecture&page=1&limit=20"
+          }
+        },
+        {
+          "name": "Get Material By Id",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
+            ],
+            "url": "{{baseUrl}}/institutions/{{institutionId}}/sections/{{sectionId}}/materials/{{materialId}}"
+          }
+        },
+        {
+          "name": "Update Material Metadata",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
+            ],
+            "url": "{{baseUrl}}/institutions/{{institutionId}}/sections/{{sectionId}}/materials/{{materialId}}",
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "title",
+                  "value": "Lecture 1 Slides Updated",
+                  "type": "text"
+                },
+                {
+                  "key": "description",
+                  "value": "Updated material description.",
+                  "type": "text"
+                },
+                {
+                  "key": "materialType",
+                  "value": "note_pdf",
+                  "type": "text"
+                },
+                {
+                  "key": "sectionSessionId",
+                  "value": "{{sectionSessionId}}",
+                  "type": "text"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Replace Material File",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
+            ],
+            "url": "{{baseUrl}}/institutions/{{institutionId}}/sections/{{sectionId}}/materials/{{materialId}}",
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "description",
+                  "value": "File replaced through materialFile upload.",
+                  "type": "text"
+                },
+                {
+                  "key": "materialFile",
+                  "type": "file",
+                  "src": "{{materialPdfPath}}"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Download Material File As Staff",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
+            ],
+            "url": "{{baseUrl}}/institutions/{{institutionId}}/sections/{{sectionId}}/materials/{{materialId}}/file"
+          }
+        }
+      ]
+    },
+    {
+      "name": "02 Student Materials",
+      "item": [
+        {
+          "name": "List My Published Materials",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{studentAccessToken}}"
+              }
+            ],
+            "url": "{{baseUrl}}/institutions/{{institutionId}}/students/me/materials?page=1&limit=20"
+          }
+        },
+        {
+          "name": "List My Published Materials For Section",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{studentAccessToken}}"
+              }
+            ],
+            "url": "{{baseUrl}}/institutions/{{institutionId}}/students/me/materials?sectionId={{sectionId}}&page=1&limit=20"
+          }
+        },
+        {
+          "name": "Search My Published Materials",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{studentAccessToken}}"
+              }
+            ],
+            "url": "{{baseUrl}}/institutions/{{institutionId}}/students/me/materials?search=study&page=1&limit=20"
+          }
+        },
+        {
+          "name": "Download Published Material As Student",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{studentAccessToken}}"
+              }
+            ],
+            "url": "{{baseUrl}}/institutions/{{institutionId}}/sections/{{sectionId}}/materials/{{publishedMaterialId}}/file"
+          }
+        },
+        {
+          "name": "Try Download Draft Material As Student",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{studentAccessToken}}"
+              }
+            ],
+            "url": "{{baseUrl}}/institutions/{{institutionId}}/sections/{{sectionId}}/materials/{{draftMaterialId}}/file"
+          }
+        }
+      ]
+    },
+    {
+      "name": "03 Status Checks",
+      "item": [
+        {
+          "name": "Publish Draft Material",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/institutions/{{institutionId}}/sections/{{sectionId}}/materials/{{draftMaterialId}}/status",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"status\": \"published\"\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "const json = pm.response.json();",
+                  "if (json.material?.id) {",
+                  "  pm.environment.set('materialId', json.material.id);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Archive Published Material",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/institutions/{{institutionId}}/sections/{{sectionId}}/materials/{{publishedMaterialId}}/status",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"status\": \"archived\"\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "const json = pm.response.json();",
+                  "if (json.material?.id) pm.environment.set('archivedMaterialId', json.material.id);"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

@@ -71,6 +71,11 @@
   - one current submission/manual tracking row per homework + enrollment
   - stores offline/manual submission state or private online upload metadata
   - stays separate from `AssessmentResult`, which remains the score/result row
+- `SectionMaterial`
+  - one section-scoped learning resource for lecture PDFs / study PDFs
+  - may optionally link to a `SectionSession`
+  - stores private file metadata only; files are downloaded through protected service authorization
+  - stays separate from `Homework` and never creates `HomeworkSubmission` rows
 - `InstitutionAcademicPolicy`
   - institution-level university academic policy
   - university-only semester-effective academic policy version
@@ -225,6 +230,15 @@
     - school class-level coordinator/head for the parent section class level
   - current remaining gap:
     - multiple resubmission history, reminders, grading/resubmission notifications, cloud storage, and plagiarism checks are deferred
+- Section Materials
+  - instructor/staff upload PDF learning resources for a section
+  - optional link to a same-section `SectionSession`
+  - status lifecycle is `draft|published|archived`
+  - students see/download only `published` materials for actively enrolled sections
+  - staff can manage draft, published, and archived materials through the same section-derived oversight pattern used by homework/assessments
+  - private files are stored in `storage/section-materials` and are not exposed through public `/uploads`
+  - current remaining gap:
+    - non-PDF/link/video material sources and notifications are deferred
 - University Academic Policy / Self-Enrollment Foundation
   - admin create/list/get/update for institution-level university academic policy
   - implementation files use university-prefixed service/controller names while keeping existing public `/academic-policies` routes stable

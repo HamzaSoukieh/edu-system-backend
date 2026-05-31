@@ -16,6 +16,7 @@
   - `node --test test/self-enrollment-browse.test.js`
   - `node --test test/self-enrollment-write.test.js`
   - `node --test test/homework.test.js`
+  - `node --test test/section-material.test.js`
   - `node --test test/university-academic-policy-foundation.test.js test/school-academic-policy.test.js`
   - `node --test test/school-academic-policy.test.js test/school-outcome.test.js`
   - `node --test test/school-academic-policy.test.js test/school-outcome.test.js test/school-promotion.test.js test/school-report-card.test.js`
@@ -164,6 +165,14 @@
   - `GET /institutions/:institutionId/students/me/homeworks`
   - `GET /institutions/:institutionId/sections/:sectionId/homeworks/:homeworkId/submission`
   - `POST /institutions/:institutionId/sections/:sectionId/homeworks/:homeworkId/submission`
+- Current section material routes:
+  - `POST /institutions/:institutionId/sections/:sectionId/materials`
+  - `GET /institutions/:institutionId/sections/:sectionId/materials`
+  - `GET /institutions/:institutionId/sections/:sectionId/materials/:materialId`
+  - `PATCH /institutions/:institutionId/sections/:sectionId/materials/:materialId`
+  - `PATCH /institutions/:institutionId/sections/:sectionId/materials/:materialId/status`
+  - `GET /institutions/:institutionId/sections/:sectionId/materials/:materialId/file`
+  - `GET /institutions/:institutionId/students/me/materials`
 - Current academic policy routes:
   - `POST /institutions/:institutionId/academic-policies`
   - `GET /institutions/:institutionId/academic-policies`
@@ -1412,6 +1421,54 @@
   - result: 28 passing
   - ran `node --test test/homework.test.js test/academic-year.test.js test/academic-profile.test.js test/school-academic-profile.test.js test/university-academic-profile.test.js test/university-academic-outcome-foundation.test.js test/school-academic-policy.test.js test/school-outcome.test.js test/school-promotion.test.js test/school-report-card.test.js test/school-final-outcome.test.js test/school-promotion-dashboard.test.js test/university-academic-policy-foundation.test.js test/university-academic-standing.test.js test/university-academic-standing-report.test.js test/university-academic-standing-calculation.test.js test/self-enrollment-eligibility.test.js test/self-enrollment-browse.test.js test/self-enrollment-write.test.js`
   - result: 298 passing
+- 2026-05-30 Section Materials module:
+  - added `SectionMaterial` model, private `storage/section-materials` PDF upload middleware, service, controller, and route wiring
+  - verified materials stay separate from Homework/HomeworkSubmission and do not use homework submission/deadline/late/missing logic
+  - verified upload field `materialFile`, generated private filenames, PDF extension/MIME checks, default 10MB limit, empty-file service rejection, and static privacy
+  - verified staff create/list/get/update/status/download access through section-derived authorization
+  - verified student list/download visibility requires active enrollment and `published` status
+  - verified status transitions `draft -> published`, `draft -> archived`, `published -> archived`, and archived restore rejection
+  - verified replacing files deletes the old private file only after successful DB update, while controller cleanup removes newly uploaded files after service rejection
+  - verified unsafe `fileKey`, missing private file, route wiring, and download delegation behavior
+  - ran `node --check src/models/SectionMaterial.js`
+  - result: passed
+  - ran `node --check src/middleware/uploadSectionMaterial.js`
+  - result: passed
+  - ran `node --check src/services/sectionMaterialService.js`
+  - result: passed
+  - ran `node --check src/controllers/sectionMaterialController.js`
+  - result: passed
+  - ran `node --check src/routes/institutionRoutes.js`
+  - result: passed
+  - ran `node --check test/section-material.test.js`
+  - result: passed
+  - ran `node --test test/section-material.test.js`
+  - result: 15 passing
+  - ran `node --test test/section-material.test.js test/homework.test.js`
+  - result: 43 passing
+  - ran `node --test test/section-material.test.js test/homework.test.js test/academic-year.test.js test/academic-profile.test.js test/school-academic-profile.test.js test/university-academic-profile.test.js test/university-academic-outcome-foundation.test.js test/school-academic-policy.test.js test/school-outcome.test.js test/school-promotion.test.js test/school-report-card.test.js test/school-final-outcome.test.js test/school-promotion-dashboard.test.js test/university-academic-policy-foundation.test.js test/university-academic-standing.test.js test/university-academic-standing-report.test.js test/university-academic-standing-calculation.test.js test/self-enrollment-eligibility.test.js test/self-enrollment-browse.test.js test/self-enrollment-write.test.js`
+  - result: 313 passing
+- 2026-05-31 Section Materials upload/download hardening:
+  - added service-level PDF validation for SectionMaterial uploads so bypassing multer still rejects missing files, empty/invalid size, non-`application/pdf` MIME, non-`.pdf` original filenames, and unsafe generated file keys
+  - verified controller cleanup deletes newly uploaded private files on create/update service errors, ignores cleanup unlink failures, and skips unsafe cleanup paths without hiding the original service error
+  - verified download controller continues to delegate access/path resolution to `sectionMaterialService.getSectionMaterialFileAccess`
+  - verified strict tenant/section scoped SectionMaterial queries for get, update, status update, download access, staff list, and student list
+  - kept student response shape unchanged, including `uploadedByUserId`, to avoid a breaking change after initial module docs/tests
+  - ran `node --check src/services/sectionMaterialService.js`
+  - result: passed
+  - ran `node --check test/section-material.test.js`
+  - result: passed
+  - ran `node --test test/section-material.test.js`
+  - result: 17 passing
+  - ran `node --test test/section-material.test.js test/homework.test.js`
+  - result: 45 passing
+  - ran `node --test test/section-material.test.js test/homework.test.js test/academic-year.test.js test/academic-profile.test.js test/school-academic-profile.test.js test/university-academic-profile.test.js test/university-academic-outcome-foundation.test.js test/school-academic-policy.test.js test/school-outcome.test.js test/school-promotion.test.js test/school-report-card.test.js test/school-final-outcome.test.js test/school-promotion-dashboard.test.js test/university-academic-policy-foundation.test.js test/university-academic-standing.test.js test/university-academic-standing-report.test.js test/university-academic-standing-calculation.test.js test/self-enrollment-eligibility.test.js test/self-enrollment-browse.test.js test/self-enrollment-write.test.js`
+  - result: 315 passing
+- 2026-05-31 Section Materials Postman collection:
+  - added focused SectionMaterial Postman collection plus template/local environments
+  - local environment mirrors the homework local IDs and uses `postman/homework-sample.pdf` as `materialPdfPath`
+  - ran `node -e "JSON.parse(require('fs').readFileSync('postman/section-material.postman_collection.json','utf8')); JSON.parse(require('fs').readFileSync('postman/section-material.local.postman_environment.json','utf8')); JSON.parse(require('fs').readFileSync('postman/section-material.postman_environment.json','utf8')); console.log('section material postman JSON valid')"`
+  - result: passed
 - TODO:
   - add real sample responses when helpful
   - add attendance response examples after first manual Postman pass
