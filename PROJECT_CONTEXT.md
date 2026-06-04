@@ -185,6 +185,8 @@
   - closing attendance marks remaining enrolled students absent
   - logged-in students can fetch their own attendance history from final `AttendanceRecord` data with optional `sectionId`, `fromDate`, `toDate`, and `status` filters
   - authorized staff can fetch section-level attendance analytics for finalized attendance data
+  - section-level attendance analytics now derive warning/drop-risk signals from existing `Institution.policies` attendance fields and expose them as response-only `attendanceRisk` details per student
+  - attendance risk does not auto-drop enrollments and is not connected to GPA, percentage calculations, school promotion, university standing, or final outcomes
   - attendance oversight reads/corrections that reuse section-session scoped authorization allow:
     - the same department-derived coordinator/head path for university sections
     - the matching class-level coordinator/head path for school sections

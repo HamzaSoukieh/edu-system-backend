@@ -20,11 +20,12 @@ async function createSectionSession(req, res) {
     try {
         const institutionId = req.params.institutionId || req.tenantId;
         const sectionId = req.params.sectionId;
-        const createdByUserId = req.user?.id || null;
+        const createdByUserId = req.user?.id || req.user?._id || null;
         const result = await sectionSessionService.createSectionSession({
             institutionId,
             sectionId,
             createdByUserId,
+            actorMembership: req.membership || null,
             payload: req.body || {},
         });
 
@@ -39,9 +40,12 @@ async function listSectionSessions(req, res) {
     try {
         const institutionId = req.params.institutionId || req.tenantId;
         const sectionId = req.params.sectionId;
+        const actorUserId = req.user?.id || req.user?._id || null;
         const result = await sectionSessionService.listSectionSessions({
             institutionId,
             sectionId,
+            actorUserId,
+            actorMembership: req.membership || null,
             query: req.query || {},
         });
 
@@ -61,6 +65,7 @@ async function generateSectionSessions(req, res) {
             institutionId,
             sectionId,
             createdByUserId,
+            actorMembership: req.membership || null,
             payload: req.body || {},
         });
 
@@ -76,10 +81,13 @@ async function getSectionSessionById(req, res) {
         const institutionId = req.params.institutionId || req.tenantId;
         const sectionId = req.params.sectionId;
         const sectionSessionId = req.params.sectionSessionId;
+        const actorUserId = req.user?.id || req.user?._id || null;
         const result = await sectionSessionService.getSectionSessionById({
             institutionId,
             sectionId,
             sectionSessionId,
+            actorUserId,
+            actorMembership: req.membership || null,
         });
 
         return res.status(200).json(result);
@@ -94,10 +102,13 @@ async function updateSectionSession(req, res) {
         const institutionId = req.params.institutionId || req.tenantId;
         const sectionId = req.params.sectionId;
         const sectionSessionId = req.params.sectionSessionId;
+        const actorUserId = req.user?.id || req.user?._id || null;
         const result = await sectionSessionService.updateSectionSession({
             institutionId,
             sectionId,
             sectionSessionId,
+            actorUserId,
+            actorMembership: req.membership || null,
             payload: req.body || {},
         });
 

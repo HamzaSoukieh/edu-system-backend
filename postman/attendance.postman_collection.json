@@ -1,0 +1,429 @@
+{
+  "info": {
+    "name": "Edu SaaS Attendance APIs",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+    "description": "Manual checks for section attendance, QR check-in, roster, attendance analytics, and institution attendance policy summary."
+  },
+  "event": [
+    {
+      "listen": "prerequest",
+      "script": {
+        "type": "text/javascript",
+        "exec": [
+          "const today = new Date().toISOString().slice(0, 10);",
+          "pm.environment.set('todayDate', today);"
+        ]
+      }
+    }
+  ],
+  "item": [
+    {
+      "name": "00 Auth",
+      "item": [
+        {
+          "name": "Login Admin",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/auth/login",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{adminEmail}}\",\n  \"password\": \"{{adminPassword}}\"\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const json = pm.response.json();",
+                  "if (json.accessToken) pm.environment.set('accessToken', json.accessToken);",
+                  "if (json.token) pm.environment.set('accessToken', json.token);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Login Student",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/auth/login",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{studentEmail}}\",\n  \"password\": \"{{studentPassword}}\"\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const json = pm.response.json();",
+                  "if (json.accessToken) pm.environment.set('studentAccessToken', json.accessToken);",
+                  "if (json.token) pm.environment.set('studentAccessToken', json.token);"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "01 Session Setup",
+      "item": [
+        {
+          "name": "List Today's Section Sessions",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
+            ],
+            "url": "{{baseUrl}}/institutions/{{institutionId}}/sections/{{sectionId}}/sessions?fromDate={{todayDate}}&toDate={{todayDate}}&limit=20"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const json = pm.response.json();",
+                  "const items = json.items || json.sectionSessions || [];",
+                  "if (items[0]?.id) pm.environment.set('sectionSessionId', items[0].id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Create Today Section Session (Optional)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/institutions/{{institutionId}}/sections/{{sectionId}}/sessions",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"sessionType\": \"lecture\",\n  \"sessionDate\": \"{{todayDate}}\",\n  \"startTime\": \"09:00\",\n  \"endTime\": \"10:00\",\n  \"room\": \"Room 101\",\n  \"status\": \"scheduled\"\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const json = pm.response.json();",
+                  "if (json.sectionSession?.id) pm.environment.set('sectionSessionId', json.sectionSession.id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Get Section Session",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
+            ],
+            "url": "{{baseUrl}}/institutions/{{institutionId}}/sections/{{sectionId}}/sessions/{{sectionSessionId}}"
+          }
+        }
+      ]
+    },
+    {
+      "name": "02 Staff Attendance",
+      "item": [
+        {
+          "name": "Open Attendance",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/institutions/{{institutionId}}/sections/{{sectionId}}/sessions/{{sectionSessionId}}/attendance/open",
+            "body": {
+              "mode": "raw",
+              "raw": "{}"
+            }
+          }
+        },
+        {
+          "name": "Issue QR Token",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/institutions/{{institutionId}}/sections/{{sectionId}}/sessions/{{sectionSessionId}}/attendance/qr-token",
+            "body": {
+              "mode": "raw",
+              "raw": "{}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const json = pm.response.json();",
+                  "if (json.qrToken?.token) pm.environment.set('attendanceQrToken', json.qrToken.token);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Manual Attendance - Env Status",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/institutions/{{institutionId}}/sections/{{sectionId}}/sessions/{{sectionSessionId}}/attendance/manual",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"entries\": [\n    {\n      \"enrollmentId\": \"{{enrollmentId}}\",\n      \"attendanceStatus\": \"{{attendanceStatus}}\",\n      \"note\": \"{{attendanceNote}}\"\n    }\n  ]\n}"
+            }
+          }
+        },
+        {
+          "name": "Manual Attendance - Absent",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/institutions/{{institutionId}}/sections/{{sectionId}}/sessions/{{sectionSessionId}}/attendance/manual",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"entries\": [\n    {\n      \"enrollmentId\": \"{{enrollmentId}}\",\n      \"attendanceStatus\": \"absent\",\n      \"note\": \"Manual absent check from Postman\"\n    }\n  ]\n}"
+            }
+          }
+        },
+        {
+          "name": "List Attendance Roster - All",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
+            ],
+            "url": "{{baseUrl}}/institutions/{{institutionId}}/sections/{{sectionId}}/sessions/{{sectionSessionId}}/attendance/roster?filter=all"
+          }
+        },
+        {
+          "name": "List Attendance Roster - Not Attended",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
+            ],
+            "url": "{{baseUrl}}/institutions/{{institutionId}}/sections/{{sectionId}}/sessions/{{sectionSessionId}}/attendance/roster?filter=not_attended"
+          }
+        },
+        {
+          "name": "Close Attendance",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/institutions/{{institutionId}}/sections/{{sectionId}}/sessions/{{sectionSessionId}}/attendance/close",
+            "body": {
+              "mode": "raw",
+              "raw": "{}"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "03 Student Attendance",
+      "item": [
+        {
+          "name": "Student QR Check-In",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{studentAccessToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/institutions/{{institutionId}}/sections/{{sectionId}}/sessions/{{sectionSessionId}}/attendance/check-in",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"token\": \"{{attendanceQrToken}}\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Student Attendance History",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{studentAccessToken}}"
+              }
+            ],
+            "url": "{{baseUrl}}/institutions/{{institutionId}}/students/me/attendance-history?sectionId={{sectionId}}&page=1&limit=20"
+          }
+        }
+      ]
+    },
+    {
+      "name": "04 Analytics And Policy",
+      "item": [
+        {
+          "name": "Section Attendance Analytics",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
+            ],
+            "url": "{{baseUrl}}/institutions/{{institutionId}}/sections/{{sectionId}}/attendance/analytics"
+          }
+        },
+        {
+          "name": "Section Attendance Analytics - Date Range",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
+            ],
+            "url": "{{baseUrl}}/institutions/{{institutionId}}/sections/{{sectionId}}/attendance/analytics?fromDate={{fromDate}}&toDate={{toDate}}"
+          }
+        },
+        {
+          "name": "Update Attendance Policy Defaults",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/institutions/{{institutionId}}",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"policies\": {\n    \"warnAfterAbsences\": 3,\n    \"dropAfterAbsences\": 5,\n    \"lateToAbsenceRatio\": 3,\n    \"excusedCountsAsAbsence\": false\n  }\n}"
+            }
+          }
+        },
+        {
+          "name": "Update Attendance Policy - Excused Counts",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/institutions/{{institutionId}}",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"policies\": {\n    \"warnAfterAbsences\": 2,\n    \"dropAfterAbsences\": 4,\n    \"lateToAbsenceRatio\": 2,\n    \"excusedCountsAsAbsence\": true\n  }\n}"
+            }
+          }
+        }
+      ]
+    }
+  ],
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:5000"
+    }
+  ]
+}

@@ -2,6 +2,7 @@ const crypto = require("crypto");
 const mongoose = require("mongoose");
 const AttendanceRecord = require("../models/AttendanceRecord");
 const Enrollment = require("../models/Enrollment");
+const Institution = require("../models/Institution");
 const MemberProfile = require("../models/MemberProfile");
 const Membership = require("../models/Membership");
 const Section = require("../models/Section");
@@ -25,6 +26,12 @@ const SECTION_SESSION_ATTENDANCE_SELECT_FIELDS =
 const ATTENDANCE_HISTORY_SESSION_SELECT_FIELDS = "_id institutionId sectionId sessionDate startTime endTime";
 const ATTENDANCE_HISTORY_SECTION_SELECT_FIELDS = "_id institutionId subjectId code title";
 const ATTENDANCE_HISTORY_SUBJECT_SELECT_FIELDS = "_id institutionId code name";
+const DEFAULT_ATTENDANCE_POLICY_SUMMARY = Object.freeze({
+    warnAfterAbsences: 3,
+    dropAfterAbsences: 5,
+    lateToAbsenceRatio: 3,
+    excusedCountsAsAbsence: false,
+});
 
 function createError(statusCode, message) {
     const error = new Error(message);
@@ -389,6 +396,77 @@ function finalizeAttendanceMetrics(metrics) {
     };
 }
 
+function normalizeAttendancePolicyThreshold(value, defaultValue) {
+    if (Number.isInteger(value) && value >= 0) {
+        return value;
+    }
+
+    return defaultValue;
+}
+
+function normalizeAttendanceLateToAbsenceRatio(value) {
+    if (Number.isInteger(value) && value >= 1) {
+        return value;
+    }
+
+    return DEFAULT_ATTENDANCE_POLICY_SUMMARY.lateToAbsenceRatio;
+}
+
+function resolveAttendancePolicySummary(policies = {}) {
+    const source = policies && typeof policies === "object" && !Array.isArray(policies) ? policies : {};
+
+    return {
+        warnAfterAbsences: normalizeAttendancePolicyThreshold(
+            source.warnAfterAbsences,
+            DEFAULT_ATTENDANCE_POLICY_SUMMARY.warnAfterAbsences
+        ),
+        dropAfterAbsences: normalizeAttendancePolicyThreshold(
+            source.dropAfterAbsences,
+            DEFAULT_ATTENDANCE_POLICY_SUMMARY.dropAfterAbsences
+        ),
+        lateToAbsenceRatio: normalizeAttendanceLateToAbsenceRatio(source.lateToAbsenceRatio),
+        excusedCountsAsAbsence:
+            typeof source.excusedCountsAsAbsence === "boolean"
+                ? source.excusedCountsAsAbsence
+                : DEFAULT_ATTENDANCE_POLICY_SUMMARY.excusedCountsAsAbsence,
+    };
+}
+
+function buildAttendanceRisk(metrics, attendancePolicySummary) {
+    const finalizedMetrics = finalizeAttendanceMetrics(metrics);
+    const lateAbsenceEquivalent = Math.floor(
+        finalizedMetrics.lateCount / attendancePolicySummary.lateToAbsenceRatio
+    );
+    const effectiveAbsences =
+        finalizedMetrics.absentCount +
+        lateAbsenceEquivalent +
+        (attendancePolicySummary.excusedCountsAsAbsence ? finalizedMetrics.excusedCount : 0);
+
+    let status = "good";
+    if (
+        attendancePolicySummary.dropAfterAbsences > 0 &&
+        effectiveAbsences >= attendancePolicySummary.dropAfterAbsences
+    ) {
+        status = "drop_risk";
+    } else if (
+        attendancePolicySummary.warnAfterAbsences > 0 &&
+        effectiveAbsences >= attendancePolicySummary.warnAfterAbsences
+    ) {
+        status = "warning";
+    }
+
+    return {
+        status,
+        effectiveAbsences,
+        warnAfterAbsences: attendancePolicySummary.warnAfterAbsences,
+        dropAfterAbsences: attendancePolicySummary.dropAfterAbsences,
+        absentCount: finalizedMetrics.absentCount,
+        lateCount: finalizedMetrics.lateCount,
+        excusedCount: finalizedMetrics.excusedCount,
+        lateAbsenceEquivalent,
+    };
+}
+
 function matchesRosterFilter(attendanceStatus, filter) {
     if (filter === "all") {
         return true;
@@ -453,7 +531,7 @@ function buildAttendanceAnalyticsRange(input) {
     };
 }
 
-function toAttendanceAnalyticsStudentItem({ studentMemberId, profile, user, metrics }) {
+function toAttendanceAnalyticsStudentItem({ studentMemberId, profile, user, metrics, attendancePolicySummary }) {
     return {
         studentMemberId,
         student: buildStudentSummary({
@@ -461,6 +539,7 @@ function toAttendanceAnalyticsStudentItem({ studentMemberId, profile, user, metr
             user,
         }),
         ...finalizeAttendanceMetrics(metrics),
+        attendanceRisk: buildAttendanceRisk(metrics, attendancePolicySummary),
     };
 }
 
@@ -554,8 +633,26 @@ function buildLocalDateKey(value) {
 
 function ensureQrAttendanceIsAvailableToday(sectionSession, now) {
     const sessionStartAt = buildSectionSessionStartDate(sectionSession);
-    if (buildLocalDateKey(sessionStartAt) !== buildLocalDateKey(now)) {
+    const attendanceDate = resolveQrAttendanceAvailabilityDate(now);
+    if (buildLocalDateKey(sessionStartAt) !== buildLocalDateKey(attendanceDate)) {
         throw createError(409, "QR attendance is only available on the scheduled session date");
+    }
+}
+
+function resolveQrAttendanceAvailabilityDate(now) {
+    if (process.env.NODE_ENV === "production") {
+        return now;
+    }
+
+    const overrideDate = normalizeString(process.env.ATTENDANCE_QR_DATE_OVERRIDE);
+    if (!overrideDate) {
+        return now;
+    }
+
+    try {
+        return parseDateOnly(overrideDate, "ATTENDANCE_QR_DATE_OVERRIDE");
+    } catch (_error) {
+        return now;
     }
 }
 
@@ -582,6 +679,14 @@ async function loadSectionSessionRecord({ institutionId, sectionId, sectionSessi
     })
         .select(SECTION_SESSION_ATTENDANCE_SELECT_FIELDS)
         .lean();
+}
+
+async function loadInstitutionAttendancePolicySummary(institutionId) {
+    const institution = await Institution.findOne({ _id: institutionId })
+        .select("_id policies")
+        .lean();
+
+    return resolveAttendancePolicySummary(institution?.policies);
 }
 
 function ensureSessionSupportsAttendance(sectionSession) {
@@ -1213,6 +1318,8 @@ async function getSectionAttendanceAnalytics({
         subject,
     });
 
+    const attendancePolicySummary = await loadInstitutionAttendancePolicySummary(institutionId);
+
     const sectionSessionFilters = {
         institutionId,
         sectionId,
@@ -1241,6 +1348,7 @@ async function getSectionAttendanceAnalytics({
                 section: buildSectionSummary(section),
                 subject: buildSubjectSummary(subject),
                 range: buildAttendanceAnalyticsRange(input),
+                attendancePolicySummary,
                 summary: {
                     totalClosedSessions,
                     ...finalizeAttendanceMetrics(createAttendanceMetricsAccumulator()),
@@ -1328,6 +1436,7 @@ async function getSectionAttendanceAnalytics({
                 profile,
                 user,
                 metrics,
+                attendancePolicySummary,
             });
         })
         .sort((left, right) => {
@@ -1353,6 +1462,7 @@ async function getSectionAttendanceAnalytics({
             section: buildSectionSummary(section),
             subject: buildSubjectSummary(subject),
             range: buildAttendanceAnalyticsRange(input),
+            attendancePolicySummary,
             summary: {
                 totalClosedSessions,
                 ...finalizeAttendanceMetrics(overallMetrics),
@@ -1595,6 +1705,9 @@ module.exports = {
     validateAttendanceCheckInInput,
     validateManualAttendanceUpsertInput,
     validateAttendanceRosterQuery,
+    resolveAttendancePolicySummary,
+    buildAttendanceRisk,
+    resolveQrAttendanceAvailabilityDate,
     toAttendanceRecordResponse,
     toAttendanceRosterItem,
     listMyAttendanceHistory,

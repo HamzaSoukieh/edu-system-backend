@@ -28,6 +28,37 @@ Task:
 [PASTE TASK HERE]
 ```
 
+## 2026-05-31 Attendance Postman Pack
+
+User asked for a Postman collection and environment variables filled with local university IDs to test attendance easily.
+
+Delivered:
+- `postman/attendance.postman_collection.json`
+- `postman/attendance.postman_environment.json`
+- ignored local `postman/attendance.local.postman_environment.json`
+
+Collection covers auth, section session setup, staff attendance open/QR/manual/roster/close flows, student QR/history flows, attendance analytics, and attendance policy update requests.
+
+## 2026-05-31 Section Session Instructor Setup Permission
+
+User reported `{"message":"Permission denied"}` while testing attendance Postman setup because instructor tokens could not access section session setup APIs.
+
+Fix:
+- session list/create/generate/get/update routes no longer require broad `section.manage`
+- controllers pass actor membership into `sectionSessionService`
+- service authorizes assigned section instructor/admin/coordinator/head using existing section-session permission logic
+- unrelated instructors remain blocked
+
+## 2026-05-31 Attendance Local QR Date Override
+
+User could not test QR because today's date was not included in semester teaching days, while the available session was scheduled for a future teaching day.
+
+Fix:
+- added non-production `ATTENDANCE_QR_DATE_OVERRIDE=YYYY-MM-DD`
+- production ignores the override
+- invalid override values fall back to the real server date
+- local ignored `.env` was set to `ATTENDANCE_QR_DATE_OVERRIDE=2026-06-07` for the user's current Postman session
+
 ## Codex Task Prompt
 ```text
 Work inside this existing Node.js + Express + Mongoose backend repo.
@@ -471,6 +502,19 @@ Key result:
 - added a focused SectionMaterial collection with auth, staff create/list/get/update/replace/download, student list/download, and status transition checks
 - added a template environment and local environment mirroring the homework local IDs
 - local environment uses `postman/homework-sample.pdf` as `materialPdfPath`
+```
+
+## Recent Prompt - Attendance Analytics Institution Policy Risk
+```text
+Apply existing Institution.policies attendance fields to section attendance analytics.
+
+Key result:
+- no new AttendancePolicy model
+- section analytics response now includes `attendancePolicySummary`
+- each per-student analytics row includes `attendanceRisk` with good/warning/drop_risk status
+- effective absences use absent count, floor(lateCount / lateToAbsenceRatio), and excused count only when configured
+- no Enrollment auto-drop, no Subject changes, no GPA/percentage/promotion/standing/final-outcome coupling
+- notification/escalation is deferred pending a safe duplicate-aware workflow
 ```
 
 ## Recent Prompt - AP4 Academic Profile Explanations

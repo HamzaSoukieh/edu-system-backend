@@ -348,3 +348,15 @@
   - Staff management reuses the existing section-derived oversight pattern: admin, parent section instructor, university department coordinator/head, or school class-level coordinator/head.
   - Draft and archived materials are hidden from students; archived materials are read-only in V1.
   - Notifications, folders/categories, non-PDF files, links, video/recordings, cloud storage, and PDF magic-byte sniffing are deferred.
+
+## D046 - Attendance Institution Policy Produces Analytics Risk Only
+- Status: Confirmed
+- Decision: Apply existing `Institution.policies` attendance fields to section attendance analytics as warning/drop-risk signals only.
+- Reason: Attendance risk should be visible to instructors/admins without silently changing enrollment, GPA, percentages, promotion decisions, academic standing, or final outcomes.
+- Notes:
+  - Section analytics derives `attendancePolicySummary` from `Institution.policies` with safe defaults.
+  - Per-student analytics rows include `attendanceRisk.status = good|warning|drop_risk`.
+  - `effectiveAbsences = absentCount + floor(lateCount / lateToAbsenceRatio) + excusedCount` only when `excusedCountsAsAbsence=true`.
+  - `drop_risk` wins over `warning`; threshold value `0` disables that threshold.
+  - No `Enrollment.status` updates, auto-drop workflow, `Subject` changes, GPA/percentage changes, promotion changes, standing changes, final-outcome writes, or notifications are introduced.
+  - TODO/verify: design a duplicate-aware escalation/notification workflow later if heads/admins/academic managers should be notified automatically.

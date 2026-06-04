@@ -798,6 +798,52 @@ async function ensureCanChangeSectionSessionStatus({
     throw createError(403, "Permission denied");
 }
 
+async function ensureCanManageSectionSession({
+    institutionId,
+    actorUserId,
+    actorMembership,
+    section,
+    subject: preloadedSubject = null,
+}) {
+    if (!actorUserId || !isValidObjectId(actorUserId)) {
+        throw createError(401, "Unauthorized");
+    }
+
+    if (!actorMembership || !actorMembership._id) {
+        throw createError(500, "Membership context missing");
+    }
+
+    if (normalizeId(actorMembership.institutionId) !== normalizeId(institutionId)) {
+        throw createError(403, "Institution access denied");
+    }
+
+    if (actorMembership.status && actorMembership.status !== MEMBER_ACTIVE_STATUS) {
+        throw createError(403, "Institution access denied");
+    }
+
+    const subject =
+        preloadedSubject ||
+        (await loadSubjectRecord({
+            institutionId,
+            subjectId: section.subjectId,
+        }));
+    if (!subject) {
+        throw createError(404, "Subject not found");
+    }
+
+    await ensureCanChangeSectionSessionStatus({
+        institutionId,
+        actorUserId,
+        actorMembership,
+        section,
+        subject,
+    });
+
+    return {
+        subject,
+    };
+}
+
 async function notifyCancelledSectionSessionStudents({
     institutionId,
     sectionId,
@@ -883,7 +929,7 @@ async function notifyCancelledSectionSessionStudents({
     });
 }
 
-async function createSectionSession({ institutionId, sectionId, createdByUserId, payload }) {
+async function createSectionSession({ institutionId, sectionId, createdByUserId, actorMembership, payload }) {
     if (!institutionId || !isValidObjectId(institutionId)) {
         throw createError(400, "Invalid institution context");
     }
@@ -910,6 +956,13 @@ async function createSectionSession({ institutionId, sectionId, createdByUserId,
     if (!section) {
         throw createError(404, "Section not found");
     }
+
+    await ensureCanManageSectionSession({
+        institutionId,
+        actorUserId: createdByUserId,
+        actorMembership,
+        section,
+    });
 
     ensureSectionAllowsSessionCreation(section);
 
@@ -964,7 +1017,7 @@ async function createSectionSession({ institutionId, sectionId, createdByUserId,
     };
 }
 
-async function generateSectionSessions({ institutionId, sectionId, createdByUserId, payload }) {
+async function generateSectionSessions({ institutionId, sectionId, createdByUserId, actorMembership, payload }) {
     if (!institutionId || !isValidObjectId(institutionId)) {
         throw createError(400, "Invalid institution context");
     }
@@ -991,6 +1044,13 @@ async function generateSectionSessions({ institutionId, sectionId, createdByUser
     if (!section) {
         throw createError(404, "Section not found");
     }
+
+    await ensureCanManageSectionSession({
+        institutionId,
+        actorUserId: createdByUserId,
+        actorMembership,
+        section,
+    });
 
     ensureSectionAllowsSessionCreation(section);
 
@@ -1059,7 +1119,7 @@ async function generateSectionSessions({ institutionId, sectionId, createdByUser
     };
 }
 
-async function listSectionSessions({ institutionId, sectionId, query = {} }) {
+async function listSectionSessions({ institutionId, sectionId, actorUserId, actorMembership, query = {} }) {
     if (!institutionId || !isValidObjectId(institutionId)) {
         throw createError(400, "Invalid institution context");
     }
@@ -1074,6 +1134,13 @@ async function listSectionSessions({ institutionId, sectionId, query = {} }) {
     if (!section) {
         throw createError(404, "Section not found");
     }
+
+    await ensureCanManageSectionSession({
+        institutionId,
+        actorUserId,
+        actorMembership,
+        section,
+    });
 
     const filters = {
         institutionId,
@@ -1119,7 +1186,7 @@ async function listSectionSessions({ institutionId, sectionId, query = {} }) {
     };
 }
 
-async function getSectionSessionById({ institutionId, sectionId, sectionSessionId }) {
+async function getSectionSessionById({ institutionId, sectionId, sectionSessionId, actorUserId, actorMembership }) {
     if (!institutionId || !isValidObjectId(institutionId)) {
         throw createError(400, "Invalid institution context");
     }
@@ -1159,6 +1226,14 @@ async function getSectionSessionById({ institutionId, sectionId, sectionSessionI
         throw createError(404, "Subject not found");
     }
 
+    await ensureCanManageSectionSession({
+        institutionId,
+        actorUserId,
+        actorMembership,
+        section,
+        subject,
+    });
+
     return {
         sectionSession: toSectionSessionResponse(sectionSession, {
             section,
@@ -1167,7 +1242,7 @@ async function getSectionSessionById({ institutionId, sectionId, sectionSessionI
     };
 }
 
-async function updateSectionSession({ institutionId, sectionId, sectionSessionId, payload }) {
+async function updateSectionSession({ institutionId, sectionId, sectionSessionId, actorUserId, actorMembership, payload }) {
     if (!institutionId || !isValidObjectId(institutionId)) {
         throw createError(400, "Invalid institution context");
     }
@@ -1203,6 +1278,13 @@ async function updateSectionSession({ institutionId, sectionId, sectionSessionId
     if (!existingSectionSession) {
         throw createError(404, "Section session not found");
     }
+
+    await ensureCanManageSectionSession({
+        institutionId,
+        actorUserId,
+        actorMembership,
+        section,
+    });
 
     const updates = validateUpdateSectionSessionInput(payload, existingSectionSession);
 

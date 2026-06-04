@@ -519,7 +519,6 @@ router.post(
     authJwt,
     requireEmailVerified,
     institutionAccess(),
-    requirePermission("section.manage"),
     sectionSessionController.createSectionSession
 );
 router.get(
@@ -527,7 +526,6 @@ router.get(
     authJwt,
     requireEmailVerified,
     institutionAccess(),
-    requirePermission("section.manage"),
     sectionSessionController.listSectionSessions
 );
 router.post(
@@ -535,7 +533,6 @@ router.post(
     authJwt,
     requireEmailVerified,
     institutionAccess(),
-    requirePermission("section.manage"),
     sectionSessionController.generateSectionSessions
 );
 router.get(
@@ -543,7 +540,6 @@ router.get(
     authJwt,
     requireEmailVerified,
     institutionAccess(),
-    requirePermission("section.manage"),
     sectionSessionController.getSectionSessionById
 );
 router.patch(
@@ -558,7 +554,6 @@ router.patch(
     authJwt,
     requireEmailVerified,
     institutionAccess(),
-    requirePermission("section.manage"),
     sectionSessionController.updateSectionSession
 );
 router.post(

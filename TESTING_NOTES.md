@@ -15,6 +15,7 @@
   - `node --test test/self-enrollment-eligibility.test.js`
   - `node --test test/self-enrollment-browse.test.js`
   - `node --test test/self-enrollment-write.test.js`
+  - `node --test test/attendance.test.js`
   - `node --test test/homework.test.js`
   - `node --test test/section-material.test.js`
   - `node --test test/university-academic-policy-foundation.test.js test/school-academic-policy.test.js`
@@ -1469,6 +1470,51 @@
   - local environment mirrors the homework local IDs and uses `postman/homework-sample.pdf` as `materialPdfPath`
   - ran `node -e "JSON.parse(require('fs').readFileSync('postman/section-material.postman_collection.json','utf8')); JSON.parse(require('fs').readFileSync('postman/section-material.local.postman_environment.json','utf8')); JSON.parse(require('fs').readFileSync('postman/section-material.postman_environment.json','utf8')); console.log('section material postman JSON valid')"`
   - result: passed
+- 2026-05-31 Attendance analytics institution policy risk:
+  - applied existing `Institution.policies` attendance fields to section attendance analytics response only
+  - added `attendancePolicySummary` to analytics and `attendanceRisk` to per-student rows
+  - verified safe defaults, invalid/missing `lateToAbsenceRatio`, excused-count behavior, late-to-absence conversion, warning/drop-risk thresholds, and threshold `0` disable behavior
+  - verified instructor access remains scoped, other instructors are blocked, tenant isolation is preserved, and analytics does not update `Enrollment.status` or modify `Subject`
+  - notification/escalation was deferred; existing email helpers are event-specific and do not provide a safe duplicate-aware drop-risk workflow
+  - ran `node --check src/services/attendanceService.js`
+  - result: passed
+  - ran `node --check test/attendance.test.js`
+  - result: passed
+  - ran `node --test test/attendance.test.js`
+  - result: 5 passing
+  - ran `node --test test/attendance.test.js test/section-material.test.js test/homework.test.js test/academic-year.test.js test/academic-profile.test.js test/school-academic-profile.test.js test/university-academic-profile.test.js test/university-academic-outcome-foundation.test.js test/school-academic-policy.test.js test/school-outcome.test.js test/school-promotion.test.js test/school-report-card.test.js test/school-final-outcome.test.js test/school-promotion-dashboard.test.js test/university-academic-policy-foundation.test.js test/university-academic-standing.test.js test/university-academic-standing-report.test.js test/university-academic-standing-calculation.test.js test/self-enrollment-eligibility.test.js test/self-enrollment-browse.test.js test/self-enrollment-write.test.js`
+  - result: 320 passing
+- 2026-05-31 Attendance Postman collection:
+  - added `postman/attendance.postman_collection.json`
+  - added safe template env `postman/attendance.postman_environment.json`
+  - added ignored local env `postman/attendance.local.postman_environment.json` filled with the same local university IDs used by Homework Postman testing
+  - collection covers auth, section session setup, open/QR/manual/roster/close attendance, student QR/history, analytics, and institution attendance policy updates
+  - ran `node -e "const fs=require('fs'); for (const f of ['postman/attendance.postman_collection.json','postman/attendance.postman_environment.json','postman/attendance.local.postman_environment.json']) { JSON.parse(fs.readFileSync(f,'utf8')); console.log(f + ' OK'); }"`
+  - result: passed
+- 2026-05-31 Section session instructor setup permission:
+  - changed section session list/create/generate/get/update routes to rely on service-level section-session authorization instead of broad `section.manage`
+  - assigned section instructors can set up their own section sessions; unrelated instructors remain blocked
+  - ran `node --check src/services/sectionSessionService.js`
+  - result: passed
+  - ran `node --check src/controllers/sectionSessionController.js`
+  - result: passed
+  - ran `node --check src/routes/institutionRoutes.js`
+  - result: passed
+  - ran `node --check test/section-session-permission.test.js`
+  - result: passed
+  - ran `node --test test/section-session-permission.test.js test/attendance.test.js test/section-material.test.js`
+  - result: 24 passing
+- 2026-05-31 Attendance local QR date override:
+  - added non-production `ATTENDANCE_QR_DATE_OVERRIDE=YYYY-MM-DD` support for local QR testing against an existing teaching-day session
+  - production ignores the override
+  - invalid override values fall back to the real server date
+  - set local ignored `.env` to `ATTENDANCE_QR_DATE_OVERRIDE=2026-06-07` for the current Postman test session
+  - ran `node --check src/services/attendanceService.js`
+  - result: passed
+  - ran `node --check test/attendance.test.js`
+  - result: passed
+  - ran `node --test test/attendance.test.js`
+  - result: 6 passing
 - TODO:
   - add real sample responses when helpful
   - add attendance response examples after first manual Postman pass

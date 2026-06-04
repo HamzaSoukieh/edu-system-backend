@@ -187,12 +187,14 @@
 - `GET /institutions/:institutionId/students/me/attendance-history`
 - Current implemented rules:
   - attendance is anchored to `SectionSession`
+  - assigned section instructors can list/create/generate/get/update their own section sessions through section-session service authorization, without requiring broad `section.manage`
   - only the parent section instructor can manage attendance in this step
   - attendance uses one record per enrollment per section session
   - QR flow stores only token hash + expiry in DB
   - QR tokens expire after 20 seconds and old tokens are not kept valid
   - each QR token call replaces the previous token and can be repeated while attendance stays open
   - QR token issuance and student QR check-in are only available on the scheduled local session date
+  - local non-production testing can set `ATTENDANCE_QR_DATE_OVERRIDE=YYYY-MM-DD` to test QR against a teaching-day session without changing production behavior
   - student QR check-in requires active student membership + active enrolled enrollment
   - same-day QR check-in is `present` before or within the 10-minute grace window after the later of the scheduled section session start time and `attendanceOpenedAt`, and `late` after that window
   - QR check-in remains blocked after attendance is closed
@@ -229,9 +231,21 @@
     - `excused` remains separate from `absent`
     - `attendanceRate = attendedCount / totalCount`
     - `totalCount` uses only the filtered finalized `AttendanceRecord` rows tied to eligible section sessions
+  - section analytics now applies existing `Institution.policies` attendance fields as response-only risk signals:
+    - `warnAfterAbsences`
+    - `dropAfterAbsences`
+    - `lateToAbsenceRatio`
+    - `excusedCountsAsAbsence`
+  - attendance analytics normalizes `lateToAbsenceRatio` to a whole integer `>= 1`; fractional, zero, null, string, or missing values fall back to the default
+  - analytics response includes `attendancePolicySummary` plus per-student `attendanceRisk`
+  - `effectiveAbsences = absentCount + floor(lateCount / lateToAbsenceRatio) + excusedCount` only when excused absences count by policy
+  - `attendanceRisk.status` is `good`, `warning`, or `drop_risk`; `drop_risk` wins over `warning`
+  - attendance risk does not auto-drop enrollments, change subjects, affect GPA/percentages, affect school promotion, affect university standing, or write final outcomes
+  - Postman manual testing pack is available in `postman/attendance.postman_collection.json` with template and local environments
 - Still missing:
   - broader attendance reporting beyond section-level finalized analytics
   - broader attendance oversight flows beyond the current safe scoped read/correction paths
+  - TODO/verify: duplicate-aware drop-risk escalation/notification to the appropriate higher role
 
 ### Assessments / Results
 - `POST /institutions/:institutionId/sections/:sectionId/assessments`
