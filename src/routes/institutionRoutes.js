@@ -19,6 +19,7 @@ const attendanceController = require("../controllers/attendanceController");
 const assessmentController = require("../controllers/assessmentController");
 const homeworkController = require("../controllers/homeworkController");
 const sectionMaterialController = require("../controllers/sectionMaterialController");
+const billingController = require("../controllers/billingController");
 const academicProfileController = require("../controllers/academicProfileController");
 const academicYearController = require("../controllers/academicYearController");
 const universityAcademicStandingController = require("../controllers/universityAcademicStandingController");
@@ -51,6 +52,20 @@ router.post(
     requirePermission("institution.manage"),
     uploadInstitutionLogo,
     institutionController.uploadInstitutionLogo
+);
+router.post(
+    "/:institutionId/billing/checkout-session",
+    authJwt,
+    requireEmailVerified,
+    institutionAccess(),
+    billingController.createCheckoutSession
+);
+router.get(
+    "/:institutionId/billing/status",
+    authJwt,
+    requireEmailVerified,
+    institutionAccess(),
+    billingController.getBillingStatus
 );
 router.post(
     "/:institutionId/academic-years",
@@ -487,7 +502,7 @@ router.get(
     authJwt,
     requireEmailVerified,
     institutionAccess(),
-    requirePermission("section.manage"),
+    requirePermission("section.read"),
     sectionController.listSections
 );
 router.get(

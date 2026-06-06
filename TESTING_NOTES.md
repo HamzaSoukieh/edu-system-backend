@@ -18,6 +18,7 @@
   - `node --test test/attendance.test.js`
   - `node --test test/homework.test.js`
   - `node --test test/section-material.test.js`
+  - `node --test test/section-list-permission.test.js`
   - `node --test test/university-academic-policy-foundation.test.js test/school-academic-policy.test.js`
   - `node --test test/school-academic-policy.test.js test/school-outcome.test.js`
   - `node --test test/school-academic-policy.test.js test/school-outcome.test.js test/school-promotion.test.js test/school-report-card.test.js`
@@ -244,6 +245,9 @@
   - `10:30-12:00`
 - Department filtering for section list should work through Subject, not direct Section fields
 - School section list should support `schoolClassId` filtering
+- Generic section list should allow admin/manage access to list broadly while allowing instructors to list only sections where `instructorMemberId` matches their authenticated membership
+- Generic section list should not trust client-provided `instructorMemberId` for instructor scoping
+- Student memberships should remain blocked from the generic staff/admin section list
 - Enrollment should fail when:
   - section is `closed` or `cancelled`
   - student membership is missing
@@ -1515,6 +1519,89 @@
   - result: passed
   - ran `node --test test/attendance.test.js`
   - result: 6 passing
+- 2026-06-05 Stripe Billing Phase 1:
+  - added Stripe Billing support for institution subscriptions using Checkout Sessions and webhooks
+  - added `InstitutionBillingProfile` and `StripeWebhookEvent`
+  - added owner/admin checkout session route, billing status route, and raw-body `/stripe/webhook`
+  - installed the official `stripe` npm package; no other production dependency was added
+  - local Stripe test env vars:
+    - `STRIPE_SECRET_KEY=sk_test_...`
+    - `STRIPE_PRICE_BASIC_MONTHLY=price_1TetMH3lPsyty9Ic5cBRcXvJ`
+    - `STRIPE_WEBHOOK_SECRET=whsec_...`
+    - `BILLING_SUCCESS_URL=http://localhost:3000/billing/success?session_id={CHECKOUT_SESSION_ID}`
+    - `BILLING_CANCEL_URL=http://localhost:3000/billing/cancel`
+  - local manual flow:
+    - start the API
+    - run Stripe CLI forwarding with `stripe listen --forward-to localhost:5000/stripe/webhook`
+    - copy the CLI webhook secret into `STRIPE_WEBHOOK_SECRET`
+    - log in as institution owner/admin
+    - call `POST /institutions/:institutionId/billing/checkout-session`
+    - open the returned `checkoutSession.url`
+    - complete checkout with Stripe test card data
+    - call `GET /institutions/:institutionId/billing/status` after webhooks arrive
+  - automated tests mock Stripe API calls and do not contact Stripe
+  - ran `npm install stripe --save`
+  - note: npm reported existing engine warnings for MongoDB/Mongoose packages under Node `v20.15.1` and existing audit findings; no `npm audit fix` was run
+  - ran `node --check src/models/InstitutionBillingProfile.js`
+  - result: passed
+  - ran `node --check src/models/StripeWebhookEvent.js`
+  - result: passed
+  - ran `node --check src/services/billingService.js`
+  - result: passed
+  - ran `node --check src/controllers/billingController.js`
+  - result: passed
+  - ran `node --check src/controllers/stripeWebhookController.js`
+  - result: passed
+  - ran `node --check src/app.js`
+  - result: passed
+  - ran `node --check src/routes/institutionRoutes.js`
+  - result: passed
+  - ran `node --check test/billing.test.js`
+  - result: passed
+  - ran `node --test test/billing.test.js`
+  - result: 9 passing
+  - ran `node --test test/billing.test.js test/section-material.test.js test/attendance.test.js`
+  - result: 32 passing
+- 2026-06-05 Stripe Billing webhook hardening:
+  - kept `/stripe/webhook` before `express.json()` with raw body parsing and no auth middleware
+  - added webhook event status tracking: `processing`, `processed`, `failed`
+  - duplicate processed/in-flight events return success without reprocessing
+  - failed webhook events store `errorMessage` and can be retried
+  - added partial unique indexes for `stripeCustomerId` and `stripeSubscriptionId`
+  - added subscription/customer id fallback when subscription metadata does not include `institutionId`
+  - ran `node --check src/models/InstitutionBillingProfile.js`
+  - result: passed
+  - ran `node --check src/models/StripeWebhookEvent.js`
+  - result: passed
+  - ran `node --check src/services/billingService.js`
+  - result: passed
+  - ran `node --check test/billing.test.js`
+  - result: passed
+  - ran `node --test test/billing.test.js`
+  - result: 12 passing
+  - ran `node --test test/billing.test.js test/section-material.test.js test/attendance.test.js`
+  - result: 35 passing
+- 2026-06-05 Section list instructor read scope:
+  - changed generic `GET /institutions/:institutionId/sections` to use `section.read` while enforcing service-level role-aware list scope
+  - verified admin/manage access keeps broad institution section listing and existing filters
+  - verified instructor access derives `instructorMemberId` from authenticated membership and cannot see another instructor's or another tenant's sections
+  - verified students remain blocked from the generic staff/admin section list
+  - ran `node --check src/auth/permissions.js`
+  - result: passed
+  - ran `node --check src/middleware/authorize.js`
+  - result: passed
+  - ran `node --check src/controllers/sectionController.js`
+  - result: passed
+  - ran `node --check src/services/sectionService.js`
+  - result: passed
+  - ran `node --check src/routes/institutionRoutes.js`
+  - result: passed
+  - ran `node --check test/section-list-permission.test.js`
+  - result: passed
+  - ran `node --test test/section-list-permission.test.js`
+  - result: 7 passing
+  - ran `node --test test/section-list-permission.test.js test/section-session-permission.test.js test/attendance.test.js test/section-material.test.js test/homework.test.js test/academic-profile.test.js test/billing.test.js test/school-promotion-dashboard.test.js`
+  - result: 101 passing
 - TODO:
   - add real sample responses when helpful
   - add attendance response examples after first manual Postman pass

@@ -93,6 +93,12 @@
   - stores calculated outcome snapshots separately from final decisions
   - supports manual override metadata with required reason
   - does not automatically move students to the next class level
+- `InstitutionBillingProfile`
+  - tenant-scoped Stripe Billing profile for one institution
+  - stores Stripe customer/subscription ids and local subscription status projection
+- `StripeWebhookEvent`
+  - processed Stripe webhook event ids for idempotency
+  - prevents duplicate webhook processing
 - `ResponsibilityAssignment`
   - scoped delegated access model
   - not yet a major active module
@@ -152,6 +158,10 @@
   - list response is lightweight
   - detail response is fuller
   - department filtering is derived through Subject
+  - generic section list route uses `section.read` with service-level role-aware scoping:
+    - admin/manage access keeps the existing broad institution list behavior
+    - instructor read access is restricted to sections where `Section.instructorMemberId` matches the authenticated membership
+    - students remain blocked from the generic staff/admin section list
 - Enrollments
   - create
   - list
@@ -241,6 +251,12 @@
   - private files are stored in `storage/section-materials` and are not exposed through public `/uploads`
   - current remaining gap:
     - non-PDF/link/video material sources and notifications are deferred
+- Billing / Institution Subscriptions
+  - Phase 1 Stripe Billing support for institution subscriptions
+  - admin/owner can create a Stripe-hosted subscription Checkout Session
+  - local billing status reads from `InstitutionBillingProfile`
+  - Stripe webhooks update subscription status and store processed event ids
+  - Stripe Connect, student payments, global access gating, and plan limits are not added
 - University Academic Policy / Self-Enrollment Foundation
   - admin create/list/get/update for institution-level university academic policy
   - implementation files use university-prefixed service/controller names while keeping existing public `/academic-policies` routes stable

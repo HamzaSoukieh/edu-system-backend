@@ -2,9 +2,11 @@ const express = require("express");
 const path = require("path");
 const authRoutes = require("./routes/authRoutes");
 const institutionRoutes = require("./routes/institutionRoutes");
+const stripeWebhookController = require("./controllers/stripeWebhookController");
 
 const app = express();
 
+app.post("/stripe/webhook", express.raw({ type: "application/json" }), stripeWebhookController.handleStripeWebhook);
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use("/uploads", express.static(path.join(__dirname, "..", "uploads")));

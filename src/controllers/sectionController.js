@@ -22,6 +22,7 @@ async function listSections(req, res) {
         const result = await sectionService.listSections({
             institutionId,
             query: req.query || {},
+            actorMembership: req.membership || null,
         });
 
         return res.status(200).json(result);

@@ -16,6 +16,42 @@
 - `PATCH /institutions/:institutionId`
 - `POST /institutions/:institutionId/logo`
 
+### Billing / Institution Subscriptions
+- `POST /institutions/:institutionId/billing/checkout-session`
+- `GET /institutions/:institutionId/billing/status`
+- `POST /stripe/webhook`
+- Current implemented rules:
+  - uses Stripe Billing subscription Checkout Sessions, not Stripe Connect
+  - checkout session creation is limited to the institution owner or active admin membership
+  - creates or reuses a Stripe Customer for the institution
+  - uses `STRIPE_PRICE_BASIC_MONTHLY` and attaches `institutionId` metadata to Checkout and Subscription creation
+  - stores only Stripe customer/subscription ids and subscription status projection in `InstitutionBillingProfile`
+  - `InstitutionBillingProfile` keeps one profile per institution and uses partial unique indexes for Stripe customer/subscription ids
+  - does not store card data or payment method data
+  - webhook route is mounted before `express.json()` and verifies signatures with `STRIPE_WEBHOOK_SECRET`
+  - webhook processing records `StripeWebhookEvent.stripeEventId` for duplicate prevention with `processing|processed|failed` status
+  - duplicate processed/in-flight Stripe events return `200` and do not reprocess
+  - failed webhook processing stores `errorMessage` and can be retried by Stripe without being permanently blocked
+  - handled webhook events:
+    - `checkout.session.completed`
+    - `customer.subscription.created`
+    - `customer.subscription.updated`
+    - `customer.subscription.deleted`
+    - `invoice.paid`
+    - `invoice.payment_failed`
+  - subscription webhooks update status, subscription id, price id, current period end, cancel-at-period-end, and trial end when Stripe provides them
+  - subscription webhook processing first uses Stripe metadata `institutionId`, then falls back to stored Stripe subscription/customer ids when metadata is absent
+  - no global app access gate, plan limits, Stripe Connect, or student payment flows are added in Phase 1
+- Required environment variables:
+  - `STRIPE_SECRET_KEY`
+  - `STRIPE_PRICE_BASIC_MONTHLY`
+  - `STRIPE_WEBHOOK_SECRET`
+  - `BILLING_SUCCESS_URL`
+  - `BILLING_CANCEL_URL`
+- Still missing:
+  - TODO/verify: future billing access gate middleware after grace-period/trial/product rules are decided
+  - TODO/verify: customer portal route if admins need self-service cancellation/payment-method management
+
 ### Departments
 - `POST /institutions/:institutionId/departments`
 - `GET /institutions/:institutionId/departments`
@@ -89,6 +125,10 @@
   - department filtering through Subject
   - lightweight list response
   - fuller detail response
+  - `GET /institutions/:institutionId/sections` is guarded by `section.read`
+  - admin/manage access keeps broad institution listing behavior
+  - instructor `section.read` access is service-scoped to the authenticated instructor membership through `Section.instructorMemberId`
+  - student memberships are still blocked from the generic staff/admin section list
 - Still missing:
   - broader linked academic reporting beyond section-level assessments/results
 

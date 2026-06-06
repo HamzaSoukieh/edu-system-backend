@@ -360,3 +360,26 @@
   - `drop_risk` wins over `warning`; threshold value `0` disables that threshold.
   - No `Enrollment.status` updates, auto-drop workflow, `Subject` changes, GPA/percentage changes, promotion changes, standing changes, final-outcome writes, or notifications are introduced.
   - TODO/verify: design a duplicate-aware escalation/notification workflow later if heads/admins/academic managers should be notified automatically.
+
+## D047 - Stripe Billing For Institution Subscriptions
+- Status: Confirmed
+- Decision: Use Stripe Billing for platform institution subscriptions, not Stripe Connect.
+- Reason: The platform sells subscriptions to institutions; it is not routing payments to connected school/university accounts in Phase 1.
+- Notes:
+  - Stripe Customer and Subscription identifiers live in a tenant-scoped `InstitutionBillingProfile`.
+  - Stripe Customer and Subscription identifiers are protected with partial unique indexes so nullable ids remain allowed while real Stripe ids cannot be linked to multiple institutions.
+  - Stripe webhooks are the source of truth for subscription status changes.
+  - Stripe webhook event ids are stored in `StripeWebhookEvent` with `processing|processed|failed` status to prevent duplicate processing while allowing failed events to retry safely.
+  - Checkout uses Stripe-hosted subscription Checkout Sessions and never stores card/payment data.
+  - Phase 1 does not add global billing access gates, plan limits, student payments, or Stripe Connect.
+  - TODO/verify: add an explicit app-access billing gate later after product rules for grace periods, trials, and failed-payment access are agreed.
+
+## D048 - Generic Section List Uses Role-Aware Read Scope
+- Status: Confirmed
+- Decision: Keep `GET /institutions/:institutionId/sections` as the clean section list endpoint and guard it with `section.read`, while enforcing staff scope in `sectionService`.
+- Reason: Instructors already have `section.read` and need a clean list of their assigned sections without receiving broad institution-wide section access.
+- Notes:
+  - Admin/manage access keeps the existing broad institution list behavior and existing filters.
+  - Instructor read access ignores client-provided instructor identity for scoping and uses the authenticated membership id as `Section.instructorMemberId`.
+  - If an instructor supplies another `instructorMemberId` filter, the result is an empty list rather than exposing other instructors' sections.
+  - Student memberships remain blocked from this generic staff/admin list even though students keep `section.read` for student-facing section-linked flows.

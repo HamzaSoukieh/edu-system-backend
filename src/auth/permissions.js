@@ -6,6 +6,7 @@ const ROLE_PERMISSIONS = {
         "membership.manage",
         "semester.manage",
         "subject.manage",
+        "section.read",
         "section.manage",
         "student.kick",
         "attendance.manage",

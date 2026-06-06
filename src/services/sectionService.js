@@ -6,6 +6,7 @@ const SchoolClass = require("../models/SchoolClass");
 const Section = require("../models/Section");
 const Semester = require("../models/Semester");
 const Subject = require("../models/Subject");
+const { ROLE_PERMISSIONS } = require("../auth/permissions");
 const { backfillSchoolSectionEnrollments } = require("./enrollmentService");
 
 const SECTION_STATUSES = ["draft", "active", "closed", "cancelled"];
@@ -39,8 +40,30 @@ function normalizeLowerString(value) {
     return normalizeString(value).toLowerCase();
 }
 
+function normalizeId(value) {
+    if (!value) {
+        return null;
+    }
+
+    if (typeof value === "string") {
+        const trimmed = value.trim();
+        return trimmed || null;
+    }
+
+    if (typeof value.toString === "function") {
+        const asString = value.toString().trim();
+        return asString || null;
+    }
+
+    return null;
+}
+
 function isValidObjectId(value) {
     return Boolean(value) && mongoose.Types.ObjectId.isValid(value);
+}
+
+function hasRolePermission(role, permission) {
+    return (ROLE_PERMISSIONS[role] || []).includes(permission);
 }
 
 function isDuplicateKeyError(error) {
@@ -627,7 +650,46 @@ function ensureSubjectAndSchoolClassCompatibility({ subject, schoolClass }) {
     }
 }
 
-async function listSections({ institutionId, query }) {
+function resolveListSectionsAccessScope({ institutionId, actorMembership, filters }) {
+    if (!actorMembership || !actorMembership._id) {
+        throw createError(500, "Membership context missing");
+    }
+
+    if (normalizeId(actorMembership.institutionId) !== normalizeId(institutionId)) {
+        throw createError(403, "Institution access denied");
+    }
+
+    if (actorMembership.status && actorMembership.status !== "active") {
+        throw createError(403, "Institution access denied");
+    }
+
+    if (hasRolePermission(actorMembership.role, "section.manage")) {
+        return {
+            mode: "manage",
+            instructorMemberId: filters.instructorMemberId || null,
+        };
+    }
+
+    if (actorMembership.role === "instructor" && hasRolePermission(actorMembership.role, "section.read")) {
+        const actorInstructorMemberId = normalizeId(actorMembership._id);
+        if (filters.instructorMemberId && filters.instructorMemberId !== actorInstructorMemberId) {
+            return {
+                mode: "read_own",
+                instructorMemberId: actorInstructorMemberId,
+                denyByFilter: true,
+            };
+        }
+
+        return {
+            mode: "read_own",
+            instructorMemberId: actorInstructorMemberId,
+        };
+    }
+
+    throw createError(403, "Permission denied");
+}
+
+async function listSections({ institutionId, query, actorMembership }) {
     if (!institutionId || !isValidObjectId(institutionId)) {
         throw createError(400, "Invalid institution context");
     }
@@ -636,6 +698,18 @@ async function listSections({ institutionId, query }) {
         loadInstitutionRecord(institutionId),
         Promise.resolve(validateListSectionsInput(query)),
     ]);
+
+    const accessScope = resolveListSectionsAccessScope({
+        institutionId,
+        actorMembership,
+        filters,
+    });
+
+    if (accessScope.denyByFilter) {
+        return {
+            sections: [],
+        };
+    }
 
     const sectionQuery = { institutionId };
 
@@ -647,8 +721,8 @@ async function listSections({ institutionId, query }) {
         sectionQuery.subjectId = filters.subjectId;
     }
 
-    if (filters.instructorMemberId) {
-        sectionQuery.instructorMemberId = filters.instructorMemberId;
+    if (accessScope.instructorMemberId) {
+        sectionQuery.instructorMemberId = accessScope.instructorMemberId;
     }
 
     if (filters.status) {

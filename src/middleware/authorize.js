@@ -98,7 +98,7 @@ function institutionAccess() {
 
 
 function requirePermission(permission) {
-    return async (req, res, next) => {
+    const middleware = (0, async function (req, res, next) {
         try {
             const userId = getUserId(req);
             if (!userId || !isValidObjectId(userId)) {
@@ -156,7 +156,10 @@ function requirePermission(permission) {
         } catch (error) {
             return next(error);
         }
-    };
+    });
+
+    middleware.requiredPermission = permission;
+    return middleware;
 }
 
 function withScope(typeResolver, idResolver) {

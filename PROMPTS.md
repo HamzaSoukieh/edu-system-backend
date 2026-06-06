@@ -59,6 +59,45 @@ Fix:
 - invalid override values fall back to the real server date
 - local ignored `.env` was set to `ATTENDANCE_QR_DATE_OVERRIDE=2026-06-07` for the user's current Postman session
 
+## 2026-06-05 Stripe Billing Phase 1
+
+User asked to add Phase 1 Stripe Billing support for institution subscriptions using Stripe Billing, not Stripe Connect.
+
+Key requirements:
+- add `InstitutionBillingProfile`
+- add `StripeWebhookEvent`
+- add owner/admin checkout session route
+- add local billing status route
+- add raw-body `/stripe/webhook`
+- use env vars for all Stripe config
+- do not store card/payment data
+- do not add student payments, plan limits, Stripe Connect, or global access gating yet
+
+Delivered:
+- official `stripe` npm package added
+- `POST /institutions/:institutionId/billing/checkout-session`
+- `GET /institutions/:institutionId/billing/status`
+- `POST /stripe/webhook`
+- webhook event idempotency and subscription status projection updates
+- focused mocked Stripe tests
+
+## 2026-06-05 Stripe Billing Webhook Hardening
+
+User asked to review and harden the existing Phase 1 Stripe Billing implementation without rebuilding it.
+
+Findings:
+- webhook route was already before `express.json()` and unauthenticated
+- signature verification already used raw body
+- event recording after successful processing left a concurrency/idempotency gap
+- Stripe IDs were indexed but not uniquely protected across institutions
+
+Fix:
+- added webhook event `processing|processed|failed` status and `errorMessage`
+- duplicate processed/in-flight events return `200` without reprocessing
+- failed processing marks the event `failed` so Stripe retries can claim it again
+- added partial unique indexes for Stripe customer/subscription ids
+- added subscription/customer fallback lookup when subscription metadata lacks `institutionId`
+
 ## Codex Task Prompt
 ```text
 Work inside this existing Node.js + Express + Mongoose backend repo.
