@@ -801,6 +801,7 @@ async function ensureCanUpsertManualAttendance({
             actorMembership,
             section,
             subject,
+            requiredResponsibilityPermission: "attendance.manage_scope",
         });
         return;
     }
@@ -1316,6 +1317,7 @@ async function getSectionAttendanceAnalytics({
         actorMembership,
         section,
         subject,
+        requiredResponsibilityPermission: "attendance.read_scope",
     });
 
     const attendancePolicySummary = await loadInstitutionAttendancePolicySummary(institutionId);

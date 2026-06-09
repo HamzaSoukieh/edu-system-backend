@@ -46,8 +46,19 @@ User reported `{"message":"Permission denied"}` while testing attendance Postman
 Fix:
 - session list/create/generate/get/update routes no longer require broad `section.manage`
 - controllers pass actor membership into `sectionSessionService`
-- service authorizes assigned section instructor/admin/coordinator/head using existing section-session permission logic
+- service authorizes assigned section instructor/admin/coordinator using existing section-session permission logic
 - unrelated instructors remain blocked
+
+## 2026-06-09 Head Non-Operational Responsibility Design
+
+User asked to separate Head from Coordinator in the scoped responsibility catalog.
+
+Key result:
+- Admin remains the broad base `Membership.role`
+- Coordinator keeps scoped operational section/session/attendance permissions
+- Head keeps allowed assignment scopes but no active operational permissions until academic/report oversight services exist
+- Mentor remains without active effective permissions until mentor-specific services exist
+- stored `ResponsibilityAssignment.permissions` stays non-authoritative
 
 ## 2026-05-31 Attendance Local QR Date Override
 
@@ -463,7 +474,7 @@ Key result:
 - offline mode supports school paper/in-class submissions marked by teachers
 - online_upload mode supports student PDF uploads stored outside public /uploads
 - instructor roster joins active enrollments with submissions so missing students appear without persisted missing rows
-- protected download authorizes the submitting student, section instructor/admin, or existing scoped coordinator/head paths
+- protected download authorizes the submitting student, section instructor/admin, or existing scoped coordinator paths
 ```
 
 ## Recent Prompt - Homework Upload Hardening

@@ -8,6 +8,10 @@ const SectionSession = require("../models/SectionSession");
 const Semester = require("../models/Semester");
 const Subject = require("../models/Subject");
 const User = require("../models/User");
+const {
+    hasResponsibilityPermissionWithinScope,
+    isResponsibilityAssignmentActiveNow,
+} = require("../auth/scopedResponsibilities");
 const { sendSectionSessionStatusUpdatedEmail } = require("./emailService");
 
 const DAY_LABELS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
@@ -684,29 +688,6 @@ async function loadSubjectRecord({ institutionId, subjectId }) {
         .lean();
 }
 
-function normalizeDate(value) {
-    return value ? new Date(value) : null;
-}
-
-function isResponsibilityAssignmentActiveNow(assignment, now) {
-    const startAt = normalizeDate(assignment.startAt);
-    const endAt = normalizeDate(assignment.endAt);
-
-    if (!assignment.isActive) {
-        return false;
-    }
-
-    if (startAt && now < startAt) {
-        return false;
-    }
-
-    if (endAt && now > endAt) {
-        return false;
-    }
-
-    return true;
-}
-
 function validateUpdateSectionSessionStatusInput(payload) {
     if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
         throw createError(400, "Invalid request body");
@@ -727,6 +708,46 @@ function validateUpdateSectionSessionStatusInput(payload) {
     };
 }
 
+async function hasActiveResponsibilityPermissionForScope({
+    institutionId,
+    actorUserId,
+    responsibilityTypes = ["coordinator"],
+    scopeType,
+    scopeId,
+    permission,
+}) {
+    const normalizedScopeId = normalizeId(scopeId);
+    if (!normalizedScopeId) {
+        return false;
+    }
+
+    const assignments = await ResponsibilityAssignment.find({
+        institutionId,
+        userId: actorUserId,
+        responsibilityType: { $in: responsibilityTypes },
+        scopeType,
+        scopeId: normalizedScopeId,
+        isActive: true,
+    })
+        .select("_id responsibilityType scopeType scopeId isActive startAt endAt")
+        .lean();
+
+    const now = new Date();
+    return assignments.some((assignment) => {
+        if (!isResponsibilityAssignmentActiveNow(assignment, now)) {
+            return false;
+        }
+
+        return hasResponsibilityPermissionWithinScope({
+            assignment,
+            permission,
+            scopeType,
+            scopeId: normalizedScopeId,
+            now,
+        });
+    });
+}
+
 async function ensureCanChangeSectionSessionStatus({
     institutionId,
     actorUserId,
@@ -734,6 +755,7 @@ async function ensureCanChangeSectionSessionStatus({
     section,
     subject,
     schoolClass = null,
+    requiredResponsibilityPermission = "sectionSession.manage_scope",
 }) {
     if (!actorMembership || !actorMembership._id) {
         throw createError(500, "Membership context missing");
@@ -749,48 +771,56 @@ async function ensureCanChangeSectionSessionStatus({
         return;
     }
 
+    const sectionId = normalizeId(section?._id);
+    const hasSectionOversight = await hasActiveResponsibilityPermissionForScope({
+        institutionId,
+        actorUserId,
+        scopeType: "section",
+        scopeId: sectionId,
+        permission: requiredResponsibilityPermission,
+    });
+    if (hasSectionOversight) {
+        return;
+    }
+
+    const classId = normalizeId(schoolClass?._id || section?.schoolClassId);
+    const hasClassOversight = await hasActiveResponsibilityPermissionForScope({
+        institutionId,
+        actorUserId,
+        scopeType: "class",
+        scopeId: classId,
+        permission: requiredResponsibilityPermission,
+    });
+    if (hasClassOversight) {
+        return;
+    }
+
     const departmentId = normalizeId(subject?.departmentId);
     if (departmentId) {
-        const departmentOversightAssignments = await ResponsibilityAssignment.find({
+        const hasDepartmentOversight = await hasActiveResponsibilityPermissionForScope({
             institutionId,
-            userId: actorUserId,
-            responsibilityType: { $in: ["coordinator", "head"] },
             scopeType: "department",
             scopeId: departmentId,
-            isActive: true,
-        })
-            .select("_id isActive startAt endAt")
-            .lean();
+            actorUserId,
+            permission: requiredResponsibilityPermission,
+        });
 
-        const now = new Date();
-        const hasActiveDepartmentOversightAssignment = departmentOversightAssignments.some((assignment) =>
-            isResponsibilityAssignmentActiveNow(assignment, now)
-        );
-
-        if (hasActiveDepartmentOversightAssignment) {
+        if (hasDepartmentOversight) {
             return;
         }
     }
 
     const classLevelId = normalizeId(schoolClass?.classLevelId || subject?.classLevelId);
     if (classLevelId) {
-        const classLevelOversightAssignments = await ResponsibilityAssignment.find({
+        const hasClassLevelOversight = await hasActiveResponsibilityPermissionForScope({
             institutionId,
-            userId: actorUserId,
-            responsibilityType: { $in: ["coordinator", "head"] },
             scopeType: "classLevel",
             scopeId: classLevelId,
-            isActive: true,
-        })
-            .select("_id isActive startAt endAt")
-            .lean();
+            actorUserId,
+            permission: requiredResponsibilityPermission,
+        });
 
-        const now = new Date();
-        const hasActiveClassLevelOversightAssignment = classLevelOversightAssignments.some((assignment) =>
-            isResponsibilityAssignmentActiveNow(assignment, now)
-        );
-
-        if (hasActiveClassLevelOversightAssignment) {
+        if (hasClassLevelOversight) {
             return;
         }
     }
@@ -804,6 +834,7 @@ async function ensureCanManageSectionSession({
     actorMembership,
     section,
     subject: preloadedSubject = null,
+    requiredResponsibilityPermission = "sectionSession.manage_scope",
 }) {
     if (!actorUserId || !isValidObjectId(actorUserId)) {
         throw createError(401, "Unauthorized");
@@ -837,6 +868,7 @@ async function ensureCanManageSectionSession({
         actorMembership,
         section,
         subject,
+        requiredResponsibilityPermission,
     });
 
     return {
@@ -1140,6 +1172,7 @@ async function listSectionSessions({ institutionId, sectionId, actorUserId, acto
         actorUserId,
         actorMembership,
         section,
+        requiredResponsibilityPermission: "sectionSession.read_scope",
     });
 
     const filters = {
@@ -1232,6 +1265,7 @@ async function getSectionSessionById({ institutionId, sectionId, sectionSessionI
         actorMembership,
         section,
         subject,
+        requiredResponsibilityPermission: "sectionSession.read_scope",
     });
 
     return {

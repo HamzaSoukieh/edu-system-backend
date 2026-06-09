@@ -39,6 +39,7 @@ async function getSectionById(req, res) {
         const result = await sectionService.getSectionById({
             institutionId,
             sectionId,
+            actorMembership: req.membership || null,
         });
 
         return res.status(200).json(result);

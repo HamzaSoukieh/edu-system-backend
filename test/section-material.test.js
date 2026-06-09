@@ -6,6 +6,7 @@ const http = require("node:http");
 const path = require("node:path");
 
 const Enrollment = require("../src/models/Enrollment");
+const ResponsibilityAssignment = require("../src/models/ResponsibilityAssignment");
 const SchoolClass = require("../src/models/SchoolClass");
 const Section = require("../src/models/Section");
 const SectionMaterial = require("../src/models/SectionMaterial");
@@ -234,6 +235,7 @@ function mockBaseSectionMaterialDependencies(t, dataset = {}) {
         sectionSession: null,
         materials: [buildMaterial()],
         enrollments: [buildEnrollment()],
+        responsibilityAssignments: [],
         updateThrows: null,
         queryLog: [],
         ...dataset,
@@ -254,6 +256,16 @@ function mockBaseSectionMaterialDependencies(t, dataset = {}) {
         return createQuery(data.subject);
     });
     t.mock.method(SchoolClass, "findOne", () => createQuery(data.schoolClass));
+    t.mock.method(ResponsibilityAssignment, "find", (query) => {
+        const assignments = data.responsibilityAssignments
+            .filter((assignment) => matchesId(assignment.institutionId, query.institutionId))
+            .filter((assignment) => matchesId(assignment.userId, query.userId))
+            .filter((assignment) => matchesId(assignment.responsibilityType, query.responsibilityType || assignment.responsibilityType))
+            .filter((assignment) => matchesId(assignment.scopeType, query.scopeType))
+            .filter((assignment) => matchesId(assignment.scopeId, query.scopeId))
+            .filter((assignment) => matchesId(assignment.isActive, query.isActive));
+        return createQuery(assignments);
+    });
     t.mock.method(SectionSession, "findOne", (query) => {
         if (!data.sectionSession) {
             return createQuery(null);

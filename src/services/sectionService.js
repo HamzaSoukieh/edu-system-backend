@@ -7,6 +7,7 @@ const Section = require("../models/Section");
 const Semester = require("../models/Semester");
 const Subject = require("../models/Subject");
 const { ROLE_PERMISSIONS } = require("../auth/permissions");
+const { resolveScopedResponsibilities } = require("../auth/scopedResponsibilities");
 const { backfillSchoolSectionEnrollments } = require("./enrollmentService");
 
 const SECTION_STATUSES = ["draft", "active", "closed", "cancelled"];
@@ -453,6 +454,12 @@ function toSectionListItem(section) {
     };
 }
 
+function toSectionScopedReadResponse(section) {
+    const response = toSectionResponse(section);
+    delete response.createdByUserId;
+    return response;
+}
+
 function validateScheduleAgainstSemesterTeachingDays(schedule, semester) {
     const allowedDays = Array.isArray(semester.teachingDays)
         ? semester.teachingDays.map((day) => normalizeLowerString(day)).filter(Boolean)
@@ -581,7 +588,7 @@ function ensureSectionCanBeDeleted(section) {
 }
 
 async function loadInstitutionRecord(institutionId) {
-    const institution = await Institution.findOne({ _id: institutionId }).select("_id type").lean();
+    const institution = await Institution.findOne({ _id: institutionId }).select("_id type ownerUserId").lean();
     if (!institution) {
         throw createError(404, "Institution not found");
     }
@@ -650,7 +657,11 @@ function ensureSubjectAndSchoolClassCompatibility({ subject, schoolClass }) {
     }
 }
 
-function resolveListSectionsAccessScope({ institutionId, actorMembership, filters }) {
+function uniqueNormalizedIds(values) {
+    return [...new Set(values.map(normalizeId).filter(Boolean))];
+}
+
+function resolveActorInstitutionAuthority({ institution, institutionId, actorMembership }) {
     if (!actorMembership || !actorMembership._id) {
         throw createError(500, "Membership context missing");
     }
@@ -663,30 +674,159 @@ function resolveListSectionsAccessScope({ institutionId, actorMembership, filter
         throw createError(403, "Institution access denied");
     }
 
-    if (hasRolePermission(actorMembership.role, "section.manage")) {
+    const actorUserId = normalizeId(actorMembership.userId);
+    const isOwner = actorUserId && normalizeId(institution.ownerUserId) === actorUserId;
+
+    return {
+        actorUserId,
+        isOwner,
+        isAdmin: hasRolePermission(actorMembership.role, "section.manage"),
+    };
+}
+
+async function resolveScopedSectionAccessConditions({ institution, institutionId, actorUserId }) {
+    const assignments = await resolveScopedResponsibilities({
+        institutionId,
+        userId: actorUserId,
+        responsibilityTypes: ["coordinator"],
+        scopeTypes: ["department", "classLevel", "class", "section"],
+        permission: "section.read_scope",
+    });
+
+    if (!assignments.length) {
         return {
-            mode: "manage",
-            instructorMemberId: filters.instructorMemberId || null,
+            institutionWide: false,
+            conditions: [],
         };
     }
 
-    if (actorMembership.role === "instructor" && hasRolePermission(actorMembership.role, "section.read")) {
-        const actorInstructorMemberId = normalizeId(actorMembership._id);
-        if (filters.instructorMemberId && filters.instructorMemberId !== actorInstructorMemberId) {
-            return {
-                mode: "read_own",
-                instructorMemberId: actorInstructorMemberId,
-                denyByFilter: true,
-            };
+    const departmentIds = uniqueNormalizedIds(
+        assignments
+            .filter((assignment) => assignment.scopeType === "department")
+            .map((assignment) => assignment.scopeId)
+    );
+    const classLevelIds = uniqueNormalizedIds(
+        assignments
+            .filter((assignment) => assignment.scopeType === "classLevel")
+            .map((assignment) => assignment.scopeId)
+    );
+    const classIds = uniqueNormalizedIds(
+        assignments
+            .filter((assignment) => assignment.scopeType === "class")
+            .map((assignment) => assignment.scopeId)
+    );
+    const sectionIds = uniqueNormalizedIds(
+        assignments
+            .filter((assignment) => assignment.scopeType === "section")
+            .map((assignment) => assignment.scopeId)
+    );
+
+    const conditions = [];
+    if (sectionIds.length) {
+        conditions.push({ _id: { $in: sectionIds } });
+    }
+
+    if (classIds.length) {
+        conditions.push({ schoolClassId: { $in: classIds } });
+    }
+
+    if (departmentIds.length) {
+        const subjects = await Subject.find({
+            institutionId,
+            departmentId: { $in: departmentIds },
+        })
+            .select("_id")
+            .lean();
+        const subjectIds = uniqueNormalizedIds(subjects.map((subject) => subject._id));
+        if (subjectIds.length) {
+            conditions.push({ subjectId: { $in: subjectIds } });
+        }
+    }
+
+    if (classLevelIds.length) {
+        const [subjects, schoolClasses] = await Promise.all([
+            Subject.find({
+                institutionId,
+                classLevelId: { $in: classLevelIds },
+            })
+                .select("_id")
+                .lean(),
+            institution.type === "school"
+                ? SchoolClass.find({
+                      institutionId,
+                      classLevelId: { $in: classLevelIds },
+                  })
+                      .select("_id")
+                      .lean()
+                : Promise.resolve([]),
+        ]);
+
+        const subjectIds = uniqueNormalizedIds(subjects.map((subject) => subject._id));
+        if (subjectIds.length) {
+            conditions.push({ subjectId: { $in: subjectIds } });
         }
 
+        const schoolClassIds = uniqueNormalizedIds(schoolClasses.map((schoolClass) => schoolClass._id));
+        if (schoolClassIds.length) {
+            conditions.push({ schoolClassId: { $in: schoolClassIds } });
+        }
+    }
+
+    return {
+        institutionWide: false,
+        conditions,
+    };
+}
+
+async function resolveListSectionsAccessScope({ institution, institutionId, actorMembership }) {
+    const authority = resolveActorInstitutionAuthority({
+        institution,
+        institutionId,
+        actorMembership,
+    });
+
+    if (authority.isOwner || authority.isAdmin) {
         return {
-            mode: "read_own",
-            instructorMemberId: actorInstructorMemberId,
+            mode: authority.isOwner ? "owner" : "manage",
+            institutionWide: true,
+            conditions: [],
         };
     }
 
-    throw createError(403, "Permission denied");
+    if (actorMembership.role === "student") {
+        throw createError(403, "Permission denied");
+    }
+
+    const conditions = [];
+    if (actorMembership.role === "instructor" && hasRolePermission(actorMembership.role, "section.read")) {
+        conditions.push({ instructorMemberId: normalizeId(actorMembership._id) });
+    }
+
+    const scopedAccess = await resolveScopedSectionAccessConditions({
+        institution,
+        institutionId,
+        actorUserId: authority.actorUserId,
+    });
+
+    if (scopedAccess.institutionWide) {
+        return {
+            mode: "responsibility_scope",
+            institutionWide: true,
+            conditions: [],
+        };
+    }
+
+    conditions.push(...scopedAccess.conditions);
+
+    if (!conditions.length) {
+        throw createError(403, "Permission denied");
+    }
+
+    return {
+        mode: "scoped",
+        institutionWide: false,
+        conditions,
+    };
 }
 
 async function listSections({ institutionId, query, actorMembership }) {
@@ -699,17 +839,11 @@ async function listSections({ institutionId, query, actorMembership }) {
         Promise.resolve(validateListSectionsInput(query)),
     ]);
 
-    const accessScope = resolveListSectionsAccessScope({
+    const accessScope = await resolveListSectionsAccessScope({
+        institution,
         institutionId,
         actorMembership,
-        filters,
     });
-
-    if (accessScope.denyByFilter) {
-        return {
-            sections: [],
-        };
-    }
 
     const sectionQuery = { institutionId };
 
@@ -721,8 +855,8 @@ async function listSections({ institutionId, query, actorMembership }) {
         sectionQuery.subjectId = filters.subjectId;
     }
 
-    if (accessScope.instructorMemberId) {
-        sectionQuery.instructorMemberId = accessScope.instructorMemberId;
+    if (filters.instructorMemberId) {
+        sectionQuery.instructorMemberId = filters.instructorMemberId;
     }
 
     if (filters.status) {
@@ -784,6 +918,10 @@ async function listSections({ institutionId, query, actorMembership }) {
         }
     }
 
+    if (!accessScope.institutionWide) {
+        sectionQuery.$or = accessScope.conditions;
+    }
+
     const sections = await Section.find(sectionQuery)
         .select(SECTION_SELECT_FIELDS)
         .sort({ createdAt: -1, _id: -1 })
@@ -794,7 +932,7 @@ async function listSections({ institutionId, query, actorMembership }) {
     };
 }
 
-async function getSectionById({ institutionId, sectionId }) {
+async function getSectionById({ institutionId, sectionId, actorMembership }) {
     if (!institutionId || !isValidObjectId(institutionId)) {
         throw createError(400, "Invalid institution context");
     }
@@ -803,10 +941,22 @@ async function getSectionById({ institutionId, sectionId }) {
         throw createError(400, "Invalid section id");
     }
 
-    const section = await Section.findOne({
+    const institution = await loadInstitutionRecord(institutionId);
+    const accessScope = await resolveListSectionsAccessScope({
+        institution,
+        institutionId,
+        actorMembership,
+    });
+
+    const accessQuery = {
         _id: sectionId,
         institutionId,
-    })
+    };
+    if (!accessScope.institutionWide) {
+        accessQuery.$or = accessScope.conditions;
+    }
+
+    const section = await Section.findOne(accessQuery)
         .select(SECTION_SELECT_FIELDS)
         .lean();
 
@@ -814,8 +964,13 @@ async function getSectionById({ institutionId, sectionId }) {
         throw createError(404, "Section not found");
     }
 
+    const response =
+        accessScope.mode === "owner" || accessScope.mode === "manage"
+            ? toSectionResponse(section)
+            : toSectionScopedReadResponse(section);
+
     return {
-        section: toSectionResponse(section),
+        section: response,
     };
 }
 

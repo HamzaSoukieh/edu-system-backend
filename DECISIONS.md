@@ -93,7 +93,7 @@
 - Status: Confirmed
 - Decision: Session status changes must go through a dedicated status route and service flow.
 - Reason: Status changes need note/metadata handling, contextual authorization, and optional student notification.
-- Notes: Current contextual authorization allows admin, parent section instructor, or derived department coordinator/head.
+- Notes: Current contextual authorization allows admin, parent section instructor, or derived department coordinator.
 
 ## D016 - Attendance Is Anchored To SectionSession
 - Status: Confirmed
@@ -169,9 +169,9 @@
 
 ## D027 - School Section Oversight Can Derive Through ClassLevel
 - Status: Confirmed
-- Decision: When a scoped academic route is tied to a school section, delegated coordinator/head oversight may derive through the parent school class level using `ResponsibilityAssignment.scopeType = classLevel`.
+- Decision: When a scoped academic route is tied to a school section, delegated coordinator oversight may derive through the parent school class level using `ResponsibilityAssignment.scopeType = classLevel`.
 - Reason: School sections do not derive through university departments, so scoped school oversight needs its own safe academic parent scope.
-- Notes: This is limited to routes that already use contextual section-derived authorization rather than broad institution-wide coordinator/head access.
+- Notes: This is limited to routes that already use contextual section-derived authorization rather than broad institution-wide coordinator access.
 
 ## D029 - University Academic Policy Uses A Dedicated Institution-Level Semester-Effective Model
 - Status: Confirmed
@@ -345,7 +345,7 @@
   - The upload middleware and service both validate PDF-only metadata; service validation also rejects unsafe generated file keys as defense-in-depth.
   - Downloads go through service-level authorization before returning a private file path to the controller.
   - Students can list/download only `published` materials for sections where they have an active `Enrollment.status = enrolled` row.
-  - Staff management reuses the existing section-derived oversight pattern: admin, parent section instructor, university department coordinator/head, or school class-level coordinator/head.
+  - Staff management reuses the existing section-derived oversight pattern: admin, parent section instructor, university department coordinator, or school class-level coordinator.
   - Draft and archived materials are hidden from students; archived materials are read-only in V1.
   - Notifications, folders/categories, non-PDF files, links, video/recordings, cloud storage, and PDF magic-byte sniffing are deferred.
 
@@ -382,4 +382,32 @@
   - Admin/manage access keeps the existing broad institution list behavior and existing filters.
   - Instructor read access ignores client-provided instructor identity for scoping and uses the authenticated membership id as `Section.instructorMemberId`.
   - If an instructor supplies another `instructorMemberId` filter, the result is an empty list rather than exposing other instructors' sections.
+  - Owner access is resolved separately from admin role when the institution record is loaded.
+  - Coordinator responsibility access is added only through active same-tenant scoped assignments and final section queries combine client filters with backend access conditions.
+  - `GET /sections/:sectionId` uses the same read-scope enforcement as the list route.
+  - Non-owner student memberships stay blocked from generic staff/admin section list/detail routes even if a responsibility row exists.
+  - Scoped section detail readers do not receive creator audit metadata; owner/admin keep the existing full detail shape.
   - Student memberships remain blocked from this generic staff/admin list even though students keep `section.read` for student-facing section-linked flows.
+
+## D049 - Responsibility Permissions Are Backend-Computed
+- Status: Confirmed
+- Decision: Treat `ResponsibilityAssignment.permissions` as untrusted for authorization decisions and compute effective responsibility permissions from the backend `RESPONSIBILITY_PERMISSIONS` catalog.
+- Reason: Scoped responsibilities must not become a client-controlled path to broad permissions such as billing, institution, or membership management.
+- Notes:
+  - `head`, `coordinator`, and `mentor` remain scoped responsibilities, not `Membership.role` values.
+  - `ResponsibilityAssignment` is currently keyed by `institutionId + userId`, not `membershipId`; callers must always include `institutionId` when resolving responsibility authority.
+  - Active/date checks still apply to responsibility assignments.
+  - Active scoped catalog:
+    - `head`: no active permissions yet; assigned scopes are reserved for future academic/report oversight services.
+    - `coordinator`: `section.read_scope`, `sectionSession.read_scope`, `sectionSession.manage_scope`, `attendance.read_scope`, `attendance.manage_scope`
+    - `mentor`: no active scoped permissions yet, pending student/mentor-specific service enforcement.
+  - Allowed responsibility scope combinations:
+    - `head`: `institution`, `department`, `classLevel`
+    - `coordinator`: `department`, `classLevel`, `class`, `section`
+    - `mentor`: `class`, `section`
+  - `ResponsibilityAssignment` validates responsibility/scope combinations, and helper resolution ignores legacy rows with invalid combinations.
+  - Section read access for coordinator is resolved in `sectionService` into tenant-scoped `Section.find(...)` conditions derived from assigned department, class level, class, or section scopes.
+  - Section-session and attendance scoped operations now check backend catalog permissions while deriving section, class, department, and class-level scope from trusted section/subject/class records.
+  - Head assignments do not grant generic operational section, section-session, attendance, schedule, homework, assessment, or material staff powers until dedicated academic/report oversight services exist.
+  - Mentor responsibility does not grant generic staff section list/detail management scope.
+  - TODO/verify: do not activate `section.manage_scope`, `academicProfile.read_scope`, `studentProfile.read_scope`, `attendance.excuse_manage_scope`, `academicDecision.review_scope`, `enrollment.review_scope`, or `studentDropRisk.review_scope` until real service-level enforcement and tests exist.

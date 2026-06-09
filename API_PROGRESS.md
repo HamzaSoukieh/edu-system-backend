@@ -23,14 +23,17 @@
 - Current implemented rules:
   - uses Stripe Billing subscription Checkout Sessions, not Stripe Connect
   - checkout session creation is limited to the institution owner or active admin membership
+  - checkout session creation rejects existing `active`, `trialing`, or `past_due` subscriptions with a stored Stripe subscription id to avoid duplicate paid subscriptions
   - creates or reuses a Stripe Customer for the institution
+  - Stripe Customer creation uses an institution-stable idempotency key
   - uses `STRIPE_PRICE_BASIC_MONTHLY` and attaches `institutionId` metadata to Checkout and Subscription creation
   - stores only Stripe customer/subscription ids and subscription status projection in `InstitutionBillingProfile`
   - `InstitutionBillingProfile` keeps one profile per institution and uses partial unique indexes for Stripe customer/subscription ids
   - does not store card data or payment method data
   - webhook route is mounted before `express.json()` and verifies signatures with `STRIPE_WEBHOOK_SECRET`
   - webhook processing records `StripeWebhookEvent.stripeEventId` for duplicate prevention with `processing|processed|failed` status
-  - duplicate processed/in-flight Stripe events return `200` and do not reprocess
+  - duplicate processed Stripe events return `200` and do not reprocess
+  - in-flight `processing` Stripe events newer than 10 minutes return `200` as duplicates, while stale `processing` events older than 10 minutes are reclaimed and retried
   - failed webhook processing stores `errorMessage` and can be retried by Stripe without being permanently blocked
   - handled webhook events:
     - `checkout.session.completed`
@@ -126,9 +129,20 @@
   - lightweight list response
   - fuller detail response
   - `GET /institutions/:institutionId/sections` is guarded by `section.read`
-  - admin/manage access keeps broad institution listing behavior
+  - owner/admin/manage access keeps broad institution listing behavior
   - instructor `section.read` access is service-scoped to the authenticated instructor membership through `Section.instructorMemberId`
+  - coordinator section read access is service-scoped through active same-tenant `ResponsibilityAssignment` rows using backend-computed `section.read_scope`
+  - head and mentor responsibilities do not grant generic operational section list/detail access
+  - responsibility scope combinations are backend-defined:
+    - head: institution, department, classLevel
+    - coordinator: department, classLevel, class, section
+    - mentor: class, section
+  - section detail reads use the same service-level section read scope as section lists
+  - section detail remains guarded by `section.read`; admin/owner receive the existing full detail shape, while instructor/scoped responsibility readers receive a safer detail shape without `createdByUserId`
+  - client filters such as `instructorMemberId`, `departmentId`, `schoolClassId`, and `subjectId` can narrow section reads but cannot broaden scoped access
   - student memberships are still blocked from the generic staff/admin section list
+  - responsibility effective permissions are computed from the backend catalog; raw stored `ResponsibilityAssignment.permissions` strings are not trusted for authorization decisions
+  - scoped section writes are not active yet; `section.manage_scope` stays out of the effective responsibility catalog until service-level write enforcement exists
 - Still missing:
   - broader linked academic reporting beyond section-level assessments/results
 
@@ -207,8 +221,11 @@
   - status-change authorization allows:
     - admin
     - the parent section instructor
-    - university department coordinator/head derived through `Section -> Subject -> Department`
-    - school class-level coordinator/head derived through the parent school section class level
+    - explicit section/class scoped coordinator assignments
+    - university department coordinator derived through `Section -> Subject -> Department` with backend-computed `sectionSession.manage_scope`
+    - school class-level coordinator derived through the parent school section class level with backend-computed `sectionSession.manage_scope`
+  - session list/detail use backend-computed `sectionSession.read_scope` for derived coordinator access
+  - head and mentor responsibilities do not grant generic section-session read/manage access
   - cancellation emails go only to students who are both:
     - currently enrolled in the section
     - active in the same institution
@@ -238,10 +255,9 @@
   - student QR check-in requires active student membership + active enrolled enrollment
   - same-day QR check-in is `present` before or within the 10-minute grace window after the later of the scheduled section session start time and `attendanceOpenedAt`, and `late` after that window
   - QR check-in remains blocked after attendance is closed
-  - manual attendance can still correct a closed dated session for authorized instructor/admin/derived coordinator/head access
-  - scoped attendance oversight paths that reuse section-session authorization also allow:
-    - the matching university department coordinator/head path
-    - the matching school class-level coordinator/head path
+  - manual attendance can still correct a closed dated session for authorized instructor/admin/derived coordinator access
+  - scoped attendance oversight paths that reuse section-session authorization also allow explicit section/class, university department, and school class-level coordinator paths with backend-computed attendance scoped permissions
+  - attendance analytics uses `attendance.read_scope`; closed-session manual correction uses `attendance.manage_scope`
   - roster is enrollment-based and supports:
     - `all`
     - `attended`
@@ -258,8 +274,8 @@
   - section-level attendance analytics are available to:
     - admin
     - the parent section instructor
-    - derived university department coordinator/head through the same safe scoped oversight path already used for section session status changes
-    - derived school class-level coordinator/head through the parent section class level
+    - derived university department coordinator through the same safe scoped oversight path already used for section session status changes
+    - derived school class-level coordinator through the parent section class level
   - students cannot access attendance analytics
   - attendance analytics include only section sessions that are both:
     - `attendanceState = closed`
@@ -324,8 +340,8 @@
   - staff assessment/results access reuses the same safe scoped section oversight pattern:
     - admin
     - parent section instructor
-    - university department coordinator/head for the parent subject department
-    - school class-level coordinator/head for the parent section class level
+    - university department coordinator for the parent subject department
+    - school class-level coordinator for the parent section class level
 - Still missing:
   - broader grading/reporting beyond section-level assessment results
 
@@ -398,8 +414,8 @@
   - scoped staff access reuses the same safe section-derived oversight pattern as assessments/homework:
     - admin
     - parent section instructor
-    - university department coordinator/head for the parent subject department
-    - school class-level coordinator/head for the parent section class level
+    - university department coordinator for the parent subject department
+    - school class-level coordinator for the parent section class level
 - Still missing:
   - folders/categories, link/video material sources, notifications, cloud storage, and PDF magic-byte validation
 
@@ -816,7 +832,7 @@
   - `subject: { id, name, code }`
 - `PATCH /sessions/:sectionSessionId/status` is the only path that should change session status.
 - Generic session update should not be used for status changes, because the dedicated status flow is what handles:
-  - fine-grained instructor/coordinator/head/admin authorization
+  - fine-grained instructor/coordinator/admin authorization
   - status metadata
   - student cancellation email notification
 - Notification recipients are selected from:

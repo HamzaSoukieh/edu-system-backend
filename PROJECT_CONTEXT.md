@@ -101,7 +101,13 @@
   - prevents duplicate webhook processing
 - `ResponsibilityAssignment`
   - scoped delegated access model
-  - not yet a major active module
+  - keyed by `institutionId + userId`
+  - effective responsibility permissions are resolved from the backend-defined catalog, not trusted from raw stored permission strings
+  - active scoped catalog currently grants coordinator section read, section-session read/manage, and attendance read/manage only where services enforce those scoped checks
+  - head currently has allowed assignment scopes but no active operational permissions until academic/report oversight services enforce safe scoped checks
+  - mentor currently has allowed assignment scopes but no active scoped permissions until student/mentor-specific service enforcement exists
+  - responsibility/scope combinations are backend-defined and validated
+  - used by selected section-derived read/oversight flows, not as new membership roles
 
 ## Completed Modules
 - Auth
@@ -159,9 +165,13 @@
   - detail response is fuller
   - department filtering is derived through Subject
   - generic section list route uses `section.read` with service-level role-aware scoping:
-    - admin/manage access keeps the existing broad institution list behavior
+    - owner/admin access keeps the existing broad institution list behavior
     - instructor read access is restricted to sections where `Section.instructorMemberId` matches the authenticated membership
+    - coordinator access is restricted to sections inside active same-tenant responsibility scopes using backend-computed `section.read_scope`
+    - head and mentor assignments do not grant generic operational section list/detail access
     - students remain blocked from the generic staff/admin section list
+  - generic section detail route also uses service-level read scoping so instructors cannot read another instructor's section through `section.read`
+  - section detail keeps the full existing admin/owner response, while scoped readers receive a safer detail response without creator audit metadata
 - Enrollments
   - create
   - list
@@ -180,8 +190,8 @@
   - status change authorization allows:
     - admin
     - parent section instructor
-    - derived department coordinator/head for university sections
-    - derived class-level coordinator/head for school sections
+    - derived department coordinator for university sections with backend-computed `sectionSession.manage_scope`
+    - derived class-level coordinator for school sections with backend-computed `sectionSession.manage_scope`
   - generated sessions do not auto-resync later if semester dates or future plans change
 - Attendance
   - instructor opens attendance on a section session
@@ -197,9 +207,7 @@
   - authorized staff can fetch section-level attendance analytics for finalized attendance data
   - section-level attendance analytics now derive warning/drop-risk signals from existing `Institution.policies` attendance fields and expose them as response-only `attendanceRisk` details per student
   - attendance risk does not auto-drop enrollments and is not connected to GPA, percentage calculations, school promotion, university standing, or final outcomes
-  - attendance oversight reads/corrections that reuse section-session scoped authorization allow:
-    - the same department-derived coordinator/head path for university sections
-    - the matching class-level coordinator/head path for school sections
+  - attendance oversight reads/corrections that reuse section-session scoped authorization allow coordinator section, class, department, and class-level responsibility scopes with backend-computed attendance scoped permissions
   - analytics include only closed, non-cancelled section sessions and use filtered finalized `AttendanceRecord` rows as the attendance-rate denominator
 - Not done yet:
   - broader attendance reporting beyond section-level finalized analytics
@@ -218,8 +226,8 @@
   - scoped staff access reuses the same safe section-derived oversight pattern:
     - admin
     - parent section instructor
-    - university department coordinator/head for the parent subject department
-    - school class-level coordinator/head for the parent section class level
+    - university department coordinator for the parent subject department
+    - school class-level coordinator for the parent section class level
   - current remaining gap:
     - broader grading/reporting beyond section-level assessment results, such as GPA/transcript/report-card flows
 - Homework / Projects
@@ -238,8 +246,8 @@
   - scoped staff access reuses the same safe section-derived oversight pattern as assessments:
     - admin
     - parent section instructor
-    - university department coordinator/head for the parent subject department
-    - school class-level coordinator/head for the parent section class level
+    - university department coordinator for the parent subject department
+    - school class-level coordinator for the parent section class level
   - current remaining gap:
     - multiple resubmission history, reminders, grading/resubmission notifications, cloud storage, and plagiarism checks are deferred
 - Section Materials

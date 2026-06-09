@@ -1,4 +1,5 @@
 const mongoose = require("mongoose");
+const { isResponsibilityScopeAllowed } = require("../auth/permissions");
 
 const responsibilityAssignmentSchema = new mongoose.Schema(
     {
@@ -19,6 +20,16 @@ const responsibilityAssignmentSchema = new mongoose.Schema(
             required: true,
             enum: ["institution", "department", "class", "classLevel", "section"],
             index: true,
+            validate: {
+                validator(value) {
+                    if (!this.responsibilityType) {
+                        return true;
+                    }
+
+                    return isResponsibilityScopeAllowed(this.responsibilityType, value);
+                },
+                message: "scopeType is not allowed for responsibilityType",
+            },
         },
         scopeId: {
             type: mongoose.Schema.Types.ObjectId,

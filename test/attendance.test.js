@@ -6,6 +6,7 @@ const Enrollment = require("../src/models/Enrollment");
 const Institution = require("../src/models/Institution");
 const MemberProfile = require("../src/models/MemberProfile");
 const Membership = require("../src/models/Membership");
+const ResponsibilityAssignment = require("../src/models/ResponsibilityAssignment");
 const Section = require("../src/models/Section");
 const SectionSession = require("../src/models/SectionSession");
 const Subject = require("../src/models/Subject");
@@ -16,6 +17,7 @@ const institutionId = "507f1f77bcf86cd799439011";
 const otherInstitutionId = "507f1f77bcf86cd799439012";
 const sectionId = "507f1f77bcf86cd799439021";
 const subjectId = "507f1f77bcf86cd799439031";
+const departmentId = "507f1f77bcf86cd799439032";
 const instructorMemberId = "507f1f77bcf86cd799439041";
 const otherInstructorMemberId = "507f1f77bcf86cd799439042";
 const actorUserId = "507f1f77bcf86cd799439051";
@@ -163,6 +165,7 @@ function mockAttendanceAnalyticsDependencies(t, dataset = {}) {
             buildSectionSession({ _id: sessionThreeId, sessionDate: new Date("2026-05-03T00:00:00.000Z") }),
         ],
         attendanceRecords: [],
+        responsibilityAssignments: [],
         queryLog: [],
         ...dataset,
     };
@@ -186,6 +189,17 @@ function mockAttendanceAnalyticsDependencies(t, dataset = {}) {
                 ? data.subject
                 : null
         );
+    });
+    t.mock.method(ResponsibilityAssignment, "find", (query) => {
+        data.queryLog.push({ model: "ResponsibilityAssignment", method: "find", query });
+        const assignments = data.responsibilityAssignments
+            .filter((assignment) => matchesId(assignment.institutionId, query.institutionId))
+            .filter((assignment) => matchesId(assignment.userId, query.userId))
+            .filter((assignment) => matchesId(assignment.responsibilityType, query.responsibilityType || assignment.responsibilityType))
+            .filter((assignment) => matchesId(assignment.scopeType, query.scopeType))
+            .filter((assignment) => matchesId(assignment.scopeId, query.scopeId))
+            .filter((assignment) => matchesId(assignment.isActive, query.isActive));
+        return createQuery(assignments);
     });
     t.mock.method(SectionSession, "find", (query) => {
         data.queryLog.push({ model: "SectionSession", method: "find", query });
@@ -512,6 +526,68 @@ test("section attendance analytics keeps permissions and tenant isolation", asyn
         (error) => {
             assert.equal(error.statusCode, 404);
             assert.equal(error.message, "Section not found");
+            return true;
+        }
+    );
+});
+
+test("coordinator can read attendance analytics inside assigned department scope", async (t) => {
+    mockAttendanceAnalyticsDependencies(t, {
+        subject: buildSubject({ departmentId }),
+        responsibilityAssignments: [
+            {
+                _id: "507f1f77bcf86cd799439131",
+                institutionId,
+                userId: actorUserId,
+                responsibilityType: "coordinator",
+                scopeType: "department",
+                scopeId: departmentId,
+                isActive: true,
+            },
+        ],
+    });
+
+    const result = await attendanceService.getSectionAttendanceAnalytics({
+        institutionId,
+        sectionId,
+        actorUserId,
+        actorMembership: buildMembership({ _id: otherInstructorMemberId }),
+        query: {},
+    });
+
+    assert.equal(result.attendanceAnalytics.section.id, sectionId);
+    assert.equal(result.attendanceAnalytics.subject.id, subjectId);
+});
+
+test("head cannot read attendance analytics even with stored operational permissions", async (t) => {
+    mockAttendanceAnalyticsDependencies(t, {
+        subject: buildSubject({ departmentId }),
+        responsibilityAssignments: [
+            {
+                _id: "507f1f77bcf86cd799439131",
+                institutionId,
+                userId: actorUserId,
+                responsibilityType: "head",
+                scopeType: "department",
+                scopeId: departmentId,
+                permissions: ["attendance.read_scope", "attendance.manage_scope"],
+                isActive: true,
+            },
+        ],
+    });
+
+    await assert.rejects(
+        () =>
+            attendanceService.getSectionAttendanceAnalytics({
+                institutionId,
+                sectionId,
+                actorUserId,
+                actorMembership: buildMembership({ _id: otherInstructorMemberId }),
+                query: {},
+            }),
+        (error) => {
+            assert.equal(error.statusCode, 403);
+            assert.equal(error.message, "Permission denied");
             return true;
         }
     );

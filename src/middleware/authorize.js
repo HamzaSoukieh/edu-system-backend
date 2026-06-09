@@ -1,7 +1,11 @@
 const mongoose = require("mongoose");
 const Membership = require("../models/Membership");
 const ResponsibilityAssignment = require("../models/ResponsibilityAssignment");
-const { ROLE_PERMISSIONS, RESPONSIBILITY_PERMISSIONS } = require("../auth/permissions");
+const { ROLE_PERMISSIONS } = require("../auth/permissions");
+const {
+    hasResponsibilityPermissionWithinScope,
+    isResponsibilityAssignmentActiveNow,
+} = require("../auth/scopedResponsibilities");
 
 const ACTIVE_MEMBERSHIP_STATUS = Membership.schema.path("status").defaultValue;
 
@@ -34,29 +38,6 @@ function isValidObjectId(value) {
 
 function hasPermission(permissionList, permission) {
     return permissionList.includes(permission);
-}
-
-function normalizeDate(value) {
-    return value ? new Date(value) : null;
-}
-
-function isAssignmentActiveNow(assignment, now) {
-    const startAt = normalizeDate(assignment.startAt);
-    const endAt = normalizeDate(assignment.endAt);
-
-    if (!assignment.isActive) {
-        return false;
-    }
-
-    if (startAt && now < startAt) {
-        return false;
-    }
-
-    if (endAt && now > endAt) {
-        return false;
-    }
-
-    return true;
 }
 
 function institutionAccess() {
@@ -136,16 +117,17 @@ function requirePermission(permission) {
 
             const now = new Date();
             const permittedByAssignment = assignments.some((assignment) => {
-                if (!isAssignmentActiveNow(assignment, now)) {
+                if (!isResponsibilityAssignmentActiveNow(assignment, now)) {
                     return false;
                 }
 
-                if (hasPermission(assignment.permissions || [], permission)) {
-                    return true;
-                }
-
-                const defaults = RESPONSIBILITY_PERMISSIONS[assignment.responsibilityType] || [];
-                return hasPermission(defaults, permission);
+                return hasResponsibilityPermissionWithinScope({
+                    assignment,
+                    permission,
+                    scopeType,
+                    scopeId,
+                    now,
+                });
             });
 
             if (!permittedByAssignment) {

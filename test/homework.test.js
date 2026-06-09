@@ -11,6 +11,7 @@ const Homework = require("../src/models/Homework");
 const HomeworkSubmission = require("../src/models/HomeworkSubmission");
 const MemberProfile = require("../src/models/MemberProfile");
 const Membership = require("../src/models/Membership");
+const ResponsibilityAssignment = require("../src/models/ResponsibilityAssignment");
 const SchoolClass = require("../src/models/SchoolClass");
 const Section = require("../src/models/Section");
 const SectionSession = require("../src/models/SectionSession");
@@ -260,6 +261,7 @@ function mockBaseHomeworkDependencies(t, dataset = {}) {
         memberships: [],
         profiles: [],
         users: [],
+        responsibilityAssignments: [],
         ...dataset,
     };
 
@@ -278,6 +280,16 @@ function mockBaseHomeworkDependencies(t, dataset = {}) {
         return createQuery(data.subject);
     });
     t.mock.method(SchoolClass, "findOne", () => createQuery(data.schoolClass));
+    t.mock.method(ResponsibilityAssignment, "find", (query) => {
+        const assignments = data.responsibilityAssignments
+            .filter((assignment) => matchesId(assignment.institutionId, query.institutionId))
+            .filter((assignment) => matchesId(assignment.userId, query.userId))
+            .filter((assignment) => matchesId(assignment.responsibilityType, query.responsibilityType || assignment.responsibilityType))
+            .filter((assignment) => matchesId(assignment.scopeType, query.scopeType))
+            .filter((assignment) => matchesId(assignment.scopeId, query.scopeId))
+            .filter((assignment) => matchesId(assignment.isActive, query.isActive));
+        return createQuery(assignments);
+    });
     t.mock.method(SectionSession, "findOne", (query) => {
         if (!data.sectionSession) {
             return createQuery(null);

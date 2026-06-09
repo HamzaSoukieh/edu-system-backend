@@ -510,7 +510,7 @@ router.get(
     authJwt,
     requireEmailVerified,
     institutionAccess(),
-    requirePermission("section.manage"),
+    requirePermission("section.read"),
     sectionController.getSectionById
 );
 router.patch(

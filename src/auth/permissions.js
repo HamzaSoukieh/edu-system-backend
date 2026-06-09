@@ -26,23 +26,35 @@ const ROLE_PERMISSIONS = {
 };
 
 const RESPONSIBILITY_PERMISSIONS = {
-    head: [
-        "membership.manage_scope",
-        "section.manage_scope",
-        "student.kick",
-    ],
-    mentor: [
-        "membership.manage_scope",
-        "student.kick",
-        "attendance.manage_scope",
-    ],
+    head: [],
     coordinator: [
-        "section.manage_scope",
+        "section.read_scope",
+        "sectionSession.read_scope",
+        "sectionSession.manage_scope",
+        "attendance.read_scope",
         "attendance.manage_scope",
     ],
+    mentor: [],
 };
+
+const RESPONSIBILITY_ALLOWED_SCOPES = {
+    head: ["institution", "department", "classLevel"],
+    coordinator: ["department", "classLevel", "class", "section"],
+    mentor: ["class", "section"],
+};
+
+function getAllowedResponsibilityScopes(responsibilityType) {
+    return RESPONSIBILITY_ALLOWED_SCOPES[responsibilityType] || [];
+}
+
+function isResponsibilityScopeAllowed(responsibilityType, scopeType) {
+    return getAllowedResponsibilityScopes(responsibilityType).includes(scopeType);
+}
 
 module.exports = {
     ROLE_PERMISSIONS,
     RESPONSIBILITY_PERMISSIONS,
+    RESPONSIBILITY_ALLOWED_SCOPES,
+    getAllowedResponsibilityScopes,
+    isResponsibilityScopeAllowed,
 };

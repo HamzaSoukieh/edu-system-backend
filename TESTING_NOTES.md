@@ -18,6 +18,7 @@
   - `node --test test/attendance.test.js`
   - `node --test test/homework.test.js`
   - `node --test test/section-material.test.js`
+  - `node --test test/authorization-permission.test.js`
   - `node --test test/section-list-permission.test.js`
   - `node --test test/university-academic-policy-foundation.test.js test/school-academic-policy.test.js`
   - `node --test test/school-academic-policy.test.js test/school-outcome.test.js`
@@ -289,9 +290,7 @@
   - admin
   - parent section instructor
   - derived university department coordinator
-  - derived university department head
   - derived school class-level coordinator
-  - derived school class-level head
 - Session cancellation email should target only:
   - `Enrollment.status = enrolled`
   - `Membership.status = active`
@@ -538,7 +537,7 @@
   - accept only enrolled enrollments from the same section
   - update existing attendance record if it already exists
   - reject duplicate `enrollmentId` values in the same payload
-  - allow correction after attendance is `closed` for authorized instructor/admin/derived coordinator/head access
+  - allow correction after attendance is `closed` for authorized instructor/admin/derived coordinator access
   - still block attendance edits when attendance was never opened
 - Roster should:
   - use enrollments as the base
@@ -573,8 +572,8 @@
   - allow:
     - admin
     - the parent section instructor
-    - the same safely-derived university department coordinator/head path already used for section session status changes
-    - the same safely-derived school class-level coordinator/head path already used for section session status changes
+    - the same safely-derived university department coordinator path already used for section session status changes
+    - the same safely-derived school class-level coordinator path already used for section session status changes
   - reject students
   - reject unrelated staff from other departments/scopes
   - include only section sessions where:
@@ -692,9 +691,9 @@
 - Assessment/results authorization should allow:
   - admin
   - parent section instructor
-  - derived university department coordinator/head for the parent subject department only
-  - derived school class-level coordinator/head for the parent section class level only
-  - reject unrelated coordinators/heads from other departments or class levels
+  - derived university department coordinator for the parent subject department only
+  - derived school class-level coordinator for the parent section class level only
+  - reject unrelated coordinators from other departments or class levels
   - reject students on staff routes
 - Assessment notification delivery should:
   - notify only active enrolled students in the same institution and section
@@ -1581,6 +1580,22 @@
   - result: 12 passing
   - ran `node --test test/billing.test.js test/section-material.test.js test/attendance.test.js`
   - result: 35 passing
+- 2026-06-06 Stripe Billing service hardening:
+  - added stale webhook `processing` recovery after 10 minutes while keeping fresh in-flight events as duplicates
+  - added duplicate Checkout Session prevention when an institution already has `active`, `trialing`, or `past_due` status with a Stripe subscription id
+  - added Stripe Customer creation idempotency key `customer:create:<institutionId>`
+  - verified canceled profiles and profiles without active subscriptions can still create Checkout Sessions
+  - verified existing Stripe Customer ids are reused without calling `stripe.customers.create`
+  - ran `node --check src/services/billingService.js`
+  - result: passed
+  - ran `node --check src/models/StripeWebhookEvent.js`
+  - result: passed
+  - ran `node --check test/billing.test.js`
+  - result: passed
+  - ran `node --test test/billing.test.js`
+  - result: 18 passing
+  - ran `node --test test/billing.test.js test/section-material.test.js test/attendance.test.js`
+  - result: 41 passing
 - 2026-06-05 Section list instructor read scope:
   - changed generic `GET /institutions/:institutionId/sections` to use `section.read` while enforcing service-level role-aware list scope
   - verified admin/manage access keeps broad institution section listing and existing filters
@@ -1602,6 +1617,67 @@
   - result: 7 passing
   - ran `node --test test/section-list-permission.test.js test/section-session-permission.test.js test/attendance.test.js test/section-material.test.js test/homework.test.js test/academic-profile.test.js test/billing.test.js test/school-promotion-dashboard.test.js`
   - result: 101 passing
+- 2026-06-07 Base-role and scoped-responsibility authorization hardening:
+  - added shared responsibility helpers that compute effective responsibility permissions from the backend catalog and ignore raw stored permission strings for authorization
+  - verified arbitrary stored dangerous permissions such as `billing.manage`, `institution.manage`, and `membership.manage` do not grant scoped access
+  - extended section list/detail service scoping for owner/admin, assigned instructors, and active coordinator responsibility scopes
+  - verified client filters narrow but do not broaden scoped section access
+  - verified cross-tenant, inactive, and expired responsibility assignments do not grant section list access
+  - verified mentor responsibility does not grant generic staff section management scope
+  - verified non-owner students remain blocked from generic staff section list/detail routes even with a coordinator responsibility row
+  - verified section detail uses a scoped query and scoped readers do not receive `createdByUserId`
+  - verified `ResponsibilityAssignment` authority is keyed by `institutionId + userId`, not `membershipId`
+  - verified invalid `startAt` / `endAt` values do not behave like active responsibility windows
+  - ran `node --check src/auth/scopedResponsibilities.js`
+  - result: passed
+  - ran `node --check src/middleware/authorize.js`
+  - result: passed
+  - ran `node --check src/services/sectionService.js`
+  - result: passed
+  - ran `node --check src/services/sectionSessionService.js`
+  - result: passed
+  - ran `node --check test/section-list-permission.test.js`
+  - result: passed
+  - ran `node --check test/authorization-permission.test.js`
+  - result: passed
+  - ran `node --test test/authorization-permission.test.js test/section-list-permission.test.js`
+  - result: 27 passing
+  - ran `node --test test/authorization-permission.test.js test/section-list-permission.test.js test/section-session-permission.test.js test/attendance.test.js test/section-material.test.js test/homework.test.js`
+  - result: 80 passing
+- 2026-06-09 Scoped responsibility catalog hardening:
+  - replaced old active responsibility permissions with the currently enforced scoped catalog:
+    - head: no active effective permissions until academic/report oversight service enforcement is implemented
+    - coordinator: `section.read_scope`, `sectionSession.read_scope`, `sectionSession.manage_scope`, `attendance.read_scope`, `attendance.manage_scope`
+    - mentor: no active effective permissions until mentor/student-focused service enforcement is implemented
+  - added backend-defined allowed scope combinations for head, coordinator, and mentor
+  - added model/helper protection so invalid responsibility/scope combinations are rejected on validation and ignored during effective authorization resolution
+  - changed section list/detail responsibility access to use `section.read_scope` instead of a write-style section permission
+  - changed section-session and attendance derived coordinator checks to use backend-computed scoped permissions while deriving section, class, department, and class-level scope from trusted DB records
+  - made head non-operational for generic section, section-session, attendance, assessment, homework, and material staff paths because no dedicated academic/report oversight service is active yet
+  - verified future/unwired permissions such as `academicDecision.review_scope`, `enrollment.review_scope`, `studentDropRisk.review_scope`, `academicProfile.read_scope`, `studentProfile.read_scope`, and `attendance.excuse_manage_scope` are not active
+  - no responsibility create/update routes exist yet, so request-body `permissions` rejection is not applicable until scoped responsibility routes are added
+  - ran `node --check src/auth/permissions.js`
+  - result: passed
+  - ran `node --check src/auth/scopedResponsibilities.js`
+  - result: passed
+  - ran `node --check src/models/ResponsibilityAssignment.js`
+  - result: passed
+  - ran `node --check src/services/sectionService.js`
+  - result: passed
+  - ran `node --check src/services/sectionSessionService.js`
+  - result: passed
+  - ran `node --check src/services/attendanceService.js`
+  - result: passed
+  - ran `node --check test/homework.test.js`
+  - result: passed
+  - ran `node --check test/section-material.test.js`
+  - result: passed
+  - ran `node --check test/attendance.test.js`
+  - result: passed
+  - ran `node --test test/authorization-permission.test.js test/section-list-permission.test.js test/section-session-permission.test.js test/attendance.test.js`
+  - result: 43 passing
+  - ran `node --test test/authorization-permission.test.js test/section-list-permission.test.js test/section-session-permission.test.js test/attendance.test.js test/section-material.test.js test/homework.test.js`
+  - result: 88 passing
 - TODO:
   - add real sample responses when helpful
   - add attendance response examples after first manual Postman pass

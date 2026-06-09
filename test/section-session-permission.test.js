@@ -14,6 +14,7 @@ const sectionId = "507f1f77bcf86cd799439021";
 const semesterId = "507f1f77bcf86cd799439031";
 const subjectId = "507f1f77bcf86cd799439041";
 const sectionSessionId = "507f1f77bcf86cd799439051";
+const departmentId = "507f1f77bcf86cd799439052";
 const instructorMemberId = "507f1f77bcf86cd799439061";
 const otherInstructorMemberId = "507f1f77bcf86cd799439062";
 const actorUserId = "507f1f77bcf86cd799439071";
@@ -44,6 +45,10 @@ function normalizeId(value) {
 }
 
 function matchesId(value, condition) {
+    if (condition?.$in) {
+        return condition.$in.map(normalizeId).includes(normalizeId(value));
+    }
+
     if (condition?.$ne !== undefined) {
         return normalizeId(value) !== normalizeId(condition.$ne);
     }
@@ -108,6 +113,7 @@ function mockSectionSessionCreateDependencies(t, overrides = {}) {
         subject: buildSubject(),
         semester: buildSemester(),
         duplicateSectionSession: null,
+        responsibilityAssignments: [],
         ...overrides,
     };
 
@@ -135,7 +141,16 @@ function mockSectionSessionCreateDependencies(t, overrides = {}) {
                 : null
         )
     );
-    t.mock.method(ResponsibilityAssignment, "find", () => createQuery([]));
+    t.mock.method(ResponsibilityAssignment, "find", (query) => {
+        const assignments = data.responsibilityAssignments
+            .filter((assignment) => matchesId(assignment.institutionId, query.institutionId))
+            .filter((assignment) => matchesId(assignment.userId, query.userId))
+            .filter((assignment) => matchesId(assignment.responsibilityType, query.responsibilityType || assignment.responsibilityType))
+            .filter((assignment) => matchesId(assignment.scopeType, query.scopeType))
+            .filter((assignment) => matchesId(assignment.scopeId, query.scopeId))
+            .filter((assignment) => matchesId(assignment.isActive, query.isActive));
+        return createQuery(assignments);
+    });
     t.mock.method(SectionSession, "findOne", () => createQuery(data.duplicateSectionSession));
     t.mock.method(SectionSession, "create", async (payload) => ({
         _id: sectionSessionId,
@@ -170,6 +185,78 @@ test("assigned instructor can create a section session", async (t) => {
 
 test("unassigned instructor cannot create a section session", async (t) => {
     mockSectionSessionCreateDependencies(t);
+
+    await assert.rejects(
+        () =>
+            sectionSessionService.createSectionSession({
+                institutionId,
+                sectionId,
+                createdByUserId: actorUserId,
+                actorMembership: buildMembership({ _id: otherInstructorMemberId }),
+                payload: {
+                    sessionType: "lecture",
+                    sessionDate: "2026-06-04",
+                    startTime: "09:00",
+                    endTime: "10:00",
+                },
+            }),
+        (error) => {
+            assert.equal(error.statusCode, 403);
+            assert.equal(error.message, "Permission denied");
+            return true;
+        }
+    );
+});
+
+test("coordinator can create a section session inside assigned department scope", async (t) => {
+    mockSectionSessionCreateDependencies(t, {
+        subject: buildSubject({ departmentId }),
+        responsibilityAssignments: [
+            {
+                _id: "507f1f77bcf86cd799439081",
+                institutionId,
+                userId: actorUserId,
+                responsibilityType: "coordinator",
+                scopeType: "department",
+                scopeId: departmentId,
+                isActive: true,
+            },
+        ],
+    });
+
+    const result = await sectionSessionService.createSectionSession({
+        institutionId,
+        sectionId,
+        createdByUserId: actorUserId,
+        actorMembership: buildMembership({ _id: otherInstructorMemberId }),
+        payload: {
+            sessionType: "lecture",
+            sessionDate: "2026-06-04",
+            startTime: "09:00",
+            endTime: "10:00",
+        },
+    });
+
+    assert.equal(result.sectionSession.sectionId, sectionId);
+    assert.equal(result.sectionSession.sessionType, "lecture");
+});
+
+test("head cannot create a section session even with stored operational permissions", async (t) => {
+    mockSectionSessionCreateDependencies(t, {
+        subject: buildSubject({ departmentId }),
+        responsibilityAssignments: [
+            {
+                _id: "507f1f77bcf86cd799439081",
+                institutionId,
+                userId: actorUserId,
+                responsibilityType: "head",
+                scopeType: "department",
+                scopeId: departmentId,
+                permissions: ["sectionSession.manage_scope"],
+                isActive: true,
+            },
+        ],
+    });
 
     await assert.rejects(
         () =>
