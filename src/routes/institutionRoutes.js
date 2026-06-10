@@ -20,6 +20,7 @@ const assessmentController = require("../controllers/assessmentController");
 const homeworkController = require("../controllers/homeworkController");
 const sectionMaterialController = require("../controllers/sectionMaterialController");
 const billingController = require("../controllers/billingController");
+const responsibilityAssignmentController = require("../controllers/responsibilityAssignmentController");
 const academicProfileController = require("../controllers/academicProfileController");
 const academicYearController = require("../controllers/academicYearController");
 const universityAcademicStandingController = require("../controllers/universityAcademicStandingController");
@@ -66,6 +67,41 @@ router.get(
     requireEmailVerified,
     institutionAccess(),
     billingController.getBillingStatus
+);
+router.post(
+    "/:institutionId/responsibility-assignments",
+    authJwt,
+    requireEmailVerified,
+    institutionAccess(),
+    responsibilityAssignmentController.createResponsibilityAssignment
+);
+router.get(
+    "/:institutionId/responsibility-assignments",
+    authJwt,
+    requireEmailVerified,
+    institutionAccess(),
+    responsibilityAssignmentController.listResponsibilityAssignments
+);
+router.get(
+    "/:institutionId/responsibility-assignments/:assignmentId",
+    authJwt,
+    requireEmailVerified,
+    institutionAccess(),
+    responsibilityAssignmentController.getResponsibilityAssignmentById
+);
+router.patch(
+    "/:institutionId/responsibility-assignments/:assignmentId",
+    authJwt,
+    requireEmailVerified,
+    institutionAccess(),
+    responsibilityAssignmentController.updateResponsibilityAssignment
+);
+router.delete(
+    "/:institutionId/responsibility-assignments/:assignmentId",
+    authJwt,
+    requireEmailVerified,
+    institutionAccess(),
+    responsibilityAssignmentController.deactivateResponsibilityAssignment
 );
 router.post(
     "/:institutionId/academic-years",

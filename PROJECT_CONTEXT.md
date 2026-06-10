@@ -103,6 +103,10 @@
   - scoped delegated access model
   - keyed by `institutionId + userId`
   - effective responsibility permissions are resolved from the backend-defined catalog, not trusted from raw stored permission strings
+  - owner/admin management APIs exist under `/institutions/:institutionId/responsibility-assignments`
+  - management access is owner/admin-only and comes from institution ownership or base `Membership.role` permissions, not from scoped responsibility rows; actor membership status must explicitly be `active`
+  - assignment targets must be active same-institution instructor memberships; students and admins are not eligible targets
+  - create/update payloads do not accept `permissions`, membership role changes, tenant override ids, or audit actor fields
   - active scoped catalog currently grants coordinator section read, section-session read/manage, and attendance read/manage only where services enforce those scoped checks
   - head currently has allowed assignment scopes but no active operational permissions until academic/report oversight services enforce safe scoped checks
   - mentor currently has allowed assignment scopes but no active scoped permissions until student/mentor-specific service enforcement exists
@@ -386,7 +390,7 @@
 
 ## Next Likely Modules
 - School final outcome cancellation / recompute workflow and report-card final-outcome linking
-- Scoped responsibility routes
+- Broader scoped responsibility workflows only where routes have real service-level scopes
 
 ## Current Priorities
 - Keep section design reusable across school and university.

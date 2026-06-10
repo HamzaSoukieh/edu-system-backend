@@ -406,6 +406,12 @@
     - `coordinator`: `department`, `classLevel`, `class`, `section`
     - `mentor`: `class`, `section`
   - `ResponsibilityAssignment` validates responsibility/scope combinations, and helper resolution ignores legacy rows with invalid combinations.
+  - ResponsibilityAssignment management routes are owner/admin-only; management authority is derived from institution ownership or base `Membership.role` permissions such as `membership.manage`, not from scoped responsibility assignments.
+  - Management actors must have an active same-institution membership with `status = active`; missing or non-active actor membership status fails closed.
+  - ResponsibilityAssignment targets must have an active same-institution `Membership.role = instructor`; student targets are rejected because they must not receive staff scoped authority, and admin targets are rejected because admins already have broad base-role permissions.
+  - Create/update management payloads do not accept raw `permissions`, tenant override ids, membership ids, audit actor ids, `userId` changes, or `responsibilityType` changes.
+  - Deleting a ResponsibilityAssignment is implemented as deactivation: `isActive=false`, with `endAt` set to now when it is empty or in the future.
+  - Duplicate active assignment creation for the same institution + user + responsibility type + scope is rejected; updates also check duplicate active assignments when changing scope or setting `isActive=true`; reusing the existing unique model key means a deactivated same-key row may be reactivated instead of inserting a second row.
   - Section read access for coordinator is resolved in `sectionService` into tenant-scoped `Section.find(...)` conditions derived from assigned department, class level, class, or section scopes.
   - Section-session and attendance scoped operations now check backend catalog permissions while deriving section, class, department, and class-level scope from trusted section/subject/class records.
   - Head assignments do not grant generic operational section, section-session, attendance, schedule, homework, assessment, or material staff powers until dedicated academic/report oversight services exist.

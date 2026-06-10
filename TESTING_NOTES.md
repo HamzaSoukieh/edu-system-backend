@@ -16,6 +16,7 @@
   - `node --test test/self-enrollment-browse.test.js`
   - `node --test test/self-enrollment-write.test.js`
   - `node --test test/attendance.test.js`
+  - `node --test test/responsibility-assignment-management.test.js`
   - `node --test test/homework.test.js`
   - `node --test test/section-material.test.js`
   - `node --test test/authorization-permission.test.js`
@@ -1678,6 +1679,48 @@
   - result: 43 passing
   - ran `node --test test/authorization-permission.test.js test/section-list-permission.test.js test/section-session-permission.test.js test/attendance.test.js test/section-material.test.js test/homework.test.js`
   - result: 88 passing
+- 2026-06-09 ResponsibilityAssignment owner/admin management:
+  - added owner/admin management APIs for `ResponsibilityAssignment`
+  - verified create/list/get/update/delete route wiring under `/institutions/:institutionId/responsibility-assignments`
+  - verified management access comes from owner/admin base authority, not scoped head/coordinator/mentor rows
+  - verified target user active same-institution membership checks and cross-tenant membership rejection
+  - verified allowed responsibility/scope combinations and same-tenant scope existence checks for institution, department, classLevel, class, and section scopes
+  - verified `permissions`, route tenant override ids, identity/type changes on update, membership ids, and audit fields are rejected by payload allow-lists
+  - verified safe list filters, tenant-scoped get/update/delete behavior, soft deactivation, and duplicate active assignment rejection
+  - verified assignment responses omit `permissions` and helper authorization still ignores stored raw permission strings
+  - TODO/verify: full date-window overlap handling remains deferred beyond the current active duplicate guard
+  - ran `node --check src/services/responsibilityAssignmentService.js`
+  - result: passed
+  - ran `node --check src/controllers/responsibilityAssignmentController.js`
+  - result: passed
+  - ran `node --check src/routes/institutionRoutes.js`
+  - result: passed
+  - ran `node --check test/responsibility-assignment-management.test.js`
+  - result: passed
+  - ran `node --test test/responsibility-assignment-management.test.js`
+  - result: 13 passing
+  - ran `node --test test/responsibility-assignment-management.test.js test/authorization-permission.test.js test/section-list-permission.test.js test/section-session-permission.test.js test/attendance.test.js test/section-material.test.js test/homework.test.js`
+  - result: 101 passing
+- 2026-06-10 ResponsibilityAssignment management hardening:
+  - actor membership status now fails closed; missing status and suspended status return institution access denial
+  - target eligibility now allows only active same-institution instructor memberships; student and admin targets are rejected for head, coordinator, and mentor assignments
+  - verified assignment creation still leaves `Membership.role` unchanged
+  - verified create/update still reject raw `permissions`, `role`, body tenant override ids, membership ids, audit actor ids, and unknown authorization fields through allow-lists
+  - duplicate active assignment checks now also run when an inactive assignment is updated with `isActive=true`
+  - activeNow list coverage now verifies no-date active rows, inactive rows, future windows, expired windows, and tenant scoping
+  - verified `ClassLevel` is a real tenant-scoped model with `institutionId`, so classLevel scope validation continues to use the existing model
+  - ran `node --check src/services/responsibilityAssignmentService.js`
+  - result: passed
+  - ran `node --check src/controllers/responsibilityAssignmentController.js`
+  - result: passed
+  - ran `node --check src/routes/institutionRoutes.js`
+  - result: passed
+  - ran `node --check test/responsibility-assignment-management.test.js`
+  - result: passed
+  - ran `node --test test/responsibility-assignment-management.test.js`
+  - result: 20 passing
+  - ran `node --test test/responsibility-assignment-management.test.js test/authorization-permission.test.js test/section-list-permission.test.js test/section-session-permission.test.js test/attendance.test.js test/section-material.test.js test/homework.test.js`
+  - result: 108 passing
 - TODO:
   - add real sample responses when helpful
   - add attendance response examples after first manual Postman pass

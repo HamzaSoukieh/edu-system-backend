@@ -60,6 +60,32 @@ Key result:
 - Mentor remains without active effective permissions until mentor-specific services exist
 - stored `ResponsibilityAssignment.permissions` stays non-authoritative
 
+## 2026-06-09 ResponsibilityAssignment Owner/Admin Management
+
+User asked for safe owner/admin management APIs for scoped `ResponsibilityAssignment` records.
+
+Key result:
+- added `POST/GET/GET by id/PATCH/DELETE /institutions/:institutionId/responsibility-assignments`
+- management access is owner/admin-only through institution ownership or base `Membership.role` permissions, not responsibility assignments
+- create/update payloads reject `permissions`, tenant override ids, membership ids, audit ids, and V1 identity/type changes
+- target users must have active same-institution memberships, while `Membership.role` remains unchanged
+- scope records are validated inside the route institution, and delete soft-deactivates the assignment
+- stored assignment permissions remain omitted from responses and ignored by authorization helpers
+- TODO/verify: full date-window overlap handling is deferred beyond the current duplicate-active guard
+
+## 2026-06-10 ResponsibilityAssignment Management Hardening
+
+User asked to harden the owner/admin management flow after review.
+
+Key result:
+- actor membership status now fails closed; missing or non-active status is rejected
+- target users must be active same-institution instructors; students and admins cannot receive scoped responsibility assignments
+- `Membership.role` remains unchanged when assignments are created
+- create/update payload allow-lists still reject `permissions`, `role`, tenant override ids, membership ids, audit ids, and unknown authorization fields
+- update duplicate checks also run when setting `isActive=true`
+- activeNow list tests cover active, inactive, future, expired, and cross-tenant rows
+- verified `ClassLevel` is the existing tenant-scoped model for classLevel assignment validation
+
 ## 2026-05-31 Attendance Local QR Date Override
 
 User could not test QR because today's date was not included in semester teaching days, while the available session was scheduled for a future teaching day.

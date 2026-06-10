@@ -1,0 +1,1605 @@
+{
+  "info": {
+    "name": "Edu SaaS Responsibility Assignment Management APIs",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+    "description": "Manual checks for owner/admin ResponsibilityAssignment management. Covers valid create/list/get/update/deactivate flows, access control, target role validation, payload safety, scope validation, duplicate active assignments, activeNow filtering, and non-authoritative permissions."
+  },
+  "auth": {
+    "type": "bearer",
+    "bearer": [
+      {
+        "key": "token",
+        "value": "{{adminToken}}",
+        "type": "string"
+      }
+    ]
+  },
+  "event": [
+    {
+      "listen": "prerequest",
+      "script": {
+        "type": "text/javascript",
+        "exec": [
+          "const now = new Date();",
+          "pm.environment.set('validStartAt', new Date(now.getTime() - 24 * 60 * 60 * 1000).toISOString());",
+          "pm.environment.set('validEndAt', new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000).toISOString());"
+        ]
+      }
+    },
+    {
+      "listen": "test",
+      "script": {
+        "type": "text/javascript",
+        "exec": [
+          "function parseJson() {",
+          "  try { return pm.response.json(); } catch (error) { return null; }",
+          "}",
+          "",
+          "const expectedStatus = pm.variables.get('expectedStatus');",
+          "if (expectedStatus) {",
+          "  const allowedStatuses = String(expectedStatus).split(',').map((item) => Number(item.trim())).filter(Boolean);",
+          "  pm.test(`status is ${expectedStatus}`, function () {",
+          "    pm.expect(allowedStatuses).to.include(pm.response.code);",
+          "  });",
+          "}",
+          "",
+          "const json = parseJson();",
+          "pm.test('response is JSON', function () {",
+          "  pm.expect(json).to.not.equal(null);",
+          "});",
+          "",
+          "if (json && pm.response.code >= 400) {",
+          "  pm.test('error message exists', function () {",
+          "    pm.expect(json.message || json.error).to.be.ok;",
+          "  });",
+          "}",
+          "",
+          "if (json?.responsibilityAssignment) {",
+          "  pm.test('responsibilityAssignment omits permissions', function () {",
+          "    pm.expect(json.responsibilityAssignment).to.not.have.property('permissions');",
+          "  });",
+          "}",
+          "",
+          "if (Array.isArray(json?.responsibilityAssignments)) {",
+          "  pm.test('responsibilityAssignments omit permissions', function () {",
+          "    json.responsibilityAssignments.forEach((assignment) => {",
+          "      pm.expect(assignment).to.not.have.property('permissions');",
+          "    });",
+          "  });",
+          "}"
+        ]
+      }
+    }
+  ],
+  "item": [
+    {
+      "name": "Setup / Health",
+      "item": [
+        {
+          "name": "Get My Institution Context",
+          "variable": [
+            {
+              "key": "expectedStatus",
+              "value": "200"
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/institutions/me"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "let json = {};",
+                  "try { json = pm.response.json(); } catch (error) {}",
+                  "const activeInstitutionId = json.activeInstitutionId || json.institutions?.[0]?.institutionId || json.institution?.id;",
+                  "if (activeInstitutionId && !pm.environment.get('institutionId')) {",
+                  "  pm.environment.set('institutionId', activeInstitutionId);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Auth / Tokens",
+      "item": [
+        {
+          "name": "Login Admin",
+          "variable": [
+            {
+              "key": "expectedStatus",
+              "value": "200,400,401,403"
+            }
+          ],
+          "auth": {
+            "type": "noauth"
+          },
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/auth/login",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{adminEmail}}\",\n  \"password\": \"{{adminPassword}}\"\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "let json = {};",
+                  "try { json = pm.response.json(); } catch (error) {}",
+                  "if (json.accessToken) pm.environment.set('adminToken', json.accessToken);",
+                  "if (json.user?.id && !pm.environment.get('targetAdminUserId')) pm.environment.set('targetAdminUserId', json.user.id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Login Owner",
+          "variable": [
+            {
+              "key": "expectedStatus",
+              "value": "200,400,401,403"
+            }
+          ],
+          "auth": {
+            "type": "noauth"
+          },
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/auth/login",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{ownerEmail}}\",\n  \"password\": \"{{ownerPassword}}\"\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "let json = {};",
+                  "try { json = pm.response.json(); } catch (error) {}",
+                  "if (json.accessToken) pm.environment.set('ownerToken', json.accessToken);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Login Instructor",
+          "variable": [
+            {
+              "key": "expectedStatus",
+              "value": "200,400,401,403"
+            }
+          ],
+          "auth": {
+            "type": "noauth"
+          },
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/auth/login",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{instructorEmail}}\",\n  \"password\": \"{{instructorPassword}}\"\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "let json = {};",
+                  "try { json = pm.response.json(); } catch (error) {}",
+                  "if (json.accessToken) pm.environment.set('instructorToken', json.accessToken);",
+                  "if (json.user?.id && !pm.environment.get('targetInstructorUserId')) pm.environment.set('targetInstructorUserId', json.user.id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Login Student",
+          "variable": [
+            {
+              "key": "expectedStatus",
+              "value": "200,400,401,403"
+            }
+          ],
+          "auth": {
+            "type": "noauth"
+          },
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/auth/login",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{studentEmail}}\",\n  \"password\": \"{{studentPassword}}\"\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "let json = {};",
+                  "try { json = pm.response.json(); } catch (error) {}",
+                  "if (json.accessToken) pm.environment.set('studentToken', json.accessToken);",
+                  "if (json.user?.id && !pm.environment.get('targetStudentUserId')) pm.environment.set('targetStudentUserId', json.user.id);"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Create Valid Assignments",
+      "item": [
+        {
+          "name": "01 Create Head Department Assignment",
+          "variable": [
+            {
+              "key": "expectedStatus",
+              "value": "201"
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/institutions/{{institutionId}}/responsibility-assignments",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"userId\": \"{{targetInstructorUserId}}\",\n  \"responsibilityType\": \"head\",\n  \"scopeType\": \"department\",\n  \"scopeId\": \"{{departmentId}}\"\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "let json = {};",
+                  "try { json = pm.response.json(); } catch (error) {}",
+                  "if (json.responsibilityAssignment?.id) pm.environment.set('headDepartmentAssignmentId', json.responsibilityAssignment.id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "02 Create Head Institution Assignment",
+          "variable": [
+            {
+              "key": "expectedStatus",
+              "value": "201"
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/institutions/{{institutionId}}/responsibility-assignments",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"userId\": \"{{targetInstructorUserId}}\",\n  \"responsibilityType\": \"head\",\n  \"scopeType\": \"institution\",\n  \"scopeId\": \"{{institutionId}}\"\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "let json = {};",
+                  "try { json = pm.response.json(); } catch (error) {}",
+                  "if (json.responsibilityAssignment?.id) pm.environment.set('headInstitutionAssignmentId', json.responsibilityAssignment.id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "03 Create Coordinator Section Assignment",
+          "variable": [
+            {
+              "key": "expectedStatus",
+              "value": "201"
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/institutions/{{institutionId}}/responsibility-assignments",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"userId\": \"{{targetInstructorUserId}}\",\n  \"responsibilityType\": \"coordinator\",\n  \"scopeType\": \"section\",\n  \"scopeId\": \"{{sectionId}}\"\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "let json = {};",
+                  "try { json = pm.response.json(); } catch (error) {}",
+                  "if (json.responsibilityAssignment?.id) pm.environment.set('coordinatorSectionAssignmentId', json.responsibilityAssignment.id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "04 Create Coordinator Department Assignment",
+          "variable": [
+            {
+              "key": "expectedStatus",
+              "value": "201"
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/institutions/{{institutionId}}/responsibility-assignments",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"userId\": \"{{targetInstructorUserId}}\",\n  \"responsibilityType\": \"coordinator\",\n  \"scopeType\": \"department\",\n  \"scopeId\": \"{{departmentId}}\"\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "let json = {};",
+                  "try { json = pm.response.json(); } catch (error) {}",
+                  "if (json.responsibilityAssignment?.id) pm.environment.set('coordinatorDepartmentAssignmentId', json.responsibilityAssignment.id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "05 Create Mentor Class Assignment",
+          "variable": [
+            {
+              "key": "expectedStatus",
+              "value": "201"
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/institutions/{{institutionId}}/responsibility-assignments",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"userId\": \"{{targetInstructorUserId}}\",\n  \"responsibilityType\": \"mentor\",\n  \"scopeType\": \"class\",\n  \"scopeId\": \"{{schoolClassId}}\"\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "let json = {};",
+                  "try { json = pm.response.json(); } catch (error) {}",
+                  "if (json.responsibilityAssignment?.id) pm.environment.set('mentorClassAssignmentId', json.responsibilityAssignment.id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "06 Create Mentor Section Assignment",
+          "variable": [
+            {
+              "key": "expectedStatus",
+              "value": "201"
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/institutions/{{institutionId}}/responsibility-assignments",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"userId\": \"{{targetInstructorUserId}}\",\n  \"responsibilityType\": \"mentor\",\n  \"scopeType\": \"section\",\n  \"scopeId\": \"{{sectionId}}\"\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "let json = {};",
+                  "try { json = pm.response.json(); } catch (error) {}",
+                  "if (json.responsibilityAssignment?.id) pm.environment.set('mentorSectionAssignmentId', json.responsibilityAssignment.id);"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "List / Get Assignments",
+      "item": [
+        {
+          "name": "07 List All Responsibility Assignments",
+          "variable": [
+            {
+              "key": "expectedStatus",
+              "value": "200"
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/institutions/{{institutionId}}/responsibility-assignments?page=1&limit=50"
+          }
+        },
+        {
+          "name": "08 List By responsibilityType=head",
+          "variable": [
+            {
+              "key": "expectedStatus",
+              "value": "200"
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/institutions/{{institutionId}}/responsibility-assignments?responsibilityType=head&page=1&limit=50"
+          }
+        },
+        {
+          "name": "09 List By responsibilityType=coordinator",
+          "variable": [
+            {
+              "key": "expectedStatus",
+              "value": "200"
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/institutions/{{institutionId}}/responsibility-assignments?responsibilityType=coordinator&page=1&limit=50"
+          }
+        },
+        {
+          "name": "10 List By responsibilityType=mentor",
+          "variable": [
+            {
+              "key": "expectedStatus",
+              "value": "200"
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/institutions/{{institutionId}}/responsibility-assignments?responsibilityType=mentor&page=1&limit=50"
+          }
+        },
+        {
+          "name": "11 List By scopeType=section",
+          "variable": [
+            {
+              "key": "expectedStatus",
+              "value": "200"
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/institutions/{{institutionId}}/responsibility-assignments?scopeType=section&page=1&limit=50"
+          }
+        },
+        {
+          "name": "12 List activeNow=true",
+          "variable": [
+            {
+              "key": "expectedStatus",
+              "value": "200"
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/institutions/{{institutionId}}/responsibility-assignments?activeNow=true&page=1&limit=50"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "let json = {};",
+                  "try { json = pm.response.json(); } catch (error) {}",
+                  "const items = json.responsibilityAssignments || [];",
+                  "pm.test('activeNow=true does not include cross-tenant section id', function () {",
+                  "  const otherSectionId = pm.environment.get('otherInstitutionSectionId');",
+                  "  if (otherSectionId) items.forEach((assignment) => pm.expect(assignment.scopeId).to.not.equal(otherSectionId));",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "13 List activeNow=false",
+          "variable": [
+            {
+              "key": "expectedStatus",
+              "value": "200"
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/institutions/{{institutionId}}/responsibility-assignments?activeNow=false&page=1&limit=50"
+          }
+        },
+        {
+          "name": "14 Get Head Department Assignment By Id",
+          "variable": [
+            {
+              "key": "expectedStatus",
+              "value": "200"
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/institutions/{{institutionId}}/responsibility-assignments/{{headDepartmentAssignmentId}}"
+          }
+        },
+        {
+          "name": "15 Get Coordinator Section Assignment By Id",
+          "variable": [
+            {
+              "key": "expectedStatus",
+              "value": "200"
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/institutions/{{institutionId}}/responsibility-assignments/{{coordinatorSectionAssignmentId}}"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Update / Deactivate Assignments",
+      "item": [
+        {
+          "name": "16 Update startAt/endAt On Coordinator Section Assignment",
+          "variable": [
+            {
+              "key": "expectedStatus",
+              "value": "200"
+            }
+          ],
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/institutions/{{institutionId}}/responsibility-assignments/{{coordinatorSectionAssignmentId}}",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"startAt\": \"{{validStartAt}}\",\n  \"endAt\": \"{{validEndAt}}\"\n}"
+            }
+          }
+        },
+        {
+          "name": "17 Set isActive=false",
+          "variable": [
+            {
+              "key": "expectedStatus",
+              "value": "200"
+            }
+          ],
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/institutions/{{institutionId}}/responsibility-assignments/{{coordinatorSectionAssignmentId}}",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"isActive\": false\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "let json = {};",
+                  "try { json = pm.response.json(); } catch (error) {}",
+                  "if (json.responsibilityAssignment?.id) pm.environment.set('inactiveAssignmentId', json.responsibilityAssignment.id);",
+                  "pm.test('assignment is inactive', function () {",
+                  "  pm.expect(json.responsibilityAssignment?.isActive).to.equal(false);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "18 Reactivate Assignment",
+          "variable": [
+            {
+              "key": "expectedStatus",
+              "value": "200,409"
+            }
+          ],
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/institutions/{{institutionId}}/responsibility-assignments/{{coordinatorSectionAssignmentId}}",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"isActive\": true\n}"
+            }
+          }
+        },
+        {
+          "name": "19 Deactivate Assignment With DELETE",
+          "variable": [
+            {
+              "key": "expectedStatus",
+              "value": "200"
+            }
+          ],
+          "request": {
+            "method": "DELETE",
+            "url": "{{baseUrl}}/institutions/{{institutionId}}/responsibility-assignments/{{coordinatorSectionAssignmentId}}"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "let json = {};",
+                  "try { json = pm.response.json(); } catch (error) {}",
+                  "if (json.responsibilityAssignment?.id) pm.environment.set('inactiveAssignmentId', json.responsibilityAssignment.id);",
+                  "pm.test('delete deactivates assignment', function () {",
+                  "  pm.expect(json.responsibilityAssignment?.isActive).to.equal(false);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Negative Tests - Access Control",
+      "item": [
+        {
+          "name": "20 Instructor Cannot Create Assignment",
+          "variable": [
+            {
+              "key": "expectedStatus",
+              "value": "403"
+            }
+          ],
+          "auth": {
+            "type": "bearer",
+            "bearer": [
+              {
+                "key": "token",
+                "value": "{{instructorToken}}",
+                "type": "string"
+              }
+            ]
+          },
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/institutions/{{institutionId}}/responsibility-assignments",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"userId\": \"{{targetInstructorUserId}}\",\n  \"responsibilityType\": \"head\",\n  \"scopeType\": \"department\",\n  \"scopeId\": \"{{departmentId}}\"\n}"
+            }
+          }
+        },
+        {
+          "name": "21 Student Cannot Create Assignment",
+          "variable": [
+            {
+              "key": "expectedStatus",
+              "value": "403"
+            }
+          ],
+          "auth": {
+            "type": "bearer",
+            "bearer": [
+              {
+                "key": "token",
+                "value": "{{studentToken}}",
+                "type": "string"
+              }
+            ]
+          },
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/institutions/{{institutionId}}/responsibility-assignments",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"userId\": \"{{targetInstructorUserId}}\",\n  \"responsibilityType\": \"coordinator\",\n  \"scopeType\": \"section\",\n  \"scopeId\": \"{{sectionId}}\"\n}"
+            }
+          }
+        },
+        {
+          "name": "22 Missing Token Cannot Create Assignment",
+          "variable": [
+            {
+              "key": "expectedStatus",
+              "value": "401"
+            }
+          ],
+          "auth": {
+            "type": "noauth"
+          },
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/institutions/{{institutionId}}/responsibility-assignments",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"userId\": \"{{targetInstructorUserId}}\",\n  \"responsibilityType\": \"mentor\",\n  \"scopeType\": \"section\",\n  \"scopeId\": \"{{sectionId}}\"\n}"
+            }
+          }
+        },
+        {
+          "name": "23 Invalid Token Cannot Create Assignment",
+          "variable": [
+            {
+              "key": "expectedStatus",
+              "value": "401"
+            }
+          ],
+          "auth": {
+            "type": "bearer",
+            "bearer": [
+              {
+                "key": "token",
+                "value": "not-a-valid-jwt",
+                "type": "string"
+              }
+            ]
+          },
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/institutions/{{institutionId}}/responsibility-assignments",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"userId\": \"{{targetInstructorUserId}}\",\n  \"responsibilityType\": \"mentor\",\n  \"scopeType\": \"section\",\n  \"scopeId\": \"{{sectionId}}\"\n}"
+            }
+          }
+        },
+        {
+          "name": "24 Scoped Responsibility Holder Cannot Manage Assignments",
+          "variable": [
+            {
+              "key": "expectedStatus",
+              "value": "403"
+            }
+          ],
+          "auth": {
+            "type": "bearer",
+            "bearer": [
+              {
+                "key": "token",
+                "value": "{{instructorToken}}",
+                "type": "string"
+              }
+            ]
+          },
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/institutions/{{institutionId}}/responsibility-assignments",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"userId\": \"{{targetInstructorUserId}}\",\n  \"responsibilityType\": \"head\",\n  \"scopeType\": \"institution\",\n  \"scopeId\": \"{{institutionId}}\"\n}"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Negative Tests - Target Role Validation",
+      "item": [
+        {
+          "name": "25 Cannot Assign Head To Student",
+          "variable": [
+            {
+              "key": "expectedStatus",
+              "value": "400"
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/institutions/{{institutionId}}/responsibility-assignments",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"userId\": \"{{targetStudentUserId}}\",\n  \"responsibilityType\": \"head\",\n  \"scopeType\": \"department\",\n  \"scopeId\": \"{{departmentId}}\"\n}"
+            }
+          }
+        },
+        {
+          "name": "26 Cannot Assign Coordinator To Student",
+          "variable": [
+            {
+              "key": "expectedStatus",
+              "value": "400"
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/institutions/{{institutionId}}/responsibility-assignments",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"userId\": \"{{targetStudentUserId}}\",\n  \"responsibilityType\": \"coordinator\",\n  \"scopeType\": \"section\",\n  \"scopeId\": \"{{sectionId}}\"\n}"
+            }
+          }
+        },
+        {
+          "name": "27 Cannot Assign Mentor To Student",
+          "variable": [
+            {
+              "key": "expectedStatus",
+              "value": "400"
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/institutions/{{institutionId}}/responsibility-assignments",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"userId\": \"{{targetStudentUserId}}\",\n  \"responsibilityType\": \"mentor\",\n  \"scopeType\": \"section\",\n  \"scopeId\": \"{{sectionId}}\"\n}"
+            }
+          }
+        },
+        {
+          "name": "28 Cannot Assign Head To Admin",
+          "variable": [
+            {
+              "key": "expectedStatus",
+              "value": "400"
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/institutions/{{institutionId}}/responsibility-assignments",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"userId\": \"{{targetAdminUserId}}\",\n  \"responsibilityType\": \"head\",\n  \"scopeType\": \"department\",\n  \"scopeId\": \"{{departmentId}}\"\n}"
+            }
+          }
+        },
+        {
+          "name": "29 Cannot Assign Coordinator To Admin",
+          "variable": [
+            {
+              "key": "expectedStatus",
+              "value": "400"
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/institutions/{{institutionId}}/responsibility-assignments",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"userId\": \"{{targetAdminUserId}}\",\n  \"responsibilityType\": \"coordinator\",\n  \"scopeType\": \"section\",\n  \"scopeId\": \"{{sectionId}}\"\n}"
+            }
+          }
+        },
+        {
+          "name": "30 Cannot Assign Mentor To Admin",
+          "variable": [
+            {
+              "key": "expectedStatus",
+              "value": "400"
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/institutions/{{institutionId}}/responsibility-assignments",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"userId\": \"{{targetAdminUserId}}\",\n  \"responsibilityType\": \"mentor\",\n  \"scopeType\": \"section\",\n  \"scopeId\": \"{{sectionId}}\"\n}"
+            }
+          }
+        },
+        {
+          "name": "31 Cannot Assign To Inactive Instructor",
+          "variable": [
+            {
+              "key": "expectedStatus",
+              "value": "400"
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/institutions/{{institutionId}}/responsibility-assignments",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"userId\": \"{{inactiveInstructorUserId}}\",\n  \"responsibilityType\": \"head\",\n  \"scopeType\": \"department\",\n  \"scopeId\": \"{{departmentId}}\"\n}"
+            }
+          }
+        },
+        {
+          "name": "32 Cannot Assign Cross-Tenant Instructor",
+          "variable": [
+            {
+              "key": "expectedStatus",
+              "value": "400"
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/institutions/{{institutionId}}/responsibility-assignments",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"userId\": \"{{crossTenantInstructorUserId}}\",\n  \"responsibilityType\": \"coordinator\",\n  \"scopeType\": \"section\",\n  \"scopeId\": \"{{sectionId}}\"\n}"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Negative Tests - Payload Safety",
+      "item": [
+        {
+          "name": "33 Create With permissions Field Is Rejected",
+          "variable": [
+            {
+              "key": "expectedStatus",
+              "value": "400"
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/institutions/{{institutionId}}/responsibility-assignments",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"userId\": \"{{targetInstructorUserId}}\",\n  \"responsibilityType\": \"head\",\n  \"scopeType\": \"department\",\n  \"scopeId\": \"{{departmentId}}\",\n  \"permissions\": [\"membership.manage\", \"billing.manage\"]\n}"
+            }
+          }
+        },
+        {
+          "name": "34 Create With institutionId In Body Is Rejected",
+          "variable": [
+            {
+              "key": "expectedStatus",
+              "value": "400"
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/institutions/{{institutionId}}/responsibility-assignments",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"institutionId\": \"{{otherInstitutionId}}\",\n  \"userId\": \"{{targetInstructorUserId}}\",\n  \"responsibilityType\": \"head\",\n  \"scopeType\": \"department\",\n  \"scopeId\": \"{{departmentId}}\"\n}"
+            }
+          }
+        },
+        {
+          "name": "35 Create With role In Body Is Rejected",
+          "variable": [
+            {
+              "key": "expectedStatus",
+              "value": "400"
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/institutions/{{institutionId}}/responsibility-assignments",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"userId\": \"{{targetInstructorUserId}}\",\n  \"responsibilityType\": \"head\",\n  \"scopeType\": \"department\",\n  \"scopeId\": \"{{departmentId}}\",\n  \"role\": \"admin\"\n}"
+            }
+          }
+        },
+        {
+          "name": "36 Create With membershipId In Body Is Rejected",
+          "variable": [
+            {
+              "key": "expectedStatus",
+              "value": "400"
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/institutions/{{institutionId}}/responsibility-assignments",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"userId\": \"{{targetInstructorUserId}}\",\n  \"responsibilityType\": \"head\",\n  \"scopeType\": \"department\",\n  \"scopeId\": \"{{departmentId}}\",\n  \"membershipId\": \"{{targetInstructorUserId}}\"\n}"
+            }
+          }
+        },
+        {
+          "name": "37 Update With permissions Field Is Rejected",
+          "variable": [
+            {
+              "key": "expectedStatus",
+              "value": "400"
+            }
+          ],
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/institutions/{{institutionId}}/responsibility-assignments/{{headDepartmentAssignmentId}}",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"permissions\": [\"membership.manage\"]\n}"
+            }
+          }
+        },
+        {
+          "name": "38 Update With userId Is Rejected",
+          "variable": [
+            {
+              "key": "expectedStatus",
+              "value": "400"
+            }
+          ],
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/institutions/{{institutionId}}/responsibility-assignments/{{headDepartmentAssignmentId}}",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"userId\": \"{{targetStudentUserId}}\"\n}"
+            }
+          }
+        },
+        {
+          "name": "39 Update With responsibilityType Is Rejected",
+          "variable": [
+            {
+              "key": "expectedStatus",
+              "value": "400"
+            }
+          ],
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/institutions/{{institutionId}}/responsibility-assignments/{{headDepartmentAssignmentId}}",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"responsibilityType\": \"coordinator\"\n}"
+            }
+          }
+        },
+        {
+          "name": "40 Update With institutionId Is Rejected",
+          "variable": [
+            {
+              "key": "expectedStatus",
+              "value": "400"
+            }
+          ],
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/institutions/{{institutionId}}/responsibility-assignments/{{headDepartmentAssignmentId}}",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"institutionId\": \"{{otherInstitutionId}}\"\n}"
+            }
+          }
+        },
+        {
+          "name": "41 Update With role Is Rejected",
+          "variable": [
+            {
+              "key": "expectedStatus",
+              "value": "400"
+            }
+          ],
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/institutions/{{institutionId}}/responsibility-assignments/{{headDepartmentAssignmentId}}",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"role\": \"admin\"\n}"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Negative Tests - Scope Validation",
+      "item": [
+        {
+          "name": "42 Invalid responsibilityType",
+          "variable": [
+            {
+              "key": "expectedStatus",
+              "value": "400"
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/institutions/{{institutionId}}/responsibility-assignments",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"userId\": \"{{targetInstructorUserId}}\",\n  \"responsibilityType\": \"principal\",\n  \"scopeType\": \"department\",\n  \"scopeId\": \"{{departmentId}}\"\n}"
+            }
+          }
+        },
+        {
+          "name": "43 Invalid scopeType",
+          "variable": [
+            {
+              "key": "expectedStatus",
+              "value": "400"
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/institutions/{{institutionId}}/responsibility-assignments",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"userId\": \"{{targetInstructorUserId}}\",\n  \"responsibilityType\": \"head\",\n  \"scopeType\": \"campus\",\n  \"scopeId\": \"{{departmentId}}\"\n}"
+            }
+          }
+        },
+        {
+          "name": "44 Head Cannot Be Section Scoped",
+          "variable": [
+            {
+              "key": "expectedStatus",
+              "value": "400"
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/institutions/{{institutionId}}/responsibility-assignments",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"userId\": \"{{targetInstructorUserId}}\",\n  \"responsibilityType\": \"head\",\n  \"scopeType\": \"section\",\n  \"scopeId\": \"{{sectionId}}\"\n}"
+            }
+          }
+        },
+        {
+          "name": "45 Coordinator Cannot Be Institution Scoped",
+          "variable": [
+            {
+              "key": "expectedStatus",
+              "value": "400"
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/institutions/{{institutionId}}/responsibility-assignments",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"userId\": \"{{targetInstructorUserId}}\",\n  \"responsibilityType\": \"coordinator\",\n  \"scopeType\": \"institution\",\n  \"scopeId\": \"{{institutionId}}\"\n}"
+            }
+          }
+        },
+        {
+          "name": "46 Mentor Cannot Be Department Scoped",
+          "variable": [
+            {
+              "key": "expectedStatus",
+              "value": "400"
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/institutions/{{institutionId}}/responsibility-assignments",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"userId\": \"{{targetInstructorUserId}}\",\n  \"responsibilityType\": \"mentor\",\n  \"scopeType\": \"department\",\n  \"scopeId\": \"{{departmentId}}\"\n}"
+            }
+          }
+        },
+        {
+          "name": "47 Institution Scope Requires Matching scopeId",
+          "variable": [
+            {
+              "key": "expectedStatus",
+              "value": "400"
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/institutions/{{institutionId}}/responsibility-assignments",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"userId\": \"{{targetInstructorUserId}}\",\n  \"responsibilityType\": \"head\",\n  \"scopeType\": \"institution\",\n  \"scopeId\": \"{{otherInstitutionId}}\"\n}"
+            }
+          }
+        },
+        {
+          "name": "48 Cross-Tenant Department Scope Is Rejected",
+          "variable": [
+            {
+              "key": "expectedStatus",
+              "value": "404"
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/institutions/{{institutionId}}/responsibility-assignments",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"userId\": \"{{targetInstructorUserId}}\",\n  \"responsibilityType\": \"head\",\n  \"scopeType\": \"department\",\n  \"scopeId\": \"{{otherDepartmentId}}\"\n}"
+            }
+          }
+        },
+        {
+          "name": "49 Cross-Tenant Section Scope Is Rejected",
+          "variable": [
+            {
+              "key": "expectedStatus",
+              "value": "404"
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/institutions/{{institutionId}}/responsibility-assignments",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"userId\": \"{{targetInstructorUserId}}\",\n  \"responsibilityType\": \"coordinator\",\n  \"scopeType\": \"section\",\n  \"scopeId\": \"{{otherInstitutionSectionId}}\"\n}"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Regression / Design Checks",
+      "item": [
+        {
+          "name": "50 Create Duplicate Active Assignment Is Rejected",
+          "variable": [
+            {
+              "key": "expectedStatus",
+              "value": "409"
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/institutions/{{institutionId}}/responsibility-assignments",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"userId\": \"{{targetInstructorUserId}}\",\n  \"responsibilityType\": \"head\",\n  \"scopeType\": \"department\",\n  \"scopeId\": \"{{departmentId}}\"\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "let json = {};",
+                  "try { json = pm.response.json(); } catch (error) {}",
+                  "if (json.responsibilityAssignment?.id) pm.environment.set('duplicateAssignmentId', json.responsibilityAssignment.id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "51 Deactivated Assignment Should Not Count As activeNow=true",
+          "variable": [
+            {
+              "key": "expectedStatus",
+              "value": "200"
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/institutions/{{institutionId}}/responsibility-assignments?activeNow=true&page=1&limit=100"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "let json = {};",
+                  "try { json = pm.response.json(); } catch (error) {}",
+                  "const inactiveId = pm.environment.get('inactiveAssignmentId');",
+                  "const ids = (json.responsibilityAssignments || []).map((assignment) => assignment.id);",
+                  "pm.test('inactive assignment is not returned by activeNow=true', function () {",
+                  "  if (inactiveId) pm.expect(ids).to.not.include(inactiveId);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "52 Permissions Are Not Returned In Response",
+          "variable": [
+            {
+              "key": "expectedStatus",
+              "value": "200"
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/institutions/{{institutionId}}/responsibility-assignments/{{headDepartmentAssignmentId}}"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "let json = {};",
+                  "try { json = pm.response.json(); } catch (error) {}",
+                  "pm.test('permissions field is absent', function () {",
+                  "  pm.expect(json.responsibilityAssignment || {}).to.not.have.property('permissions');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

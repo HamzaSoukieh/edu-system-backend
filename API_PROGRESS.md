@@ -114,6 +114,32 @@
 - `PATCH /institutions/:institutionId/members/:membershipId`
 - `PATCH /institutions/:institutionId/members/:membershipId/status`
 
+### Responsibility Assignments
+- `POST /institutions/:institutionId/responsibility-assignments`
+- `GET /institutions/:institutionId/responsibility-assignments`
+- `GET /institutions/:institutionId/responsibility-assignments/:assignmentId`
+- `PATCH /institutions/:institutionId/responsibility-assignments/:assignmentId`
+- `DELETE /institutions/:institutionId/responsibility-assignments/:assignmentId`
+- Current implemented rules:
+  - owner/admin-only management; authority comes from institution ownership or base `Membership.role` permissions such as `membership.manage`
+  - management actor membership must explicitly have `status=active`; missing or suspended/non-active status is rejected
+  - scoped head/coordinator/mentor responsibility rows do not grant management access
+  - target user must have an active same-institution instructor membership; student and admin targets are rejected, and `Membership.role` is not changed by assignment management
+  - create accepts only `userId`, `responsibilityType`, `scopeType`, `scopeId`, optional `startAt`, optional `endAt`, and optional `isActive`
+  - update accepts only `scopeType`, `scopeId`, `startAt`, `endAt`, and `isActive`; `userId` and `responsibilityType` changes are not allowed in V1
+  - raw `permissions`, tenant override ids, membership ids, and audit actor fields are rejected and never returned in assignment responses
+  - allowed responsibility/scope combinations remain backend-defined:
+    - head: institution, department, classLevel
+    - coordinator: department, classLevel, class, section
+    - mentor: class, section
+  - scope records are validated as same-institution records; institution scope requires `scopeId` to match route `institutionId`
+  - date inputs must be valid dates, and `endAt` cannot be before `startAt`
+  - duplicate active same institution + user + responsibility type + scope assignment creation is rejected; update also checks duplicates when changing scope or setting `isActive=true`
+  - delete is a deactivation flow that sets `isActive=false` and sets `endAt` to now when needed
+  - list supports safe filters: `userId`, `responsibilityType`, `scopeType`, `scopeId`, `isActive`, `activeNow`, `page`, and `limit`
+  - responses omit `permissions`; authorization helpers continue to compute effective scoped permissions from the backend catalog
+  - TODO/verify: full date-window overlap handling is deferred beyond the current conservative active duplicate guard
+
 ## In Progress
 
 ### Sections
@@ -842,13 +868,13 @@
 
 ## Planned Next
 - School final outcome cancellation / recompute workflow and report-card final-outcome linking
-- Scoped responsibility routes
+- Broader scoped responsibility workflows only where routes have real service-level scopes
 
 ## Endpoints / Modules To Verify
 - Verify whether section list should get pagination soon.
 - Verify delete guards for sections after enrollment exists.
 - Verify whether `lecture` / `lab` should stay the long-term shared `sessionType` enum for school support.
-- Verify responsibility flows before exposing them as active module features.
+- Verify full date-window overlap rules for ResponsibilityAssignment if institutions need scheduled future replacements for the same scope.
 - Verify whether attendance should later allow coordinator/admin review after instructor-first flow.
 
 ## Notes
