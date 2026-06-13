@@ -125,7 +125,11 @@ test("responsibility helper treats institutionId plus userId as assignment ident
 
 test("responsibility catalog contains only currently enforced scoped permissions", () => {
     assert.deepEqual(RESPONSIBILITY_PERMISSIONS, {
-        head: [],
+        head: [
+            "academicRisk.read_scope",
+            "academicProfile.read_scope",
+            "academicStanding.read_scope",
+        ],
         coordinator: [
             "section.read_scope",
             "sectionSession.read_scope",
@@ -139,13 +143,14 @@ test("responsibility catalog contains only currently enforced scoped permissions
     assert.deepEqual(getEffectiveResponsibilityPermissions("head"), RESPONSIBILITY_PERMISSIONS.head);
     assert.deepEqual(getEffectiveResponsibilityPermissions("coordinator"), RESPONSIBILITY_PERMISSIONS.coordinator);
     assert.deepEqual(getEffectiveResponsibilityPermissions("mentor"), []);
-    assert.deepEqual(getEffectiveResponsibilityPermissions("head"), []);
 
     const activePermissions = Object.values(RESPONSIBILITY_PERMISSIONS).flat();
+    assert.equal(activePermissions.includes("academicRisk.read_scope"), true);
+    assert.equal(activePermissions.includes("academicProfile.read_scope"), true);
+    assert.equal(activePermissions.includes("academicStanding.read_scope"), true);
     assert.equal(activePermissions.includes("academicDecision.review_scope"), false);
     assert.equal(activePermissions.includes("studentDropRisk.review_scope"), false);
     assert.equal(activePermissions.includes("enrollment.review_scope"), false);
-    assert.equal(activePermissions.includes("academicProfile.read_scope"), false);
     assert.equal(activePermissions.includes("studentProfile.read_scope"), false);
     assert.equal(activePermissions.includes("attendance.excuse_manage_scope"), false);
     assert.equal(activePermissions.includes("section.manage_scope"), false);

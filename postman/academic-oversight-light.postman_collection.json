@@ -1,0 +1,819 @@
+{
+  "info": {
+    "name": "Edu SaaS Academic Oversight Light Flow",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+    "description": "Small local smoke flow for owner/admin ResponsibilityAssignment management plus read-only Head academic oversight. Import the matching local environment, run the backend locally, then run requests in order."
+  },
+  "auth": {
+    "type": "bearer",
+    "bearer": [
+      {
+        "key": "token",
+        "value": "{{adminToken}}",
+        "type": "string"
+      }
+    ]
+  },
+  "event": [
+    {
+      "listen": "test",
+      "script": {
+        "type": "text/javascript",
+        "exec": [
+          "function jsonBody() {",
+          "  try { return pm.response.json(); } catch (error) { return null; }",
+          "}",
+          "const expectedStatus = pm.variables.get('expectedStatus');",
+          "if (expectedStatus) {",
+          "  const statuses = String(expectedStatus).split(',').map((value) => Number(value.trim())).filter(Boolean);",
+          "  pm.test(`status is ${expectedStatus}`, function () {",
+          "    pm.expect(statuses).to.include(pm.response.code);",
+          "  });",
+          "}",
+          "pm.test('response is JSON', function () {",
+          "  pm.expect(jsonBody()).to.not.equal(null);",
+          "});",
+          "const json = jsonBody() || {};",
+          "if (json.responsibilityAssignment) {",
+          "  pm.test('assignment response omits permissions', function () {",
+          "    pm.expect(json.responsibilityAssignment).to.not.have.property('permissions');",
+          "  });",
+          "}",
+          "if (Array.isArray(json.responsibilityAssignments)) {",
+          "  pm.test('assignment list omits permissions', function () {",
+          "    json.responsibilityAssignments.forEach((assignment) => pm.expect(assignment).to.not.have.property('permissions'));",
+          "  });",
+          "}"
+        ]
+      }
+    }
+  ],
+  "item": [
+    {
+      "name": "00 Admin - Institution Context",
+      "variable": [
+        {
+          "key": "expectedStatus",
+          "value": "200"
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "url": "{{baseUrl}}/institutions/me"
+      }
+    },
+    {
+      "name": "01 Admin - Create Or Reactivate Head Department Assignment",
+      "variable": [
+        {
+          "key": "expectedStatus",
+          "value": "201,409"
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "url": "{{baseUrl}}/institutions/{{institutionId}}/responsibility-assignments",
+        "description": "Creates or reactivates the Head assignment needed by the Head-token oversight requests. If an active duplicate already exists, 409 is accepted and the next request saves its id.",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"userId\": \"{{headUserId}}\",\n  \"responsibilityType\": \"head\",\n  \"scopeType\": \"department\",\n  \"scopeId\": \"{{departmentId}}\",\n  \"isActive\": true\n}"
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "const json = (() => { try { return pm.response.json(); } catch (error) { return {}; } })();",
+              "if (json.responsibilityAssignment?.id) {",
+              "  pm.environment.set('headDepartmentAssignmentId', json.responsibilityAssignment.id);",
+              "}"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "02 Admin - List And Save Head Assignment",
+      "variable": [
+        {
+          "key": "expectedStatus",
+          "value": "200"
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "url": "{{baseUrl}}/institutions/{{institutionId}}/responsibility-assignments?userId={{headUserId}}&responsibilityType=head&scopeType=department&scopeId={{departmentId}}&activeNow=true&limit=20"
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "const json = (() => { try { return pm.response.json(); } catch (error) { return {}; } })();",
+              "const departmentId = pm.environment.get('departmentId');",
+              "const assignment = (json.responsibilityAssignments || []).find((item) => item.responsibilityType === 'head' && item.scopeType === 'department' && item.scopeId === departmentId && item.isActive === true);",
+              "pm.test('active head department assignment exists', function () {",
+              "  pm.expect(assignment).to.be.ok;",
+              "});",
+              "if (assignment?.id) {",
+              "  pm.environment.set('headDepartmentAssignmentId', assignment.id);",
+              "}"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "03 Admin - Create Coordinator Section Assignment",
+      "variable": [
+        {
+          "key": "expectedStatus",
+          "value": "201,409"
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "url": "{{baseUrl}}/institutions/{{institutionId}}/responsibility-assignments",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"userId\": \"{{headUserId}}\",\n  \"responsibilityType\": \"coordinator\",\n  \"scopeType\": \"section\",\n  \"scopeId\": \"{{sectionId}}\",\n  \"isActive\": true\n}"
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "const json = (() => { try { return pm.response.json(); } catch (error) { return {}; } })();",
+              "if (json.responsibilityAssignment?.id) {",
+              "  pm.environment.set('coordinatorSectionAssignmentId', json.responsibilityAssignment.id);",
+              "}"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "04 Admin - Create Mentor Section Assignment",
+      "variable": [
+        {
+          "key": "expectedStatus",
+          "value": "201,409"
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "url": "{{baseUrl}}/institutions/{{institutionId}}/responsibility-assignments",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"userId\": \"{{headUserId}}\",\n  \"responsibilityType\": \"mentor\",\n  \"scopeType\": \"section\",\n  \"scopeId\": \"{{sectionId}}\",\n  \"isActive\": true\n}"
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "const json = (() => { try { return pm.response.json(); } catch (error) { return {}; } })();",
+              "if (json.responsibilityAssignment?.id) {",
+              "  pm.environment.set('mentorSectionAssignmentId', json.responsibilityAssignment.id);",
+              "}"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "05 Admin - List And Save All Smoke Assignments",
+      "variable": [
+        {
+          "key": "expectedStatus",
+          "value": "200"
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "url": "{{baseUrl}}/institutions/{{institutionId}}/responsibility-assignments?userId={{headUserId}}&limit=100"
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "const json = (() => { try { return pm.response.json(); } catch (error) { return {}; } })();",
+              "const items = json.responsibilityAssignments || [];",
+              "const departmentId = pm.environment.get('departmentId');",
+              "const sectionId = pm.environment.get('sectionId');",
+              "const head = items.find((item) => item.responsibilityType === 'head' && item.scopeType === 'department' && item.scopeId === departmentId);",
+              "const coordinator = items.find((item) => item.responsibilityType === 'coordinator' && item.scopeType === 'section' && item.scopeId === sectionId);",
+              "const mentor = items.find((item) => item.responsibilityType === 'mentor' && item.scopeType === 'section' && item.scopeId === sectionId);",
+              "if (head?.id) pm.environment.set('headDepartmentAssignmentId', head.id);",
+              "if (coordinator?.id) pm.environment.set('coordinatorSectionAssignmentId', coordinator.id);",
+              "if (mentor?.id) pm.environment.set('mentorSectionAssignmentId', mentor.id);"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "06 Admin - Dangerous Permissions Body Is Rejected",
+      "variable": [
+        {
+          "key": "expectedStatus",
+          "value": "400"
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "url": "{{baseUrl}}/institutions/{{institutionId}}/responsibility-assignments",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"userId\": \"{{headUserId}}\",\n  \"responsibilityType\": \"head\",\n  \"scopeType\": \"department\",\n  \"scopeId\": \"{{departmentId}}\",\n  \"permissions\": [\n    \"membership.manage\"\n  ]\n}"
+        }
+      }
+    },
+    {
+      "name": "07 Admin - Body Institution Override Is Rejected",
+      "variable": [
+        {
+          "key": "expectedStatus",
+          "value": "400"
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "url": "{{baseUrl}}/institutions/{{institutionId}}/responsibility-assignments",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"institutionId\": \"{{otherInstitutionId}}\",\n  \"userId\": \"{{headUserId}}\",\n  \"responsibilityType\": \"head\",\n  \"scopeType\": \"department\",\n  \"scopeId\": \"{{departmentId}}\"\n}"
+        }
+      }
+    },
+    {
+      "name": "08 Admin - Academic Oversight Risk Summary",
+      "variable": [
+        {
+          "key": "expectedStatus",
+          "value": "200"
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "url": "{{baseUrl}}/institutions/{{institutionId}}/academic-oversight/risk-summary"
+      }
+    },
+    {
+      "name": "09 Admin - Academic Oversight Students By Department",
+      "variable": [
+        {
+          "key": "expectedStatus",
+          "value": "200"
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "url": "{{baseUrl}}/institutions/{{institutionId}}/academic-oversight/students?departmentId={{departmentId}}&limit=20"
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "const json = (() => { try { return pm.response.json(); } catch (error) { return {}; } })();",
+              "if (json.students?.[0]?.student?.id) {",
+              "  pm.environment.set('studentMemberId', json.students[0].student.id);",
+              "}",
+              "pm.test('risk list rows do not expose profile or standing', function () {",
+              "  (json.students || []).forEach((row) => {",
+              "    pm.expect(row).to.not.have.property('academicProfile');",
+              "    pm.expect(row).to.not.have.property('academicStanding');",
+              "  });",
+              "});"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "10 Admin - Risk Standing Filter Is Blocked Without Standing Permission",
+      "variable": [
+        {
+          "key": "expectedStatus",
+          "value": "403"
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "url": "{{baseUrl}}/institutions/{{institutionId}}/academic-oversight/students?standing=probation&limit=20"
+      }
+    },
+    {
+      "name": "11 Admin - Academic Oversight Student Profile Detail",
+      "variable": [
+        {
+          "key": "expectedStatus",
+          "value": "200"
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "url": "{{baseUrl}}/institutions/{{institutionId}}/academic-oversight/students/{{studentMemberId}}"
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "const json = (() => { try { return pm.response.json(); } catch (error) { return {}; } })();",
+              "pm.test('profile detail includes academicProfile only', function () {",
+              "  pm.expect(json.student).to.have.property('academicProfile');",
+              "  pm.expect(json.student).to.not.have.property('academicStanding');",
+              "});"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "12 Admin - Academic Oversight Student Standing Detail",
+      "variable": [
+        {
+          "key": "expectedStatus",
+          "value": "200"
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "url": "{{baseUrl}}/institutions/{{institutionId}}/academic-oversight/students/{{studentMemberId}}/standing"
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "const json = (() => { try { return pm.response.json(); } catch (error) { return {}; } })();",
+              "pm.test('standing detail includes academicStanding only', function () {",
+              "  pm.expect(json.student).to.have.property('academicStanding');",
+              "  pm.expect(json.student).to.not.have.property('academicProfile');",
+              "});"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "13 Head - Academic Oversight Risk Summary",
+      "variable": [
+        {
+          "key": "expectedStatus",
+          "value": "200"
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "url": "{{baseUrl}}/institutions/{{institutionId}}/academic-oversight/risk-summary"
+      },
+      "auth": {
+        "type": "bearer",
+        "bearer": [
+          {
+            "key": "token",
+            "value": "{{headToken}}",
+            "type": "string"
+          }
+        ]
+      }
+    },
+    {
+      "name": "14 Head - Students Narrowed By Department",
+      "variable": [
+        {
+          "key": "expectedStatus",
+          "value": "200"
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "url": "{{baseUrl}}/institutions/{{institutionId}}/academic-oversight/students?departmentId={{departmentId}}&limit=20"
+      },
+      "auth": {
+        "type": "bearer",
+        "bearer": [
+          {
+            "key": "token",
+            "value": "{{headToken}}",
+            "type": "string"
+          }
+        ]
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "const json = (() => { try { return pm.response.json(); } catch (error) { return {}; } })();",
+              "if (json.students?.[0]?.student?.id) {",
+              "  pm.environment.set('studentMemberId', json.students[0].student.id);",
+              "}",
+              "pm.test('risk list rows do not expose profile or standing', function () {",
+              "  (json.students || []).forEach((row) => {",
+              "    pm.expect(row).to.not.have.property('academicProfile');",
+              "    pm.expect(row).to.not.have.property('academicStanding');",
+              "  });",
+              "});"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "15 Head - Students Narrowed By Section",
+      "variable": [
+        {
+          "key": "expectedStatus",
+          "value": "200"
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "url": "{{baseUrl}}/institutions/{{institutionId}}/academic-oversight/students?sectionId={{sectionId}}&limit=20"
+      },
+      "auth": {
+        "type": "bearer",
+        "bearer": [
+          {
+            "key": "token",
+            "value": "{{headToken}}",
+            "type": "string"
+          }
+        ]
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "const json = (() => { try { return pm.response.json(); } catch (error) { return {}; } })();",
+              "if (json.students?.[0]?.student?.id) {",
+              "  pm.environment.set('studentMemberId', json.students[0].student.id);",
+              "}",
+              "pm.test('risk list rows do not expose profile or standing', function () {",
+              "  (json.students || []).forEach((row) => {",
+              "    pm.expect(row).to.not.have.property('academicProfile');",
+              "    pm.expect(row).to.not.have.property('academicStanding');",
+              "  });",
+              "});"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "16 Head - Cross-Tenant Section Filter Returns Empty Scope",
+      "variable": [
+        {
+          "key": "expectedStatus",
+          "value": "200"
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "url": "{{baseUrl}}/institutions/{{institutionId}}/academic-oversight/students?sectionId={{crossTenantSectionId}}&limit=20"
+      },
+      "auth": {
+        "type": "bearer",
+        "bearer": [
+          {
+            "key": "token",
+            "value": "{{headToken}}",
+            "type": "string"
+          }
+        ]
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "const json = (() => { try { return pm.response.json(); } catch (error) { return {}; } })();",
+              "pm.test('cross-tenant section does not leak students', function () {",
+              "  pm.expect(json.students || []).to.have.length(0);",
+              "});"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "17 Head - Student Profile Detail Inside Scope",
+      "variable": [
+        {
+          "key": "expectedStatus",
+          "value": "200"
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "url": "{{baseUrl}}/institutions/{{institutionId}}/academic-oversight/students/{{studentMemberId}}"
+      },
+      "auth": {
+        "type": "bearer",
+        "bearer": [
+          {
+            "key": "token",
+            "value": "{{headToken}}",
+            "type": "string"
+          }
+        ]
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "const json = (() => { try { return pm.response.json(); } catch (error) { return {}; } })();",
+              "pm.test('head profile detail is profile-only', function () {",
+              "  pm.expect(json.student).to.have.property('academicProfile');",
+              "  pm.expect(json.student).to.not.have.property('academicStanding');",
+              "});"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "18 Head - Student Standing Detail Inside Scope",
+      "variable": [
+        {
+          "key": "expectedStatus",
+          "value": "200"
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "url": "{{baseUrl}}/institutions/{{institutionId}}/academic-oversight/students/{{studentMemberId}}/standing"
+      },
+      "auth": {
+        "type": "bearer",
+        "bearer": [
+          {
+            "key": "token",
+            "value": "{{headToken}}",
+            "type": "string"
+          }
+        ]
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "const json = (() => { try { return pm.response.json(); } catch (error) { return {}; } })();",
+              "pm.test('head standing detail is standing-only', function () {",
+              "  pm.expect(json.student).to.have.property('academicStanding');",
+              "  pm.expect(json.student).to.not.have.property('academicProfile');",
+              "});"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "19 Student - Token Context Shows Student Role",
+      "variable": [
+        {
+          "key": "expectedStatus",
+          "value": "200"
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "url": "{{baseUrl}}/institutions/me",
+        "description": "Diagnostic guard: this must show studentEmail as a student membership. If it shows admin/instructor, Postman is using stale current environment values."
+      },
+      "auth": {
+        "type": "bearer",
+        "bearer": [
+          {
+            "key": "token",
+            "value": "{{studentToken}}",
+            "type": "string"
+          }
+        ]
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "const json = (() => { try { return pm.response.json(); } catch (error) { return {}; } })();",
+              "const institutionId = pm.environment.get('institutionId');",
+              "const expectedEmail = pm.environment.get('studentEmail');",
+              "const membership = (json.institutions || []).find((item) => item.institutionId === institutionId);",
+              "pm.test('student token email matches environment studentEmail', function () {",
+              "  pm.expect(json.user?.email).to.equal(expectedEmail);",
+              "});",
+              "pm.test('student token has student membership in selected institution', function () {",
+              "  pm.expect(membership).to.be.ok;",
+              "  pm.expect(membership.role).to.equal('student');",
+              "  pm.expect(membership.membershipStatus).to.equal('active');",
+              "});",
+              "pm.test('student token is not institution owner', function () {",
+              "  pm.expect(membership?.isOwner).to.equal(false);",
+              "});"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "20 Student - Academic Oversight Is Blocked",
+      "variable": [
+        {
+          "key": "expectedStatus",
+          "value": "403"
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "url": "{{baseUrl}}/institutions/{{institutionId}}/academic-oversight/risk-summary",
+        "description": "Must return 403. If this returns 200, first check request 19: Postman is probably using an old current value for studentToken."
+      },
+      "auth": {
+        "type": "bearer",
+        "bearer": [
+          {
+            "key": "token",
+            "value": "{{studentToken}}",
+            "type": "string"
+          }
+        ]
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "const token = pm.environment.get('studentToken') || '';",
+              "const expectedUserId = pm.environment.get('studentUserId');",
+              "function decodeJwtPayload(rawToken) {",
+              "  const payload = rawToken.split('.')[1] || '';",
+              "  const normalized = payload.replace(/-/g, '+').replace(/_/g, '/');",
+              "  const padded = normalized + '='.repeat((4 - normalized.length % 4) % 4);",
+              "  return JSON.parse(atob(padded));",
+              "}",
+              "pm.test('studentToken subject matches studentUserId', function () {",
+              "  const payload = decodeJwtPayload(token);",
+              "  pm.expect(payload.sub).to.equal(expectedUserId);",
+              "});"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "21 Admin - Patch Deactivate Coordinator Assignment",
+      "variable": [
+        {
+          "key": "expectedStatus",
+          "value": "200,404"
+        }
+      ],
+      "request": {
+        "method": "PATCH",
+        "url": "{{baseUrl}}/institutions/{{institutionId}}/responsibility-assignments/{{coordinatorSectionAssignmentId}}/deactivate"
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "const json = (() => { try { return pm.response.json(); } catch (error) { return {}; } })();",
+              "if (json.responsibilityAssignment?.id) {",
+              "  pm.environment.set('inactiveAssignmentId', json.responsibilityAssignment.id);",
+              "}",
+              "if (pm.response.code === 200) {",
+              "  pm.test('coordinator assignment is inactive', function () {",
+              "    pm.expect(json.responsibilityAssignment?.isActive).to.equal(false);",
+              "  });",
+              "}"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "22 Admin - activeNow=true Excludes Deactivated Assignment",
+      "variable": [
+        {
+          "key": "expectedStatus",
+          "value": "200"
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "url": "{{baseUrl}}/institutions/{{institutionId}}/responsibility-assignments?activeNow=true&limit=100"
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "const json = (() => { try { return pm.response.json(); } catch (error) { return {}; } })();",
+              "const inactiveId = pm.environment.get('inactiveAssignmentId');",
+              "const ids = (json.responsibilityAssignments || []).map((assignment) => assignment.id);",
+              "pm.test('deactivated id is not activeNow', function () {",
+              "  if (inactiveId) pm.expect(ids).to.not.include(inactiveId);",
+              "});"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "23 Admin - Optional Patch Deactivate Head Assignment",
+      "variable": [
+        {
+          "key": "expectedStatus",
+          "value": "200,404"
+        }
+      ],
+      "request": {
+        "method": "PATCH",
+        "url": "{{baseUrl}}/institutions/{{institutionId}}/responsibility-assignments/{{headDepartmentAssignmentId}}/deactivate",
+        "description": "Optional cleanup. Run requests 01 and 02 again before testing Head-token oversight after this cleanup step."
+      }
+    },
+    {
+      "name": "24 Head - Oversight Blocked After Optional Cleanup",
+      "variable": [
+        {
+          "key": "expectedStatus",
+          "value": "403"
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "url": "{{baseUrl}}/institutions/{{institutionId}}/academic-oversight/risk-summary"
+      },
+      "auth": {
+        "type": "bearer",
+        "bearer": [
+          {
+            "key": "token",
+            "value": "{{headToken}}",
+            "type": "string"
+          }
+        ]
+      }
+    }
+  ]
+}

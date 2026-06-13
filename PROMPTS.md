@@ -86,6 +86,62 @@ Key result:
 - activeNow list tests cover active, inactive, future, expired, and cross-tenant rows
 - verified `ClassLevel` is the existing tenant-scoped model for classLevel assignment validation
 
+## 2026-06-10 Head Academic Oversight Read Model
+
+User asked to activate read-only Head academic oversight backed by trusted DB-derived scope resolution.
+
+Key result:
+- activated Head `academicRisk.read_scope`, `academicProfile.read_scope`, and `academicStanding.read_scope`
+- added `GET /institutions/:institutionId/academic-oversight/risk-summary`
+- added `GET /institutions/:institutionId/academic-oversight/students`
+- added `GET /institutions/:institutionId/academic-oversight/students/:studentMemberId`
+- oversight routes are separate from operational section/session/attendance/assessment/enrollment endpoints
+- Head department scope derives through `Subject.departmentId -> Section -> Enrollment`
+- Head classLevel scope derives through `Subject.classLevelId` and `SchoolClass.classLevelId -> Section -> Enrollment`
+- attendance risk uses existing institution attendance policy fields as read-only signals
+- grade risk uses published assessment/result rows as a conservative V1 read-only summary
+- university standing/profile summary reuses existing university outcome and standing calculations when available
+- no attendance, result, enrollment, standing, final-decision, section, subject, session, or schedule writes are added
+- TODO/verify: make grade-risk bands policy-configurable if product needs institution-specific thresholds
+
+## 2026-06-11 Head Academic Oversight Hardening
+
+User asked to fix and harden the V1 academic oversight service.
+
+Key result:
+- grade risk now builds a trusted active-enrollment map from `institutionId + studentMemberIds + sectionIds`
+- each student is evaluated only against published assessments from that student's own active enrolled sections
+- dropped/inactive section enrollments do not create missing grade results
+- query filters now narrow related trusted scope ids such as sections, subjects, departments, class levels, and school classes where practical
+- department Head assignment ids are tenant-verified before scope derivation, matching classLevel assignment behavior
+- standing/profile fallback remains client-safe with a TODO/verify note for future shared internal logging
+- tests now fail fast if academic oversight calls create/update/delete methods on enrollment, attendance, assessment result, section, subject, or related mocked models
+
+## 2026-06-11 Head Academic Oversight Additive Scope Lock
+
+User asked to lock the V1 behavior for Heads with multiple scoped assignments.
+
+Key result:
+- multiple independent Head assignments are additive OR grants
+- a Head with Math department and Grade 10 class-level assignments can see the union of Math-scope students and Grade 10-scope students
+- query filters narrow the authorized union but do not reinterpret independent assignments as a department/classLevel AND
+- future AND-style scopes should be represented by an explicit combined scope model/configuration, not inferred from multiple `ResponsibilityAssignment` rows
+- tests cover combined additive access, department/classLevel/section filters, cross-tenant filters, and the `AssessmentResult.sectionId` query contract
+
+## 2026-06-14 Academic Oversight And Responsibility Deactivation Hardening
+
+User asked to harden V1 academic oversight and add a generic ResponsibilityAssignment deactivation route.
+
+Key result:
+- academic oversight now verifies `actorMembership.userId` matches the authenticated actor
+- attendance risk now counts only attendance records for sections where the student currently has an active enrollment, and zero qualifying records is `unknown`
+- risk list/summary rows are risk-only under `academicRisk.read_scope`
+- academic profile data is gated by `academicProfile.read_scope`; academic standing data is gated by `academicStanding.read_scope`
+- unexpected academic outcome/standing calculation failures return safe null fields with `dataUnavailable=true`
+- invalid published assessment configuration keeps grade risk `unknown` unless valid assessment data independently establishes warning/high risk
+- `PATCH /institutions/:institutionId/responsibility-assignments/:assignmentId/deactivate` soft-deactivates Head, Coordinator, or Mentor assignments without hard delete
+- verified `AssessmentResult.sectionId` is required and populated by assessment writes; duplicate rows are protected by `institutionId + assessmentId + enrollmentId`, with direct assessment+student uniqueness left as TODO/verify
+
 ## 2026-05-31 Attendance Local QR Date Override
 
 User could not test QR because today's date was not included in semester teaching days, while the available session was scheduled for a future teaching day.

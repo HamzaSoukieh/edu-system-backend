@@ -6,6 +6,9 @@ const StripeWebhookEvent = require("../models/StripeWebhookEvent");
 
 let stripeClientForTests = null;
 
+const STALE_WEBHOOK_PROCESSING_MS = 10 * 60 * 1000;
+const ACTIVE_OR_MANAGED_SUBSCRIPTION_STATUSES = ["active", "trialing", "past_due"];
+
 function createError(statusCode, message) {
     const error = new Error(message);
     error.statusCode = statusCode;
@@ -142,12 +145,18 @@ async function getOrCreateBillingCustomer({ institution, existingProfile }) {
     }
 
     const stripe = getStripeClient();
-    const customer = await stripe.customers.create({
-        name: institution.name,
-        metadata: {
-            institutionId: institution._id.toString(),
+    const institutionId = institution._id.toString();
+    const customer = await stripe.customers.create(
+        {
+            name: institution.name,
+            metadata: {
+                institutionId,
+            },
         },
-    });
+        {
+            idempotencyKey: `customer:create:${institutionId}`,
+        }
+    );
 
     if (!customer?.id) {
         throw createError(502, "Stripe customer creation failed");
@@ -190,6 +199,13 @@ async function createCheckoutSession({ institutionId, actorUserId, actorMembersh
         actorUserId,
         actorMembership,
     });
+
+    if (
+        existingProfile?.stripeSubscriptionId &&
+        ACTIVE_OR_MANAGED_SUBSCRIPTION_STATUSES.includes(existingProfile.status)
+    ) {
+        throw createError(409, "Institution already has an active subscription");
+    }
 
     const priceId = requireConfig("STRIPE_PRICE_BASIC_MONTHLY");
     const stripeCustomerId = await getOrCreateBillingCustomer({
@@ -455,6 +471,8 @@ async function processStripeWebhookEvent(event) {
 }
 
 async function claimStripeWebhookEvent(event) {
+    const staleCutoff = new Date(Date.now() - STALE_WEBHOOK_PROCESSING_MS);
+
     try {
         await StripeWebhookEvent.create({
             stripeEventId: event.id,
@@ -471,17 +489,14 @@ async function claimStripeWebhookEvent(event) {
             throw error;
         }
 
-        const existingEvent = await StripeWebhookEvent.findOne({ stripeEventId: event.id }).lean();
-        if (existingEvent?.status !== "failed") {
-            return {
-                claimed: false,
-            };
-        }
-
         const retryClaim = await StripeWebhookEvent.findOneAndUpdate(
             {
                 stripeEventId: event.id,
-                status: "failed",
+                $or: [
+                    { status: "failed" },
+                    { status: "processing", updatedAt: { $lt: staleCutoff } },
+                    { status: "processing", updatedAt: null, createdAt: { $lt: staleCutoff } },
+                ],
             },
             {
                 $set: {

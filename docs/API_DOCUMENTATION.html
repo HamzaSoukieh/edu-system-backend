@@ -1,0 +1,611 @@
+<!doctype html><html><head><meta charset="utf-8"><title>Edu SaaS Backend API Documentation</title><style>
+body{font-family:Arial,Helvetica,sans-serif;line-height:1.45;color:#111827;margin:32px;max-width:1200px}h1{font-size:30px}h2{margin-top:32px;border-bottom:1px solid #d1d5db;padding-bottom:6px}h3{margin-top:24px}table{border-collapse:collapse;width:100%;font-size:11px;margin:14px 0;table-layout:auto}th,td{border:1px solid #d1d5db;padding:6px;vertical-align:top;word-break:break-word}th{background:#f3f4f6}code{background:#f3f4f6;padding:1px 3px;border-radius:3px}pre{background:#f8fafc;color:#111827;border:1px solid #cbd5e1;padding:12px;border-radius:6px;overflow:auto;font-size:12px}pre code{background:transparent;color:#111827;padding:0}a{color:#1d4ed8}@media print{body{margin:16px;max-width:none}table{font-size:8px}pre{white-space:pre-wrap;background:#ffffff;color:#111827;border:1px solid #9ca3af}pre code{color:#111827}h2,h3{break-after:avoid}}
+</style></head><body><h1>Edu SaaS Backend API Documentation</h1>
+<p>Generated from the repository code on 2026-06-10. This documentation covers only endpoints mounted in <code>src/app.js</code>, <code>src/routes/authRoutes.js</code>, and <code>src/routes/institutionRoutes.js</code>. When exact behavior is broad or product-dependent, it is marked TODO/VERIFY instead of guessed.</p>
+<h2>Overview</h2>
+<p>This is a Node.js + Express + Mongoose multi-tenant Edu SaaS backend for school and university institutions.</p>
+<p>Mounted API surface:</p>
+<ul>
+<li><code>POST /stripe/webhook</code> is mounted before JSON parsing and uses <code>express.raw({ type: &quot;application/json&quot; })</code>.</li>
+<li><code>/auth</code> is mounted from <code>src/routes/authRoutes.js</code>.</li>
+<li><code>/institutions</code> is mounted from <code>src/routes/institutionRoutes.js</code>.</li>
+<li><code>/uploads</code> is static public storage for institution logos and member profile pictures only.</li>
+</ul>
+<p>Route files inspected:</p>
+<ul>
+<li><code>src/app.js</code></li>
+<li><code>src/server.js</code></li>
+<li><code>src/routes/authRoutes.js</code></li>
+<li><code>src/routes/institutionRoutes.js</code></li>
+</ul>
+<p>Supporting code inspected:</p>
+<ul>
+<li>Controllers, services, middleware, permission catalogs, scoped responsibility helpers, models, upload middleware, tests, Postman files, package/env references, and error handlers.</li>
+</ul>
+<h2>Authentication Flow</h2>
+<p>JWT authentication uses <code>Authorization: Bearer &lt;JWT_TOKEN&gt;</code>.</p>
+<p><code>authJwt</code>:</p>
+<ul>
+<li>Reads the bearer token.</li>
+<li>Verifies it with <code>JWT_SECRET</code>.</li>
+<li>Requires <code>payload.sub</code> to be a valid user id.</li>
+<li>Loads the user and rejects missing or inactive accounts.</li>
+<li>Sets <code>req.user = { id, email, status, isEmailVerified }</code>.</li>
+</ul>
+<p><code>requireEmailVerified</code>:</p>
+<ul>
+<li>Requires <code>req.user</code>.</li>
+<li>Rejects unverified accounts with <code>403 { &quot;message&quot;: &quot;Email is not verified&quot; }</code>.</li>
+</ul>
+<p>Auth flow:</p>
+<ol>
+<li><code>POST /auth/signup</code> creates a user, institution, admin membership, sends signup OTP, and returns a JWT.</li>
+<li>Signup-created users are not fully usable for tenant routes until OTP verification.</li>
+<li><code>POST /auth/otp/verify</code> verifies email for the authenticated user.</li>
+<li><code>POST /auth/login</code> requires an active verified email and returns a JWT.</li>
+<li>Forgot/reset password uses OTP and generic forgot-password messaging.</li>
+</ol>
+<h2>Tenant / Institution Scoping Rules</h2>
+<p>Tenant-owned business routes live under <code>/institutions/:institutionId/...</code>.</p>
+<p><code>institutionAccess()</code>:</p>
+<ul>
+<li>Reads <code>req.params.institutionId</code>, falling back to <code>x-institution-id</code> only when no path param exists.</li>
+<li>Requires the authenticated user to have an active membership in that institution.</li>
+<li>Sets <code>req.tenantId</code> and <code>req.membership</code>.</li>
+</ul>
+<p>Scoping rules:</p>
+<ul>
+<li>Institution-owned data must be queried with <code>institutionId</code> plus resource ids.</li>
+<li>Do not fetch/update/delete tenant-owned records by <code>_id</code> alone.</li>
+<li><code>GET /institutions/me</code> and <code>POST /institutions</code> are authenticated account-level routes and do not use a tenant path param.</li>
+<li>Public/global endpoints are auth signup/login/password flows and the Stripe webhook.</li>
+</ul>
+<h2>Role And Permission Model</h2>
+<p><code>ROLE_PERMISSIONS</code> from <code>src/auth/permissions.js</code>:</p>
+<table><thead><tr><th>Role</th><th>Permissions</th></tr></thead><tbody>
+<tr><td>admin</td><td>institution.manage, department.manage, class.manage, membership.manage, semester.manage, subject.manage, section.read, section.manage, student.kick, attendance.manage, billing.manage</td></tr>
+<tr><td>instructor</td><td>section.read, attendance.take, attendance.excuse</td></tr>
+<tr><td>student</td><td>section.read, enrollment.self_manage, attendance.read_self, billing.read_self</td></tr>
+</tbody></table>
+<p>Notes:</p>
+<ul>
+<li><code>Membership.role</code> values are <code>admin</code>, <code>instructor</code>, and <code>student</code>.</li>
+<li>Institution ownership is checked in selected services in addition to membership role.</li>
+<li>Some section-linked routes rely on service-level authorization instead of route-level <code>requirePermission(...)</code>.</li>
+<li>Students have <code>section.read</code> for student-facing section-linked flows, but the generic staff section list/detail service blocks student memberships.</li>
+</ul>
+<h2>Responsibility / Scoped Permission Model</h2>
+<p>Responsibilities are scoped assignments, not <code>Membership.role</code> values. The backend catalog is the source of truth for effective responsibility permissions; raw stored <code>ResponsibilityAssignment.permissions</code> are not trusted for authorization.</p>
+<p><code>RESPONSIBILITY_PERMISSIONS</code>:</p>
+<table><thead><tr><th>Responsibility</th><th>Effective permissions</th></tr></thead><tbody>
+<tr><td>head</td><td>academicRisk.read_scope, academicProfile.read_scope, academicStanding.read_scope</td></tr>
+<tr><td>coordinator</td><td>section.read_scope, sectionSession.read_scope, sectionSession.manage_scope, attendance.read_scope, attendance.manage_scope</td></tr>
+<tr><td>mentor</td><td>none currently active</td></tr>
+</tbody></table>
+<p>Allowed responsibility scopes:</p>
+<table><thead><tr><th>Responsibility</th><th>Allowed <code>scopeType</code> values</th></tr></thead><tbody>
+<tr><td>head</td><td>institution, department, classLevel</td></tr>
+<tr><td>coordinator</td><td>department, classLevel, class, section</td></tr>
+<tr><td>mentor</td><td>class, section</td></tr>
+</tbody></table>
+<p>Assignments must be active, within optional <code>startAt</code> / <code>endAt</code>, same tenant, and valid for their responsibility/scope combination.</p>
+<p>Head assignments provide read-only academic oversight only. Head does not receive section/session/attendance/enrollment/assessment/result/billing/membership write or operational permissions.</p>
+<p>Coordinator assignments are currently used by selected section reads, section-session reads/management, and attendance reads/management.</p>
+<p>Mentor assignments have no effective operational or academic permissions yet.</p>
+<p>Do not activate future scoped permissions such as <code>studentProfile.read_scope</code>, <code>attendance.excuse_manage_scope</code>, <code>academicDecision.review_scope</code>, <code>enrollment.review_scope</code>, or <code>studentDropRisk.review_scope</code> until service-level enforcement exists.</p>
+<h2>Common Headers</h2>
+<table><thead><tr><th>Header</th><th>Required for</th><th>Notes</th></tr></thead><tbody>
+<tr><td><code>Authorization: Bearer &lt;JWT_TOKEN&gt;</code></td><td>Protected routes</td><td>Required by <code>authJwt</code>.</td></tr>
+<tr><td><code>Content-Type: application/json</code></td><td>JSON request bodies</td><td>Default for create/update APIs.</td></tr>
+<tr><td><code>Content-Type: multipart/form-data</code></td><td>Upload routes</td><td>See file notes below.</td></tr>
+<tr><td><code>Stripe-Signature</code></td><td><code>POST /stripe/webhook</code></td><td>Required for Stripe signature verification.</td></tr>
+<tr><td><code>x-institution-id</code></td><td>Rare fallback</td><td>Supported by <code>institutionAccess()</code>, but current tenant routes use <code>:institutionId</code>.</td></tr>
+</tbody></table>
+<h2>Common Response Envelope Shape</h2>
+<p>Controllers return service envelopes directly. Common shapes are:</p>
+<pre><code class="language-json">{ &quot;resourceName&quot;: { &quot;id&quot;: &quot;507f1f77bcf86cd799439011&quot; } }</code></pre>
+<pre><code class="language-json">{ &quot;resources&quot;: [], &quot;pagination&quot;: { &quot;page&quot;: 1, &quot;limit&quot;: 20, &quot;total&quot;: 0, &quot;totalPages&quot;: 0 } }</code></pre>
+<pre><code class="language-json">{ &quot;message&quot;: &quot;Operation completed successfully&quot; }</code></pre>
+<p>Common envelope keys include <code>user</code>, <code>institution</code>, <code>membership</code>, <code>department</code>, <code>classLevel</code>, <code>schoolClass</code>, <code>assignment</code>, <code>subject</code>, <code>semester</code>, <code>academicYear</code>, <code>member</code>, <code>section</code>, <code>sectionSession</code>, <code>attendanceRecord</code>, <code>attendanceRecords</code>, <code>attendanceRoster</code>, <code>attendanceAnalytics</code>, <code>assessment</code>, <code>assessmentResults</code>, <code>homework</code>, <code>submission</code>, <code>material</code>, <code>academicPolicy</code>, <code>schoolAcademicPolicy</code>, <code>academicProfile</code>, <code>academicRiskSummary</code>, <code>reportCard</code>, <code>schoolFinalOutcome</code>, <code>promotionSummary</code>, <code>sectionOutcomeSummary</code>, <code>standingSummary</code>, <code>responsibilityAssignment</code>, <code>responsibilityAssignments</code>, <code>students</code>, <code>billingProfile</code>, and <code>checkoutSession</code>.</p>
+<h2>Common Error Response Shape</h2>
+<p>All route/controller error responses use:</p>
+<pre><code class="language-json">{ &quot;message&quot;: &quot;...&quot; }</code></pre>
+<p>Common statuses:</p>
+<table><thead><tr><th>Status</th><th>Meaning</th></tr></thead><tbody>
+<tr><td>400</td><td>Invalid ObjectId/body/query/upload, missing required field, invalid lifecycle field.</td></tr>
+<tr><td>401</td><td>Missing/invalid/expired JWT, invalid credentials, unauthorized context.</td></tr>
+<tr><td>403</td><td>Inactive account, unverified email, no tenant access, permission denied.</td></tr>
+<tr><td>404</td><td>Tenant-scoped resource or active context not found.</td></tr>
+<tr><td>409</td><td>Duplicate/conflict, invalid state transition, full capacity, already open/closed, wrong institution type.</td></tr>
+<tr><td>429</td><td>OTP max attempts exceeded.</td></tr>
+<tr><td>500</td><td>Internal errors; message is masked as <code>Internal server error</code>.</td></tr>
+<tr><td>502</td><td>Stripe checkout/session failure.</td></tr>
+</tbody></table>
+<h2>File Upload / Download Notes</h2>
+<table><thead><tr><th>Use case</th><th>Field name</th><th>Storage</th><th>Accepted types</th><th>Size limit</th><th>Public</th></tr></thead><tbody>
+<tr><td>Institution logo</td><td><code>logo</code></td><td><code>uploads/institution-logos</code></td><td>image/jpeg, image/png, image/webp</td><td>Default 2MB, <code>MAX_LOGO_SIZE_MB</code> override</td><td>Yes</td></tr>
+<tr><td>Member profile picture</td><td><code>profilePicture</code></td><td><code>uploads/member-profiles</code></td><td>image/jpeg, image/png, image/webp</td><td>Default 2MB, <code>MAX_PROFILE_PICTURE_SIZE_MB</code> override</td><td>Yes</td></tr>
+<tr><td>Homework submission</td><td><code>submissionFile</code></td><td><code>storage/homework-submissions</code></td><td>application/pdf plus <code>.pdf</code> extension</td><td>Default 10MB, <code>MAX_HOMEWORK_SUBMISSION_SIZE_MB</code> override</td><td>No</td></tr>
+<tr><td>Section material</td><td><code>materialFile</code></td><td><code>storage/section-materials</code></td><td>application/pdf plus <code>.pdf</code> extension</td><td>Default 10MB, <code>MAX_SECTION_MATERIAL_SIZE_MB</code> override</td><td>No</td></tr>
+</tbody></table>
+<p>Private files are served only through protected download routes after service-level authorization. <code>storage/</code> is not exposed by <code>express.static</code>.</p>
+<p>TODO/VERIFY: Current PDF validation is MIME/extension and service-level metadata/path safety; PDF magic-byte validation is deferred.</p>
+<h2>Environment / Base URL Notes</h2>
+<p>Default local base URL is <code>http://localhost:5000</code> unless <code>PORT</code> is set.</p>
+<p>Environment variable names found in code/docs:</p>
+<ul>
+<li><code>MONGO_URI</code>, <code>PORT</code>, <code>NODE_ENV</code></li>
+<li><code>JWT_SECRET</code>, <code>JWT_EXPIRES_IN</code>, <code>BCRYPT_SALT_ROUNDS</code></li>
+<li><code>OTP_EXPIRES_MINUTES</code>, <code>OTP_MAX_ATTEMPTS</code></li>
+<li><code>GMAIL_USER</code>, <code>GMAIL_APP_PASSWORD</code>, <code>EMAIL_FROM</code></li>
+<li><code>STRIPE_SECRET_KEY</code>, <code>STRIPE_PRICE_BASIC_MONTHLY</code>, <code>STRIPE_WEBHOOK_SECRET</code>, <code>BILLING_SUCCESS_URL</code>, <code>BILLING_CANCEL_URL</code></li>
+<li><code>MAX_LOGO_SIZE_MB</code>, <code>MAX_PROFILE_PICTURE_SIZE_MB</code>, <code>MAX_HOMEWORK_SUBMISSION_SIZE_MB</code>, <code>MAX_SECTION_MATERIAL_SIZE_MB</code></li>
+<li><code>ATTENDANCE_QR_DATE_OVERRIDE</code> for non-production local attendance QR testing only</li>
+</ul>
+<p>Do not document or expose real secret values.</p>
+<h2>Full Endpoint Reference</h2>
+<p>See <a href="API_ENDPOINT_INDEX.md">API_ENDPOINT_INDEX.md</a> for the compact all-endpoint table. The grouped reference below adds request, validation, response, security, and TODO/VERIFY notes by module. All paths are full API paths.</p>
+<h3>Auth</h3>
+<table><thead><tr><th>Method</th><th>Path</th><th>Purpose</th><th>Auth</th><th>Request / validation</th><th>Success</th><th>Errors / notes</th></tr></thead><tbody>
+<tr><td>POST</td><td><code>/auth/signup</code></td><td>Create user, institution, admin membership, send signup OTP.</td><td>Public</td><td>JSON <code>email</code>, <code>password</code>, <code>confirmPassword</code>, <code>institutionName</code>, <code>institutionType</code> (<code>school</code> or <code>university</code>). Password &gt;= 8, email unique.</td><td><code>201 { accessToken, user, institution, membership }</code></td><td><code>409</code> duplicate email; sends OTP; email must be verified before tenant routes.</td></tr>
+<tr><td>POST</td><td><code>/auth/login</code></td><td>Login active verified user.</td><td>Public</td><td>JSON <code>email</code>, <code>password</code>.</td><td><code>200 { accessToken, user }</code></td><td><code>401</code> invalid credentials; <code>403</code> inactive/unverified.</td></tr>
+<tr><td>POST</td><td><code>/auth/password/forgot</code></td><td>Send password reset OTP.</td><td>Public</td><td>JSON <code>email</code>; email format validated.</td><td><code>200 { message }</code></td><td>Generic response for unknown/ineligible email.</td></tr>
+<tr><td>POST</td><td><code>/auth/password/reset</code></td><td>Reset password using OTP.</td><td>Public</td><td>JSON <code>email</code>, <code>code</code>, <code>newPassword</code>.</td><td><code>200 { message }</code></td><td>OTP expiry/max attempts enforced; new password must differ from current.</td></tr>
+<tr><td>POST</td><td><code>/auth/otp/verify</code></td><td>Verify signup OTP.</td><td><code>authJwt</code></td><td>JSON <code>code</code>.</td><td><code>200 { message, user }</code></td><td>Does not use <code>requireEmailVerified</code>; returns already-verified message if applicable.</td></tr>
+<tr><td>POST</td><td><code>/auth/otp/resend</code></td><td>Resend signup OTP.</td><td><code>authJwt</code></td><td>No body.</td><td><code>200 { message }</code></td><td><code>409</code> if already verified.</td></tr>
+</tbody></table>
+<h3>Institutions</h3>
+<table><thead><tr><th>Method</th><th>Path</th><th>Purpose</th><th>Auth / middleware</th><th>Request / validation</th><th>Success</th><th>Errors / notes</th></tr></thead><tbody>
+<tr><td>GET</td><td><code>/institutions/me</code></td><td>Current user institution context.</td><td><code>authJwt</code>, <code>requireEmailVerified</code></td><td>No params/body.</td><td><code>200 { user, memberships, activeInstitution, nextStep }</code></td><td>Global account context; not tenant-scoped by path.</td></tr>
+<tr><td>POST</td><td><code>/institutions</code></td><td>Create additional institution.</td><td><code>authJwt</code>, <code>requireEmailVerified</code></td><td>JSON <code>name</code>, <code>type</code> (<code>school</code> or <code>university</code>).</td><td><code>201 { institution, membership }</code></td><td>Creates active admin membership for same user.</td></tr>
+<tr><td>PATCH</td><td><code>/institutions/:institutionId</code></td><td>Update institution.</td><td><code>authJwt</code>, <code>requireEmailVerified</code>, <code>institutionAccess()</code>, <code>requirePermission(&quot;institution.manage&quot;)</code></td><td>Path <code>institutionId</code>; JSON patch accepted by <code>institutionService</code>.</td><td><code>200 { institution }</code></td><td>Tenant-scoped. TODO/VERIFY exact patchable policy fields before generated clients.</td></tr>
+<tr><td>POST</td><td><code>/institutions/:institutionId/logo</code></td><td>Upload institution logo.</td><td>Same plus <code>uploadInstitutionLogo</code></td><td>Path <code>institutionId</code>; multipart field <code>logo</code>.</td><td><code>200 { institution }</code></td><td>Public file URL under <code>/uploads/institution-logos</code>; JPG/PNG/WEBP only.</td></tr>
+</tbody></table>
+<h3>Billing / Stripe</h3>
+<table><thead><tr><th>Method</th><th>Path</th><th>Purpose</th><th>Auth / permission</th><th>Request</th><th>Success</th><th>Security notes</th></tr></thead><tbody>
+<tr><td>POST</td><td><code>/institutions/:institutionId/billing/checkout-session</code></td><td>Create Stripe-hosted subscription Checkout Session.</td><td><code>institutionAccess()</code>; service requires owner or active admin.</td><td>No body.</td><td><code>201 { checkoutSession: { id, url } }</code></td><td>Uses <code>STRIPE_PRICE_BASIC_MONTHLY</code>; rejects duplicate active/trialing/past_due subscriptions with subscription id.</td></tr>
+<tr><td>GET</td><td><code>/institutions/:institutionId/billing/status</code></td><td>Read local billing profile.</td><td><code>institutionAccess()</code></td><td>No body.</td><td><code>200 { billingProfile }</code></td><td>Returns local Stripe ids/status projection only; no card/payment method data.</td></tr>
+<tr><td>POST</td><td><code>/stripe/webhook</code></td><td>Process Stripe webhook.</td><td>Public route, Stripe signature.</td><td>Raw <code>application/json</code> body with <code>Stripe-Signature</code>.</td><td><code>200 { received, duplicate }</code></td><td>Must remain before <code>express.json()</code>; verifies with <code>STRIPE_WEBHOOK_SECRET</code>; idempotent via <code>StripeWebhookEvent</code>.</td></tr>
+</tbody></table>
+<h3>Responsibility Assignments</h3>
+<p>Owner/admin management for scoped Head, Coordinator, and Mentor assignments. These routes use <code>authJwt</code>, <code>requireEmailVerified</code>, and <code>institutionAccess()</code>; the service performs the owner/admin check. A scoped Head/Coordinator/Mentor assignment alone cannot manage responsibility assignments.</p>
+<table><thead><tr><th>Method</th><th>Path</th><th>Request / query</th><th>Success</th><th>Notes</th></tr></thead><tbody>
+<tr><td>POST</td><td><code>/institutions/:institutionId/responsibility-assignments</code></td><td>JSON <code>userId</code>, <code>responsibilityType</code>, <code>scopeType</code>, <code>scopeId</code>, optional <code>startAt</code>, <code>endAt</code>, <code>isActive</code>.</td><td><code>201 { responsibilityAssignment }</code></td><td>Owner/admin only. Target user must have active same-institution instructor membership.</td></tr>
+<tr><td>GET</td><td><code>/institutions/:institutionId/responsibility-assignments</code></td><td>Query <code>userId</code>, <code>responsibilityType</code>, <code>scopeType</code>, <code>scopeId</code>, <code>isActive</code>, <code>activeNow</code>, <code>page</code>, <code>limit</code>.</td><td><code>200 { responsibilityAssignments, pagination }</code></td><td>Always scoped by route <code>institutionId</code>; <code>activeNow=true</code> or <code>activeNow=false</code> is evaluated by assignment status and date window.</td></tr>
+<tr><td>GET</td><td><code>/institutions/:institutionId/responsibility-assignments/:assignmentId</code></td><td>Path <code>assignmentId</code>.</td><td><code>200 { responsibilityAssignment }</code></td><td>Tenant-scoped by <code>institutionId + assignmentId</code>.</td></tr>
+<tr><td>PATCH</td><td><code>/institutions/:institutionId/responsibility-assignments/:assignmentId</code></td><td>JSON patch <code>scopeType</code>, <code>scopeId</code>, <code>startAt</code>, <code>endAt</code>, <code>isActive</code>.</td><td><code>200 { responsibilityAssignment }</code></td><td><code>userId</code> and <code>responsibilityType</code> are not changed in V1; create a new assignment instead.</td></tr>
+<tr><td>DELETE</td><td><code>/institutions/:institutionId/responsibility-assignments/:assignmentId</code></td><td>No body.</td><td><code>200 { responsibilityAssignment }</code></td><td>Soft-deactivates by setting <code>isActive=false</code> and closing <code>endAt</code> when needed.</td></tr>
+</tbody></table>
+<p>Create/update payload safety:</p>
+<ul>
+<li>Clients cannot set <code>permissions</code>, <code>institutionId</code>, <code>membershipId</code>, <code>createdByUserId</code>, <code>updatedByUserId</code>, <code>role</code>, <code>userId</code> on update, <code>responsibilityType</code> on update, or unknown authorization fields.</li>
+<li><code>Membership.role</code> is never changed by these APIs. Head, Coordinator, and Mentor are assignment types only.</li>
+<li>Stored <code>ResponsibilityAssignment.permissions</code> is omitted from responses and ignored by authorization helpers.</li>
+<li>Duplicate active assignments are rejected for the same <code>institutionId + userId + responsibilityType + scopeType + scopeId</code>.</li>
+</ul>
+<p>Frontend flow:</p>
+<ol>
+<li>Load active institution context from <code>GET /institutions/me</code>.</li>
+<li>For an admin/owner screen, list eligible instructor members with <code>GET /institutions/:institutionId/members?role=instructor&amp;status=active</code>.</li>
+<li>Let the admin pick responsibility type first, then only show allowed scopes for that type.</li>
+<li>Load scope options from existing tenant routes: departments for <code>department</code>, class levels for <code>classLevel</code>, classes for <code>class</code>, sections for <code>section</code>, or use the current institution id for <code>institution</code>.</li>
+<li>Submit only the allowed create fields. Do not send <code>permissions</code> or try to convert the member role.</li>
+<li>After create/update/delete, refresh <code>GET /institutions/:institutionId/responsibility-assignments</code> with the same filters.</li>
+</ol>
+<p>Backend flow:</p>
+<ol>
+<li><code>authJwt</code> validates the user token, then <code>requireEmailVerified</code> and <code>institutionAccess()</code> validate active tenant access.</li>
+<li>Service verifies the actor membership is active and the actor is institution owner or base <code>Membership.role=admin</code>.</li>
+<li>Service validates route <code>institutionId</code>, target active instructor membership, responsibility type, allowed scope combination, same-tenant scope record, date window, and duplicate-active conflicts.</li>
+<li>Service writes only safe fields and stores an empty/non-authoritative <code>permissions</code> value.</li>
+<li>Response returns safe assignment fields only: <code>id</code>, <code>institutionId</code>, <code>userId</code>, <code>responsibilityType</code>, <code>scopeType</code>, <code>scopeId</code>, <code>isActive</code>, <code>startAt</code>, <code>endAt</code>, <code>createdAt</code>, <code>updatedAt</code>.</li>
+</ol>
+<h3>Academic Oversight (Head Read-Only)</h3>
+<p>Read-only academic visibility for admin/owner and scoped Head assignments. These routes use <code>authJwt</code>, <code>requireEmailVerified</code>, and <code>institutionAccess()</code>; the service performs owner/admin or scoped Head authorization. Coordinator and Mentor assignments do not grant these academic oversight APIs.</p>
+<table><thead><tr><th>Method</th><th>Path</th><th>Request / query</th><th>Success</th><th>Notes</th></tr></thead><tbody>
+<tr><td>GET</td><td><code>/institutions/:institutionId/academic-oversight/risk-summary</code></td><td>Optional narrowing filters <code>departmentId</code>, <code>classLevelId</code>, <code>sectionId</code>, <code>studentMemberId</code>, <code>search</code>, <code>riskLevel</code>, <code>standing</code>, <code>page</code>, <code>limit</code>.</td><td><code>200 { academicRiskSummary }</code></td><td>Summary is derived from attendance, published assessment results, and standing/profile services where available.</td></tr>
+<tr><td>GET</td><td><code>/institutions/:institutionId/academic-oversight/students</code></td><td>Same safe narrowing filters.</td><td><code>200 { academicRiskSummary, students, pagination }</code></td><td>Returns compact student rows only inside the actor's derived scope.</td></tr>
+<tr><td>GET</td><td><code>/institutions/:institutionId/academic-oversight/students/:studentMemberId</code></td><td>Path <code>studentMemberId</code>, optional academic filters.</td><td><code>200 { student }</code></td><td>Detail is still read-only and same derived scope enforced.</td></tr>
+</tbody></table>
+<p>Head scope derivation:</p>
+<ul>
+<li><code>institution</code> scope can see students/enrollments in the same institution.</li>
+<li><code>department</code> scope is derived through <code>Subject.departmentId -&gt; Section.subjectId -&gt; Enrollment.studentMemberId</code>.</li>
+<li><code>classLevel</code> scope is derived through <code>Subject.classLevelId</code> and <code>SchoolClass.classLevelId -&gt; Section -&gt; Enrollment</code>.</li>
+<li>Query filters only narrow the derived DB scope; they cannot expand it.</li>
+</ul>
+<p>Academic risk derivation:</p>
+<ul>
+<li>Attendance risk uses closed section sessions, attendance records, and <code>Institution.policies</code> thresholds such as warning/drop absence counts, late-to-absence ratio, and whether excused counts as an absence.</li>
+<li>Grade risk uses published assessment results and missing published result rows.</li>
+<li>Academic profile and standing are reused from existing academic services where available. Missing optional data returns safe empty/null fields instead of blocking the list.</li>
+</ul>
+<p>Frontend flow:</p>
+<ol>
+<li>Use these routes only for admin/owner users or users with an active Head responsibility assignment.</li>
+<li>Do not send a scope claim such as &quot;I am department head of X&quot; as authority. The backend reads the active <code>ResponsibilityAssignment</code> records and derives the allowed students.</li>
+<li>Use filters for UI narrowing only, such as department, class level, section, risk level, standing, or search.</li>
+<li>Treat the response as read-only oversight. There are no actions here to drop students, override outcomes, excuse attendance, edit grades, or manage memberships.</li>
+<li>For drill-down, call the student detail route with the returned <code>student.studentMembershipId</code>.</li>
+</ol>
+<p>Backend flow:</p>
+<ol>
+<li><code>authJwt</code>, <code>requireEmailVerified</code>, and <code>institutionAccess()</code> validate authenticated tenant access.</li>
+<li>Service requires an active actor membership. Owner/admin gets institution-wide read scope.</li>
+<li>Non-admin actors must have an active Head assignment with the required academic permission from the backend catalog.</li>
+<li>Service derives student membership ids from tenant DB records and applies any query filters as narrowing constraints.</li>
+<li>Service computes read-only risk/profile/standing rows and returns compact safe data only.</li>
+</ol>
+<h3>Academic Years</h3>
+<table><thead><tr><th>Method</th><th>Path</th><th>Request / query</th><th>Success</th><th>Notes</th></tr></thead><tbody>
+<tr><td>POST</td><td><code>/institutions/:institutionId/academic-years</code></td><td>JSON <code>name</code>, <code>startDate</code>, <code>endDate</code>, optional <code>status</code>.</td><td><code>201 { academicYear }</code></td><td><code>institution.manage</code>; one active academic year per institution; normalized-name unique.</td></tr>
+<tr><td>GET</td><td><code>/institutions/:institutionId/academic-years</code></td><td>Query <code>status</code>, <code>search</code>/<code>name</code>, <code>page</code>, <code>limit</code>.</td><td><code>200 { academicYears, pagination }</code></td><td><code>institution.manage</code>.</td></tr>
+<tr><td>GET</td><td><code>/institutions/:institutionId/academic-years/active</code></td><td>No body.</td><td><code>200 { academicYear }</code></td><td><code>404 Active academic year not found</code> if none.</td></tr>
+<tr><td>GET</td><td><code>/institutions/:institutionId/academic-years/:academicYearId</code></td><td>Path <code>academicYearId</code>.</td><td><code>200 { academicYear }</code></td><td>Tenant-scoped.</td></tr>
+<tr><td>PATCH</td><td><code>/institutions/:institutionId/academic-years/:academicYearId</code></td><td>JSON patch <code>name</code>, dates, <code>status</code>.</td><td><code>200 { academicYear }</code></td><td>Archived years cannot be updated/activated.</td></tr>
+<tr><td>POST</td><td><code>/institutions/:institutionId/academic-years/:academicYearId/archive</code></td><td>No body.</td><td><code>200 { academicYear }</code></td><td>Status-only archive.</td></tr>
+</tbody></table>
+<h3>Departments</h3>
+<p>University-facing module. Department routes are tenant-scoped by <code>institutionId</code>. Department list/get currently require active institution access but no route-level <code>department.manage</code>.</p>
+<table><thead><tr><th>Method</th><th>Path</th><th>Request / query</th><th>Success</th><th>Notes</th></tr></thead><tbody>
+<tr><td>POST</td><td><code>/institutions/:institutionId/departments</code></td><td>JSON <code>name</code>, <code>code</code>, <code>description</code>.</td><td><code>201 { department }</code></td><td><code>department.manage</code>; university-only; unique code/name.</td></tr>
+<tr><td>GET</td><td><code>/institutions/:institutionId/departments</code></td><td>Query <code>status</code>.</td><td><code>200 { total, departments }</code></td><td>Institution access.</td></tr>
+<tr><td>GET</td><td><code>/institutions/:institutionId/departments/:departmentId</code></td><td>Path <code>departmentId</code>.</td><td><code>200 { department }</code></td><td>Institution access.</td></tr>
+<tr><td>PATCH</td><td><code>/institutions/:institutionId/departments/:departmentId</code></td><td>JSON patch <code>name</code>, <code>code</code>, <code>description</code>, <code>status</code>.</td><td><code>200 { department }</code></td><td><code>department.manage</code>; rejects empty/no-valid-field patch.</td></tr>
+<tr><td>DELETE</td><td><code>/institutions/:institutionId/departments/:departmentId</code></td><td>No body.</td><td><code>200 { message }</code></td><td><code>department.manage</code>; TODO/VERIFY destructive cascading expectations.</td></tr>
+</tbody></table>
+<h3>Classes / Class Levels</h3>
+<p>School-only structure module. No delete routes exist for class levels, school classes, or class assignments.</p>
+<table><thead><tr><th>Method</th><th>Path</th><th>Request / query</th><th>Success</th><th>Notes</th></tr></thead><tbody>
+<tr><td>POST</td><td><code>/institutions/:institutionId/class-levels</code></td><td>JSON <code>name</code>, <code>code</code>, <code>description</code>.</td><td><code>201 { classLevel }</code></td><td><code>class.manage</code>; school-only; unique code/name.</td></tr>
+<tr><td>GET</td><td><code>/institutions/:institutionId/class-levels</code></td><td>Query <code>status</code>.</td><td><code>200 { total, classLevels }</code></td><td><code>class.manage</code>.</td></tr>
+<tr><td>GET</td><td><code>/institutions/:institutionId/class-levels/:classLevelId</code></td><td>Path <code>classLevelId</code>.</td><td><code>200 { classLevel }</code></td><td><code>class.manage</code>.</td></tr>
+<tr><td>PATCH</td><td><code>/institutions/:institutionId/class-levels/:classLevelId</code></td><td>JSON patch <code>name</code>, <code>code</code>, <code>description</code>, <code>status</code>.</td><td><code>200 { classLevel }</code></td><td><code>class.manage</code>.</td></tr>
+<tr><td>POST</td><td><code>/institutions/:institutionId/classes</code></td><td>JSON <code>classLevelId</code>, <code>name</code>, <code>code</code>.</td><td><code>201 { schoolClass }</code></td><td>Active class level required.</td></tr>
+<tr><td>GET</td><td><code>/institutions/:institutionId/classes</code></td><td>Query <code>status</code>, <code>classLevelId</code>.</td><td><code>200 { total, schoolClasses }</code></td><td><code>status</code> supports <code>active</code>, <code>archived</code>, or <code>all</code>.</td></tr>
+<tr><td>GET</td><td><code>/institutions/:institutionId/classes/:classId</code></td><td>Path <code>classId</code>.</td><td><code>200 { schoolClass }</code></td><td>Tenant-scoped.</td></tr>
+<tr><td>PATCH</td><td><code>/institutions/:institutionId/classes/:classId</code></td><td>JSON patch <code>name</code>, <code>code</code>, <code>status</code>.</td><td><code>200 { schoolClass }</code></td><td><code>classLevelId</code> is not changed after create.</td></tr>
+<tr><td>POST</td><td><code>/institutions/:institutionId/classes/:classId/students</code></td><td>JSON <code>semesterId</code>, <code>studentMemberId</code>.</td><td><code>201 { assignment }</code></td><td>Creates/reactivates assignment and syncs matching school section enrollments.</td></tr>
+<tr><td>GET</td><td><code>/institutions/:institutionId/classes/:classId/students</code></td><td>Query <code>semesterId</code>, <code>status</code>.</td><td><code>200 { assignments }</code></td><td>Default status is <code>assigned</code>.</td></tr>
+<tr><td>GET</td><td><code>/institutions/:institutionId/classes/:classId/students/:assignmentId</code></td><td>Path <code>assignmentId</code>.</td><td><code>200 { assignment }</code></td><td>Tenant/class scoped.</td></tr>
+<tr><td>PATCH</td><td><code>/institutions/:institutionId/classes/:classId/students/:assignmentId/status</code></td><td>JSON <code>status</code> (<code>assigned</code> or <code>removed</code>).</td><td><code>200 { assignment }</code></td><td>Removal marks matching school enrollments dropped.</td></tr>
+</tbody></table>
+<h3>Subjects</h3>
+<p><code>Subject</code> is shared. University subjects are scoped through <code>departmentId</code>; school subjects are scoped through <code>classLevelId</code>.</p>
+<table><thead><tr><th>Method</th><th>Path</th><th>Request / query</th><th>Success</th><th>Notes</th></tr></thead><tbody>
+<tr><td>POST</td><td><code>/institutions/:institutionId/departments/:departmentId/subjects</code></td><td>JSON <code>name</code>, <code>code</code>, <code>description</code>, <code>creditHours</code>, <code>prerequisiteSubjectIds</code>, <code>status</code>.</td><td><code>201 { subject }</code></td><td>University subject; <code>creditHours</code> required; prerequisites tenant-scoped and deduped.</td></tr>
+<tr><td>POST</td><td><code>/institutions/:institutionId/class-levels/:classLevelId/subjects</code></td><td>JSON <code>name</code>, <code>code</code>, <code>description</code>, <code>status</code>.</td><td><code>201 { subject }</code></td><td>School subject; rejects <code>creditHours</code> and department scope.</td></tr>
+<tr><td>GET</td><td><code>/institutions/:institutionId/subjects</code></td><td>Query <code>departmentId</code>, <code>classLevelId</code>, <code>active</code>.</td><td><code>200 { total, subjects }</code></td><td><code>subject.manage</code>.</td></tr>
+<tr><td>GET</td><td><code>/institutions/:institutionId/subjects/:subjectId</code></td><td>Path <code>subjectId</code>.</td><td><code>200 { subject }</code></td><td>Tenant-scoped.</td></tr>
+<tr><td>PATCH</td><td><code>/institutions/:institutionId/subjects/:subjectId</code></td><td>JSON patch subject fields.</td><td><code>200 { subject }</code></td><td>Institution type controls allowed fields.</td></tr>
+<tr><td>DELETE</td><td><code>/institutions/:institutionId/subjects/:subjectId</code></td><td>No body.</td><td><code>200 { message }</code></td><td>TODO/VERIFY linked section/assessment delete guards.</td></tr>
+</tbody></table>
+<h3>Memberships / Users</h3>
+<p><code>User</code> is auth identity only. <code>Membership</code> is institution access + role. <code>MemberProfile</code> is personal/member info.</p>
+<table><thead><tr><th>Method</th><th>Path</th><th>Request / query</th><th>Success</th><th>Notes</th></tr></thead><tbody>
+<tr><td>POST</td><td><code>/institutions/:institutionId/members</code></td><td>JSON or multipart: <code>email</code>, <code>role</code>, <code>profile</code>; optional <code>profilePicture</code>.</td><td><code>201 { member }</code></td><td><code>membership.manage</code>; supports text/plain JSON and multipart <code>payload</code>/<code>profile</code> JSON strings.</td></tr>
+<tr><td>GET</td><td><code>/institutions/:institutionId/members</code></td><td>Query <code>role</code>, <code>status</code>, <code>search</code>, <code>page</code>, <code>limit</code>.</td><td><code>200 { total, members }</code></td><td>List response is summary shape.</td></tr>
+<tr><td>GET</td><td><code>/institutions/:institutionId/members/:membershipId</code></td><td>Path <code>membershipId</code>.</td><td><code>200 { member }</code></td><td>Detail response includes profile details.</td></tr>
+<tr><td>PATCH</td><td><code>/institutions/:institutionId/members/:membershipId</code></td><td>JSON or multipart profile patch; optional <code>profilePicture</code>.</td><td><code>200 { member }</code></td><td>Uploaded file cleaned up when service rejects.</td></tr>
+<tr><td>PATCH</td><td><code>/institutions/:institutionId/members/:membershipId/status</code></td><td>JSON <code>status</code> (<code>active</code> or <code>suspended</code>).</td><td><code>200 { member }</code></td><td>Does not change role.</td></tr>
+</tbody></table>
+<h3>Sections</h3>
+<p>Section list/detail uses route-level <code>section.read</code> plus service-level role-aware scoping.</p>
+<table><thead><tr><th>Method</th><th>Path</th><th>Request / query</th><th>Success</th><th>Auth / scoping notes</th></tr></thead><tbody>
+<tr><td>POST</td><td><code>/institutions/:institutionId/sections</code></td><td>JSON <code>semesterId</code>, <code>subjectId</code>, <code>schoolClassId</code>, <code>code</code>, <code>title</code>, <code>instructorMemberId</code>, <code>capacity</code>, <code>schedule</code>, <code>status</code>.</td><td><code>201 { section }</code></td><td><code>section.manage</code>; validates semester teaching days and room conflicts; school sections require <code>schoolClassId</code> and backfill class roster enrollments.</td></tr>
+<tr><td>GET</td><td><code>/institutions/:institutionId/sections</code></td><td>Query <code>semesterId</code>, <code>subjectId</code>, <code>instructorMemberId</code>, <code>departmentId</code>, <code>schoolClassId</code>, <code>status</code>.</td><td><code>200 { sections }</code></td><td>Owner/admin broad; instructors only own sections; coordinator via <code>section.read_scope</code>; students blocked.</td></tr>
+<tr><td>GET</td><td><code>/institutions/:institutionId/sections/:sectionId</code></td><td>Path <code>sectionId</code>.</td><td><code>200 { section }</code></td><td>Same read scoping as list; scoped readers get safer detail without creator audit metadata.</td></tr>
+<tr><td>PATCH</td><td><code>/institutions/:institutionId/sections/:sectionId</code></td><td>JSON patch section fields.</td><td><code>200 { section }</code></td><td><code>section.manage</code>; room conflict and schedule validation apply.</td></tr>
+<tr><td>DELETE</td><td><code>/institutions/:institutionId/sections/:sectionId</code></td><td>No body.</td><td><code>200 { message }</code></td><td>TODO/VERIFY delete guards for linked enrollment/attendance data.</td></tr>
+</tbody></table>
+<h3>Section Sessions</h3>
+<p>Routes use <code>institutionAccess()</code> and service-level authorization. Allowed access includes admin/owner, parent section instructor, and selected derived coordinator responsibility scopes.</p>
+<table><thead><tr><th>Method</th><th>Path</th><th>Request / query</th><th>Success</th><th>Notes</th></tr></thead><tbody>
+<tr><td>POST</td><td><code>/institutions/:institutionId/sections/:sectionId/sessions</code></td><td>JSON <code>sessionType</code>, <code>sessionDate</code>, <code>startTime</code>, <code>endTime</code>, <code>room</code>.</td><td><code>201 { sectionSession }</code></td><td><code>sessionType</code> supports <code>lecture</code> or <code>lab</code>; date must be inside semester and teaching days.</td></tr>
+<tr><td>GET</td><td><code>/institutions/:institutionId/sections/:sectionId/sessions</code></td><td>Query <code>fromDate</code>, <code>toDate</code>, <code>status</code>, <code>attendanceState</code>, <code>page</code>, <code>limit</code>.</td><td><code>200 { items, pagination }</code></td><td>Uses coordinator <code>sectionSession.read_scope</code> for scoped responsibility access.</td></tr>
+<tr><td>POST</td><td><code>/institutions/:institutionId/sections/:sectionId/sessions/generate</code></td><td>Optional JSON <code>fromDate</code>, <code>toDate</code>.</td><td><code>200 { message, generatedCount, skippedCount, sectionSessions }</code></td><td>Generates from recurring section schedule; skips off/exam dates and existing sessions.</td></tr>
+<tr><td>GET</td><td><code>/institutions/:institutionId/sections/:sectionId/sessions/:sectionSessionId</code></td><td>Path <code>sectionSessionId</code>.</td><td><code>200 { sectionSession }</code></td><td>Includes lightweight <code>section</code> and <code>subject</code>.</td></tr>
+<tr><td>PATCH</td><td><code>/institutions/:institutionId/sections/:sectionId/sessions/:sectionSessionId/status</code></td><td>JSON <code>status</code>, optional <code>note</code>.</td><td><code>200 { sectionSession }</code></td><td>Dedicated status endpoint; cancellation emails are best-effort to active enrolled students.</td></tr>
+<tr><td>PATCH</td><td><code>/institutions/:institutionId/sections/:sectionId/sessions/:sectionSessionId</code></td><td>JSON patch non-status fields.</td><td><code>200 { sectionSession }</code></td><td>Rejects status metadata updates.</td></tr>
+</tbody></table>
+<h3>Attendance</h3>
+<p>Attendance is anchored to <code>SectionSession</code>.</p>
+<table><thead><tr><th>Method</th><th>Path</th><th>Request / query</th><th>Success</th><th>Notes</th></tr></thead><tbody>
+<tr><td>POST</td><td><code>/institutions/:institutionId/sections/:sectionId/sessions/:sectionSessionId/attendance/open</code></td><td>No body.</td><td><code>200 { sectionSession }</code></td><td>Opens attendance; cancelled/closed sessions rejected.</td></tr>
+<tr><td>POST</td><td><code>/institutions/:institutionId/sections/:sectionId/sessions/:sectionSessionId/attendance/qr-token</code></td><td>No body.</td><td><code>200 { qrToken, sectionSession }</code></td><td>Token expires after 20 seconds; token call replaces prior token.</td></tr>
+<tr><td>PUT</td><td><code>/institutions/:institutionId/sections/:sectionId/sessions/:sectionSessionId/attendance/manual</code></td><td>JSON <code>entries[]</code> with <code>enrollmentId</code>, <code>attendanceStatus</code>, optional <code>note</code>.</td><td><code>200 { attendanceRecords }</code></td><td>Status must be <code>present</code>, <code>absent</code>, <code>late</code>, or <code>excused</code>; duplicate enrollment ids rejected.</td></tr>
+<tr><td>GET</td><td><code>/institutions/:institutionId/sections/:sectionId/sessions/:sectionSessionId/attendance/roster</code></td><td>Query <code>filter</code>.</td><td><code>200 { attendanceRoster }</code></td><td>Filters: <code>all</code>, <code>attended</code>, <code>not_attended</code>, <code>present</code>, <code>absent</code>, <code>late</code>, <code>excused</code>, <code>pending</code>.</td></tr>
+<tr><td>POST</td><td><code>/institutions/:institutionId/sections/:sectionId/sessions/:sectionSessionId/attendance/close</code></td><td>No body.</td><td><code>200 { sectionSession }</code></td><td>Marks missing active enrollments absent.</td></tr>
+<tr><td>POST</td><td><code>/institutions/:institutionId/sections/:sectionId/sessions/:sectionSessionId/attendance/check-in</code></td><td>JSON <code>token</code>.</td><td><code>200 { attendanceRecord }</code></td><td>Student-only; active enrollment required; same-day QR only; present/late computed by grace window.</td></tr>
+<tr><td>GET</td><td><code>/institutions/:institutionId/sections/:sectionId/attendance/analytics</code></td><td>Query <code>fromDate</code>, <code>toDate</code>.</td><td><code>200 { attendanceAnalytics }</code></td><td>Closed non-cancelled sessions only; attendance risk is response-only and does not change enrollments/outcomes.</td></tr>
+<tr><td>GET</td><td><code>/institutions/:institutionId/students/me/attendance-history</code></td><td>Query <code>sectionId</code>, <code>fromDate</code>, <code>toDate</code>, <code>status</code>.</td><td><code>200 { attendanceHistory, summary }</code></td><td>Student self route.</td></tr>
+</tbody></table>
+<h3>Enrollments / Self-Enrollment</h3>
+<p>Shared <code>Enrollment</code> model; school enrollments are backend-managed through class roster sync.</p>
+<table><thead><tr><th>Method</th><th>Path</th><th>Request / query</th><th>Success</th><th>Notes</th></tr></thead><tbody>
+<tr><td>POST</td><td><code>/institutions/:institutionId/sections/:sectionId/enrollments</code></td><td>JSON <code>studentMemberId</code>.</td><td><code>201 { enrollment }</code></td><td><code>section.manage</code>; blocked for school sections.</td></tr>
+<tr><td>GET</td><td><code>/institutions/:institutionId/sections/:sectionId/enrollments</code></td><td>No query.</td><td><code>200 { enrollments }</code></td><td>Section-scoped.</td></tr>
+<tr><td>GET</td><td><code>/institutions/:institutionId/sections/:sectionId/enrollments/:enrollmentId</code></td><td>Path <code>enrollmentId</code>.</td><td><code>200 { enrollment }</code></td><td>Tenant + section scoped.</td></tr>
+<tr><td>PATCH</td><td><code>/institutions/:institutionId/sections/:sectionId/enrollments/:enrollmentId/status</code></td><td>JSON <code>status</code> (<code>enrolled</code> or <code>dropped</code>).</td><td><code>200 { enrollment }</code></td><td>Use status update to re-enroll.</td></tr>
+<tr><td>GET</td><td><code>/institutions/:institutionId/students/me/self-enrollment/sections</code></td><td>Query <code>availableOnly</code>.</td><td><code>200 { sections }</code></td><td>Student-only, university-only active-semester browse.</td></tr>
+<tr><td>GET</td><td><code>/institutions/:institutionId/students/me/self-enrollment/sections/:sectionId/eligibility</code></td><td>No body.</td><td><code>200 { eligibility }</code></td><td>Preview route with blocking reason codes.</td></tr>
+<tr><td>POST</td><td><code>/institutions/:institutionId/students/me/self-enrollment/submissions</code></td><td>JSON <code>sectionIds[]</code>.</td><td><code>201 { enrollments, submission }</code></td><td>Validates whole selected set before writes; duplicate same-subject and min/max load rules.</td></tr>
+</tbody></table>
+<h3>Assessments / Results</h3>
+<p>Assessment routes use service-level section-derived authorization. Student self routes expose only current student data.</p>
+<table><thead><tr><th>Method</th><th>Path</th><th>Request / query</th><th>Success</th><th>Notes</th></tr></thead><tbody>
+<tr><td>POST</td><td><code>/institutions/:institutionId/sections/:sectionId/assessments</code></td><td>JSON <code>title</code>, <code>description</code>, <code>type</code>, <code>assessmentDate</code> or <code>sectionSessionId</code>, <code>maxScore</code>, <code>weight</code>, <code>status</code>.</td><td><code>201 { assessment }</code></td><td>Snapshots active enrollments into result rows.</td></tr>
+<tr><td>GET</td><td><code>/institutions/:institutionId/sections/:sectionId/assessments</code></td><td>Query <code>status</code>.</td><td><code>200 { assessments }</code></td><td>Staff/scoped read.</td></tr>
+<tr><td>GET</td><td><code>/institutions/:institutionId/sections/:sectionId/assessments/:assessmentId</code></td><td>Path <code>assessmentId</code>.</td><td><code>200 { assessment }</code></td><td>Tenant + section scoped.</td></tr>
+<tr><td>PATCH</td><td><code>/institutions/:institutionId/sections/:sectionId/assessments/:assessmentId</code></td><td>JSON patch allowed fields.</td><td><code>200 { assessment }</code></td><td>Archived read-only; only draft assessments can be updated.</td></tr>
+<tr><td>PATCH</td><td><code>/institutions/:institutionId/sections/:sectionId/assessments/:assessmentId/status</code></td><td>JSON <code>status</code>.</td><td><code>200 { assessment }</code></td><td>Status supports <code>draft</code>, <code>announced</code>, <code>published</code>, or <code>archived</code>; emails best-effort on announced/published.</td></tr>
+<tr><td>PUT</td><td><code>/institutions/:institutionId/sections/:sectionId/assessments/:assessmentId/results</code></td><td>JSON <code>entries[]</code> with <code>enrollmentId</code>, <code>score?</code>, <code>note?</code>.</td><td><code>200 { assessmentResults }</code></td><td>Score numeric, <code>0..maxScore</code>; unique enrollment ids.</td></tr>
+<tr><td>GET</td><td><code>/institutions/:institutionId/sections/:sectionId/assessments/:assessmentId/results</code></td><td>No body.</td><td><code>200 { assessmentResults }</code></td><td>Staff/scoped read.</td></tr>
+<tr><td>GET</td><td><code>/institutions/:institutionId/sections/:sectionId/results</code></td><td>No body.</td><td><code>200 { sectionResults }</code></td><td>Published-only weighted section results.</td></tr>
+<tr><td>GET</td><td><code>/institutions/:institutionId/students/me/assessments</code></td><td>No body.</td><td><code>200 { assessments }</code></td><td>Student sees announced/published metadata; no draft/archived.</td></tr>
+<tr><td>GET</td><td><code>/institutions/:institutionId/students/me/results</code></td><td>Query <code>sectionId</code>, <code>semesterId</code>.</td><td><code>200 { results }</code></td><td>Student sees published results only.</td></tr>
+</tbody></table>
+<h3>Homework / Projects</h3>
+<p>Homework is separate from AssessmentResult. Optional <code>assessmentId</code> links graded work but homework submissions do not become scores.</p>
+<table><thead><tr><th>Method</th><th>Path</th><th>Request / query</th><th>Success</th><th>Notes</th></tr></thead><tbody>
+<tr><td>POST</td><td><code>/institutions/:institutionId/sections/:sectionId/homeworks</code></td><td>JSON <code>title</code>, <code>description</code>, <code>type</code>, <code>dueAt</code>, <code>sectionSessionId</code>, <code>assessmentId</code>, <code>submissionMode</code>, <code>allowLate</code>, <code>status</code>.</td><td><code>201 { homework }</code></td><td>Assignment emails best-effort when created as assigned.</td></tr>
+<tr><td>GET</td><td><code>/institutions/:institutionId/sections/:sectionId/homeworks</code></td><td>Query <code>status</code>, <code>type</code>, <code>submissionMode</code>, <code>assessmentId</code>, <code>page</code>, <code>limit</code>.</td><td><code>200 { homeworks, pagination }</code></td><td>Staff/scoped section access.</td></tr>
+<tr><td>GET</td><td><code>/institutions/:institutionId/sections/:sectionId/homeworks/:homeworkId</code></td><td>Path <code>homeworkId</code>.</td><td><code>200 { homework }</code></td><td>Staff/scoped section access.</td></tr>
+<tr><td>PATCH</td><td><code>/institutions/:institutionId/sections/:sectionId/homeworks/:homeworkId</code></td><td>JSON patch homework fields.</td><td><code>200 { homework }</code></td><td><code>submissionMode</code> cannot change after submissions exist.</td></tr>
+<tr><td>PATCH</td><td><code>/institutions/:institutionId/sections/:sectionId/homeworks/:homeworkId/status</code></td><td>JSON <code>status</code>.</td><td><code>200 { homework }</code></td><td>Emails best-effort on <code>draft -&gt; assigned</code>.</td></tr>
+<tr><td>GET</td><td><code>/institutions/:institutionId/sections/:sectionId/homeworks/:homeworkId/submissions</code></td><td>No body.</td><td><code>200 { homework, submissions }</code></td><td>Roster combines active enrollments with existing submissions.</td></tr>
+<tr><td>PUT</td><td><code>/institutions/:institutionId/sections/:sectionId/homeworks/:homeworkId/enrollments/:enrollmentId/submission</code></td><td>JSON <code>status</code>, <code>instructorFeedback</code>.</td><td><code>200 { submission }</code></td><td>Offline/manual mode only.</td></tr>
+<tr><td>PATCH</td><td><code>/institutions/:institutionId/sections/:sectionId/homeworks/:homeworkId/submissions/:submissionId</code></td><td>JSON <code>status</code>, <code>instructorFeedback</code>.</td><td><code>200 { submission }</code></td><td>Staff submission update.</td></tr>
+<tr><td>GET</td><td><code>/institutions/:institutionId/sections/:sectionId/homeworks/:homeworkId/submissions/:submissionId/file</code></td><td>No body.</td><td>File download</td><td>Private file authorization before <code>res.download</code>.</td></tr>
+<tr><td>GET</td><td><code>/institutions/:institutionId/sections/:sectionId/homeworks/:homeworkId/submission</code></td><td>No body.</td><td><code>200 { homework, submission }</code></td><td>Student self route.</td></tr>
+<tr><td>POST</td><td><code>/institutions/:institutionId/sections/:sectionId/homeworks/:homeworkId/submission</code></td><td>multipart field <code>submissionFile</code>, optional <code>studentNote</code>.</td><td><code>201 { submission }</code></td><td>Student-only; requires assigned <code>online_upload</code>; late blocked unless allowed.</td></tr>
+<tr><td>GET</td><td><code>/institutions/:institutionId/students/me/homeworks</code></td><td>Query <code>status</code>, <code>type</code>, <code>dueFrom</code>, <code>dueTo</code>, <code>sectionId</code>, <code>page</code>, <code>limit</code>.</td><td><code>200 { homeworks, pagination }</code></td><td>Student sees assigned/closed items for active enrollments.</td></tr>
+</tbody></table>
+<h3>Section Materials</h3>
+<p>PDF-only private section resources, separate from Homework.</p>
+<table><thead><tr><th>Method</th><th>Path</th><th>Request / query</th><th>Success</th><th>Notes</th></tr></thead><tbody>
+<tr><td>POST</td><td><code>/institutions/:institutionId/sections/:sectionId/materials</code></td><td>multipart <code>materialFile</code>, plus <code>title</code>, <code>description</code>, <code>materialType</code>, <code>sectionSessionId</code>, <code>status</code>.</td><td><code>201 { material }</code></td><td>PDF required; private storage.</td></tr>
+<tr><td>GET</td><td><code>/institutions/:institutionId/sections/:sectionId/materials</code></td><td>Query <code>status</code>, <code>materialType</code>, <code>page</code>, <code>limit</code>.</td><td><code>200 { materials, pagination }</code></td><td>Staff/scoped section access.</td></tr>
+<tr><td>GET</td><td><code>/institutions/:institutionId/sections/:sectionId/materials/:materialId</code></td><td>Path <code>materialId</code>.</td><td><code>200 { material }</code></td><td>Staff/scoped detail.</td></tr>
+<tr><td>PATCH</td><td><code>/institutions/:institutionId/sections/:sectionId/materials/:materialId</code></td><td>multipart optional <code>materialFile</code> plus patch fields.</td><td><code>200 { material }</code></td><td>Replacing file removes old private file only after DB update.</td></tr>
+<tr><td>PATCH</td><td><code>/institutions/:institutionId/sections/:sectionId/materials/:materialId/status</code></td><td>JSON <code>status</code>.</td><td><code>200 { material }</code></td><td>Status supports <code>draft</code>, <code>published</code>, or <code>archived</code>; archived restore deferred.</td></tr>
+<tr><td>GET</td><td><code>/institutions/:institutionId/sections/:sectionId/materials/:materialId/file</code></td><td>No body.</td><td>File download</td><td>Student can download only published material for active enrolled section.</td></tr>
+<tr><td>GET</td><td><code>/institutions/:institutionId/students/me/materials</code></td><td>Query <code>sectionId</code>, <code>materialType</code>, <code>page</code>, <code>limit</code>.</td><td><code>200 { materials, pagination }</code></td><td>Student self list, published only.</td></tr>
+</tbody></table>
+<h3>Academic Profiles / Policies / Standing</h3>
+<p>Academic profile facade delegates by <code>Institution.type</code>.</p>
+<table><thead><tr><th>Method</th><th>Path</th><th>Request / query</th><th>Success</th><th>Notes</th></tr></thead><tbody>
+<tr><td>GET</td><td><code>/institutions/:institutionId/students/me/academic-profile</code></td><td>Query <code>academicYearId</code>, <code>semesterId</code>.</td><td><code>200 { academicProfile }</code></td><td>Student self only; school currently requires <code>academicYearId</code>.</td></tr>
+<tr><td>GET</td><td><code>/institutions/:institutionId/students/:studentMembershipId/academic-profile</code></td><td>Query <code>academicYearId</code>, <code>semesterId</code>.</td><td><code>200 { academicProfile }</code></td><td>Route uses <code>membership.manage</code>; providers also enforce school <code>class.manage</code> / university <code>section.manage</code> style access.</td></tr>
+<tr><td>POST</td><td><code>/institutions/:institutionId/academic-policies</code></td><td>JSON university policy config.</td><td><code>201 { academicPolicy }</code></td><td>University-only; semester-effective.</td></tr>
+<tr><td>GET</td><td><code>/institutions/:institutionId/academic-policies</code></td><td>Query <code>status</code>.</td><td><code>200 { academicPolicies }</code></td><td><code>status</code> supports <code>draft</code>, <code>active</code>, <code>archived</code>, or <code>all</code>.</td></tr>
+<tr><td>GET</td><td><code>/institutions/:institutionId/academic-policies/:policyId</code></td><td>Path <code>policyId</code>.</td><td><code>200 { academicPolicy }</code></td><td>Tenant-scoped.</td></tr>
+<tr><td>PATCH</td><td><code>/institutions/:institutionId/academic-policies/:policyId</code></td><td>JSON patch university policy config.</td><td><code>200 { academicPolicy }</code></td><td>Validates repeatPolicy and academicStandingRules.</td></tr>
+<tr><td>GET</td><td><code>/institutions/:institutionId/academic-standing/university/summary</code></td><td>Query <code>standing</code>, <code>minGpa</code>, <code>maxGpa</code>, <code>semesterId</code>, <code>departmentId</code>, <code>search</code>, <code>page</code>, <code>limit</code>.</td><td><code>200 { standingSummary }</code></td><td>Admin/owner institution-wide; guarded by <code>section.manage</code>; university-only.</td></tr>
+<tr><td>GET</td><td><code>/institutions/:institutionId/academic-standing/university/students</code></td><td>Same filters.</td><td><code>200 { standingSummary, students, pagination }</code></td><td>Department filtering derived through Subject.</td></tr>
+<tr><td>GET</td><td><code>/institutions/:institutionId/instructors/me/academic-standing/summary</code></td><td>Same filters.</td><td><code>200 { standingSummary }</code></td><td>Instructor-scoped to assigned sections and active enrolled students.</td></tr>
+<tr><td>GET</td><td><code>/institutions/:institutionId/instructors/me/academic-standing/students</code></td><td>Same filters.</td><td><code>200 { standingSummary, students, pagination }</code></td><td>Standing is live/read-only, not stored.</td></tr>
+</tbody></table>
+<h3>School Academic Policies / Report Cards / Final Outcomes</h3>
+<p>School policy and outcomes are percentage/promotion based and stay separate from university GPA/credit-hour behavior.</p>
+<table><thead><tr><th>Method</th><th>Path</th><th>Request / query</th><th>Success</th><th>Notes</th></tr></thead><tbody>
+<tr><td>POST</td><td><code>/institutions/:institutionId/academic-policies/school</code></td><td>JSON school policy config.</td><td><code>201 { schoolAcademicPolicy }</code></td><td>School-only; requires real non-archived <code>appliesTo.academicYearId</code>.</td></tr>
+<tr><td>GET</td><td><code>/institutions/:institutionId/academic-policies/school</code></td><td>Query <code>status</code>, <code>academicYearId</code>, <code>schoolStageId</code>, <code>classLevelId</code>.</td><td><code>200 { schoolAcademicPolicies }</code></td><td>Resolver supports academic-year/stage/class-level fallback.</td></tr>
+<tr><td>GET</td><td><code>/institutions/:institutionId/academic-policies/school/:policyId</code></td><td>Path <code>policyId</code>.</td><td><code>200 { schoolAcademicPolicy }</code></td><td>Tenant-scoped.</td></tr>
+<tr><td>PATCH</td><td><code>/institutions/:institutionId/academic-policies/school/:policyId</code></td><td>JSON patch school policy config.</td><td><code>200 { schoolAcademicPolicy }</code></td><td>Boolean fields must be booleans; semester weights total 100.</td></tr>
+<tr><td>POST</td><td><code>/institutions/:institutionId/academic-policies/school/:policyId/archive</code></td><td>No body.</td><td><code>200 { schoolAcademicPolicy }</code></td><td>Status-only lifecycle.</td></tr>
+<tr><td>GET</td><td><code>/institutions/:institutionId/school-outcomes/students/:studentMembershipId/semesters/:semesterId/report-card</code></td><td>No body.</td><td><code>200 { reportCard }</code></td><td><code>class.manage</code>; read-only.</td></tr>
+<tr><td>GET</td><td><code>/institutions/:institutionId/school-outcomes/students/:studentMembershipId/academic-years/:academicYearId/report-card</code></td><td>No body.</td><td><code>200 { reportCard }</code></td><td>Includes live promotion decision explanation.</td></tr>
+<tr><td>GET</td><td><code>/institutions/:institutionId/school-outcomes/classes/:schoolClassId/academic-years/:academicYearId/promotion-summary</code></td><td>No body.</td><td><code>200 { promotionSummary }</code></td><td>Current MVP unpaginated.</td></tr>
+<tr><td>GET</td><td><code>/institutions/:institutionId/school-outcomes/academic-years/:academicYearId/promotion-dashboard/summary</code></td><td>Query admin dashboard filters.</td><td><code>200 { promotionSummary }</code></td><td>Uses final outcomes when present, live calculation otherwise.</td></tr>
+<tr><td>GET</td><td><code>/institutions/:institutionId/school-outcomes/academic-years/:academicYearId/promotion-dashboard/students</code></td><td>Query <code>decision</code>, <code>schoolClassId</code>, <code>classLevelId</code>, <code>complete</code>, <code>hasMissingResults</code>, <code>finalized</code>, <code>search</code>, <code>page</code>, <code>limit</code>.</td><td><code>200 { promotionSummary, students, pagination }</code></td><td>Admin/staff full promotion dashboard.</td></tr>
+<tr><td>GET</td><td><code>/institutions/:institutionId/instructors/me/school-outcomes/academic-years/:academicYearId/promotion-dashboard/summary</code></td><td>Query instructor-safe filters.</td><td><code>200 { sectionOutcomeSummary }</code></td><td>Instructor assigned-section only; rejects <code>decision</code> and <code>finalized</code>.</td></tr>
+<tr><td>GET</td><td><code>/institutions/:institutionId/instructors/me/school-outcomes/academic-years/:academicYearId/promotion-dashboard/students</code></td><td>Query <code>schoolClassId</code>, <code>classLevelId</code>, <code>complete</code>, <code>hasMissingResults</code>, <code>search</code>, <code>page</code>, <code>limit</code>.</td><td><code>200 { sectionOutcomeSummary, sectionOutcomes, pagination }</code></td><td>No full yearly decision exposed.</td></tr>
+<tr><td>POST</td><td><code>/institutions/:institutionId/school-outcomes/students/:studentMembershipId/academic-years/:academicYearId/finalize</code></td><td>Optional JSON <code>override.finalDecision</code>, <code>override.reason</code>.</td><td><code>201 { schoolFinalOutcome }</code></td><td>Does not move student classes.</td></tr>
+<tr><td>PATCH</td><td><code>/institutions/:institutionId/school-outcomes/final-outcomes/:outcomeId/override</code></td><td>JSON <code>finalDecision</code>, <code>reason</code> or <code>override</code> object.</td><td><code>200 { schoolFinalOutcome }</code></td><td>Cancelled outcomes cannot be overridden.</td></tr>
+<tr><td>GET</td><td><code>/institutions/:institutionId/school-outcomes/students/:studentMembershipId/academic-years/:academicYearId/final-outcome</code></td><td>No body.</td><td><code>200 { schoolFinalOutcome }</code></td><td><code>404</code> if no final outcome exists.</td></tr>
+</tbody></table>
+<h3>Semesters</h3>
+<table><thead><tr><th>Method</th><th>Path</th><th>Request / query</th><th>Success</th><th>Notes</th></tr></thead><tbody>
+<tr><td>POST</td><td><code>/institutions/:institutionId/semesters</code></td><td>JSON <code>academicYearId?</code>, <code>name</code>, <code>startDate</code>, <code>endDate</code>, <code>teachingDays</code>, <code>weeksCount</code>, <code>calendarOverrides</code>, <code>examDates</code>, <code>status</code>.</td><td><code>201 { semester }</code></td><td><code>semester.manage</code>; one active semester per institution.</td></tr>
+<tr><td>GET</td><td><code>/institutions/:institutionId/semesters</code></td><td>Query <code>status</code>.</td><td><code>200 { total, semesters }</code></td><td><code>semester.manage</code>.</td></tr>
+<tr><td>GET</td><td><code>/institutions/:institutionId/semesters/active</code></td><td>No body.</td><td><code>200 { semester }</code></td><td>Institution access only.</td></tr>
+<tr><td>GET</td><td><code>/institutions/:institutionId/semesters/:semesterId</code></td><td>Path <code>semesterId</code>.</td><td><code>200 { semester }</code></td><td>Detail includes weeks.</td></tr>
+<tr><td>PATCH</td><td><code>/institutions/:institutionId/semesters/:semesterId</code></td><td>JSON patch allowed semester fields.</td><td><code>200 { semester }</code></td><td>Optional <code>academicYearId</code> must reference same-tenant non-archived year.</td></tr>
+<tr><td>DELETE</td><td><code>/institutions/:institutionId/semesters/:semesterId</code></td><td>No body.</td><td><code>200 { message }</code></td><td>TODO/VERIFY linked data delete guards.</td></tr>
+</tbody></table>
+<h2>Examples By Module</h2>
+<h3>Auth</h3>
+<pre><code class="language-http">POST /auth/login
+Content-Type: application/json
+
+{ &quot;email&quot;: &quot;admin@example.test&quot;, &quot;password&quot;: &quot;Password123&quot; }</code></pre>
+<pre><code class="language-json">{
+  &quot;accessToken&quot;: &quot;&lt;JWT_TOKEN&gt;&quot;,
+  &quot;user&quot;: {
+    &quot;id&quot;: &quot;507f1f77bcf86cd799439011&quot;,
+    &quot;email&quot;: &quot;admin@example.test&quot;,
+    &quot;status&quot;: &quot;active&quot;,
+    &quot;isEmailVerified&quot;: true
+  }
+}</code></pre>
+<h3>Institution</h3>
+<pre><code class="language-http">GET /institutions/me
+Authorization: Bearer &lt;JWT_TOKEN&gt;</code></pre>
+<pre><code class="language-json">{
+  &quot;user&quot;: { &quot;id&quot;: &quot;507f1f77bcf86cd799439011&quot;, &quot;email&quot;: &quot;admin@example.test&quot; },
+  &quot;hasInstitutions&quot;: true,
+  &quot;activeInstitution&quot;: {
+    &quot;institutionId&quot;: &quot;507f1f77bcf86cd799439011&quot;,
+    &quot;name&quot;: &quot;Example School&quot;,
+    &quot;type&quot;: &quot;school&quot;,
+    &quot;role&quot;: &quot;admin&quot;
+  },
+  &quot;nextStep&quot;: &quot;build_academic_structure&quot;
+}</code></pre>
+<h3>Billing</h3>
+<pre><code class="language-http">POST /institutions/507f1f77bcf86cd799439011/billing/checkout-session
+Authorization: Bearer &lt;JWT_TOKEN&gt;</code></pre>
+<pre><code class="language-json">{
+  &quot;checkoutSession&quot;: {
+    &quot;id&quot;: &quot;cs_test_placeholder&quot;,
+    &quot;url&quot;: &quot;https://checkout.stripe.com/c/pay/cs_test_placeholder&quot;
+  }
+}</code></pre>
+<h3>Responsibility Assignments</h3>
+<pre><code class="language-http">POST /institutions/507f1f77bcf86cd799439011/responsibility-assignments
+Authorization: Bearer &lt;JWT_TOKEN&gt;
+Content-Type: application/json
+
+{
+  &quot;userId&quot;: &quot;507f1f77bcf86cd799439023&quot;,
+  &quot;responsibilityType&quot;: &quot;head&quot;,
+  &quot;scopeType&quot;: &quot;department&quot;,
+  &quot;scopeId&quot;: &quot;507f1f77bcf86cd799439041&quot;,
+  &quot;startAt&quot;: &quot;2026-09-01T00:00:00.000Z&quot;,
+  &quot;isActive&quot;: true
+}</code></pre>
+<pre><code class="language-json">{
+  &quot;responsibilityAssignment&quot;: {
+    &quot;id&quot;: &quot;507f1f77bcf86cd799439051&quot;,
+    &quot;institutionId&quot;: &quot;507f1f77bcf86cd799439011&quot;,
+    &quot;userId&quot;: &quot;507f1f77bcf86cd799439023&quot;,
+    &quot;responsibilityType&quot;: &quot;head&quot;,
+    &quot;scopeType&quot;: &quot;department&quot;,
+    &quot;scopeId&quot;: &quot;507f1f77bcf86cd799439041&quot;,
+    &quot;isActive&quot;: true,
+    &quot;startAt&quot;: &quot;2026-09-01T00:00:00.000Z&quot;,
+    &quot;endAt&quot;: null
+  }
+}</code></pre>
+<pre><code class="language-http">GET /institutions/507f1f77bcf86cd799439011/responsibility-assignments?responsibilityType=head&amp;activeNow=true
+Authorization: Bearer &lt;JWT_TOKEN&gt;</code></pre>
+<pre><code class="language-json">{
+  &quot;responsibilityAssignments&quot;: [
+    {
+      &quot;id&quot;: &quot;507f1f77bcf86cd799439051&quot;,
+      &quot;userId&quot;: &quot;507f1f77bcf86cd799439023&quot;,
+      &quot;responsibilityType&quot;: &quot;head&quot;,
+      &quot;scopeType&quot;: &quot;department&quot;,
+      &quot;scopeId&quot;: &quot;507f1f77bcf86cd799439041&quot;,
+      &quot;isActive&quot;: true
+    }
+  ],
+  &quot;pagination&quot;: { &quot;page&quot;: 1, &quot;limit&quot;: 20, &quot;total&quot;: 1, &quot;totalPages&quot;: 1 }
+}</code></pre>
+<h3>Academic Year</h3>
+<pre><code class="language-http">POST /institutions/507f1f77bcf86cd799439011/academic-years
+Authorization: Bearer &lt;JWT_TOKEN&gt;
+Content-Type: application/json
+
+{ &quot;name&quot;: &quot;2026-2027&quot;, &quot;startDate&quot;: &quot;2026-09-01&quot;, &quot;endDate&quot;: &quot;2027-06-30&quot;, &quot;status&quot;: &quot;active&quot; }</code></pre>
+<pre><code class="language-json">{ &quot;academicYear&quot;: { &quot;id&quot;: &quot;507f1f77bcf86cd799439011&quot;, &quot;name&quot;: &quot;2026-2027&quot;, &quot;status&quot;: &quot;active&quot; } }</code></pre>
+<h3>Members</h3>
+<pre><code class="language-http">POST /institutions/507f1f77bcf86cd799439011/members
+Authorization: Bearer &lt;JWT_TOKEN&gt;
+Content-Type: multipart/form-data
+
+payload={&quot;email&quot;:&quot;student@example.test&quot;,&quot;role&quot;:&quot;student&quot;,&quot;profile&quot;:{&quot;firstName&quot;:&quot;Sara&quot;,&quot;lastName&quot;:&quot;Ali&quot;,&quot;nationalNumber&quot;:&quot;S-100&quot;}}
+profilePicture=@avatar.png</code></pre>
+<pre><code class="language-json">{ &quot;member&quot;: { &quot;id&quot;: &quot;507f1f77bcf86cd799439011&quot;, &quot;role&quot;: &quot;student&quot;, &quot;status&quot;: &quot;active&quot; } }</code></pre>
+<h3>Sections</h3>
+<pre><code class="language-http">POST /institutions/507f1f77bcf86cd799439011/sections
+Authorization: Bearer &lt;JWT_TOKEN&gt;
+Content-Type: application/json
+
+{
+  &quot;semesterId&quot;: &quot;507f1f77bcf86cd799439011&quot;,
+  &quot;subjectId&quot;: &quot;507f1f77bcf86cd799439011&quot;,
+  &quot;code&quot;: &quot;MATH-7A-1&quot;,
+  &quot;title&quot;: &quot;Math Grade 7 A&quot;,
+  &quot;capacity&quot;: 30,
+  &quot;schedule&quot;: [
+    { &quot;day&quot;: &quot;monday&quot;, &quot;startTime&quot;: &quot;09:00&quot;, &quot;endTime&quot;: &quot;10:30&quot;, &quot;room&quot;: &quot;A101&quot;, &quot;sessionType&quot;: &quot;lecture&quot; }
+  ],
+  &quot;status&quot;: &quot;active&quot;
+}</code></pre>
+<pre><code class="language-json">{ &quot;section&quot;: { &quot;id&quot;: &quot;507f1f77bcf86cd799439011&quot;, &quot;code&quot;: &quot;MATH-7A-1&quot;, &quot;status&quot;: &quot;active&quot; } }</code></pre>
+<h3>Attendance</h3>
+<pre><code class="language-http">PUT /institutions/507f1f77bcf86cd799439011/sections/507f1f77bcf86cd799439011/sessions/507f1f77bcf86cd799439011/attendance/manual
+Authorization: Bearer &lt;JWT_TOKEN&gt;
+Content-Type: application/json
+
+{ &quot;entries&quot;: [{ &quot;enrollmentId&quot;: &quot;507f1f77bcf86cd799439011&quot;, &quot;attendanceStatus&quot;: &quot;present&quot; }] }</code></pre>
+<pre><code class="language-json">{ &quot;attendanceRecords&quot;: [{ &quot;id&quot;: &quot;507f1f77bcf86cd799439011&quot;, &quot;attendanceStatus&quot;: &quot;present&quot;, &quot;source&quot;: &quot;manual&quot; }] }</code></pre>
+<h3>Assessments / Results</h3>
+<pre><code class="language-http">PUT /institutions/507f1f77bcf86cd799439011/sections/507f1f77bcf86cd799439011/assessments/507f1f77bcf86cd799439011/results
+Authorization: Bearer &lt;JWT_TOKEN&gt;
+Content-Type: application/json
+
+{ &quot;entries&quot;: [{ &quot;enrollmentId&quot;: &quot;507f1f77bcf86cd799439011&quot;, &quot;score&quot;: 87, &quot;note&quot;: &quot;Checked&quot; }] }</code></pre>
+<pre><code class="language-json">{ &quot;assessmentResults&quot;: [{ &quot;enrollmentId&quot;: &quot;507f1f77bcf86cd799439011&quot;, &quot;score&quot;: 87, &quot;note&quot;: &quot;Checked&quot; }] }</code></pre>
+<h3>Homework</h3>
+<pre><code class="language-http">POST /institutions/507f1f77bcf86cd799439011/sections/507f1f77bcf86cd799439011/homeworks/507f1f77bcf86cd799439011/submission
+Authorization: Bearer &lt;JWT_TOKEN&gt;
+Content-Type: multipart/form-data
+
+studentNote=Completed
+submissionFile=@solution.pdf</code></pre>
+<pre><code class="language-json">{ &quot;submission&quot;: { &quot;id&quot;: &quot;507f1f77bcf86cd799439011&quot;, &quot;status&quot;: &quot;submitted&quot;, &quot;originalFilename&quot;: &quot;solution.pdf&quot; } }</code></pre>
+<h3>Section Materials</h3>
+<pre><code class="language-http">POST /institutions/507f1f77bcf86cd799439011/sections/507f1f77bcf86cd799439011/materials
+Authorization: Bearer &lt;JWT_TOKEN&gt;
+Content-Type: multipart/form-data
+
+title=Week 1 Notes
+materialType=lecture_pdf
+status=published
+materialFile=@week-1.pdf</code></pre>
+<pre><code class="language-json">{ &quot;material&quot;: { &quot;id&quot;: &quot;507f1f77bcf86cd799439011&quot;, &quot;title&quot;: &quot;Week 1 Notes&quot;, &quot;status&quot;: &quot;published&quot; } }</code></pre>
+<h3>Academic Oversight</h3>
+<pre><code class="language-http">GET /institutions/507f1f77bcf86cd799439011/academic-oversight/students?riskLevel=high&amp;page=1&amp;limit=20
+Authorization: Bearer &lt;JWT_TOKEN&gt;</code></pre>
+<pre><code class="language-json">{
+  &quot;academicRiskSummary&quot;: {
+    &quot;totalStudents&quot;: 1,
+    &quot;highRiskCount&quot;: 1,
+    &quot;warningRiskCount&quot;: 0,
+    &quot;lowRiskCount&quot;: 0
+  },
+  &quot;students&quot;: [
+    {
+      &quot;student&quot;: {
+        &quot;studentMembershipId&quot;: &quot;507f1f77bcf86cd799439071&quot;,
+        &quot;name&quot;: &quot;Sara Ali&quot;,
+        &quot;email&quot;: &quot;sara@example.test&quot;
+      },
+      &quot;riskLevel&quot;: &quot;high&quot;,
+      &quot;attendanceRisk&quot;: { &quot;riskLevel&quot;: &quot;high&quot;, &quot;absenceCount&quot;: 6 },
+      &quot;gradeRisk&quot;: { &quot;riskLevel&quot;: &quot;low&quot;, &quot;averagePercentage&quot;: 82 },
+      &quot;academicStanding&quot;: null,
+      &quot;academicProfile&quot;: null,
+      &quot;reasons&quot;: [&quot;Attendance absence count reached a high-risk threshold.&quot;]
+    }
+  ],
+  &quot;pagination&quot;: { &quot;page&quot;: 1, &quot;limit&quot;: 20, &quot;total&quot;: 1, &quot;totalPages&quot;: 1 }
+}</code></pre>
+<h3>Academic Profile</h3>
+<pre><code class="language-http">GET /institutions/507f1f77bcf86cd799439011/students/me/academic-profile?academicYearId=507f1f77bcf86cd799439011
+Authorization: Bearer &lt;JWT_TOKEN&gt;</code></pre>
+<pre><code class="language-json">{
+  &quot;academicProfile&quot;: {
+    &quot;institutionType&quot;: &quot;school&quot;,
+    &quot;student&quot;: { &quot;studentMembershipId&quot;: &quot;507f1f77bcf86cd799439011&quot;, &quot;name&quot;: &quot;Sara Ali&quot; },
+    &quot;summary&quot;: { &quot;complete&quot;: false, &quot;hasMissingResults&quot;: true },
+    &quot;warnings&quot;: [{ &quot;code&quot;: &quot;MISSING_REQUIRED_RESULTS&quot;, &quot;message&quot;: &quot;Some required results are missing.&quot; }]
+  }
+}</code></pre>
+<h2>Postman / Test Artifacts Inspected</h2>
+<p>Postman collections/environments exist for academic profile, academic year, attendance, homework, school academic services, school promotion dashboard, section material, self-enrollment, Stripe billing, repeat policy, and academic standing.</p>
+<p>Focused tests exist for billing, attendance, homework, section material, authorization/permissions, scoped responsibility management, Head academic oversight, section list permissions, academic profile, academic year, school academic policy/outcomes/report cards/final outcomes/promotion dashboards, university academic policy/profile/outcomes/standing, and self-enrollment.</p>
+<h2>TODO / VERIFY Summary</h2>
+<ul>
+<li>Verify exact patchable <code>Institution.policies</code> fields before generated client/schema docs for <code>PATCH /institutions/:institutionId</code>.</li>
+<li>Verify destructive delete guards for departments, subjects, sections, and semesters before exposing irreversible UI actions.</li>
+<li>Verify pagination needs for section lists and class promotion summaries as tenant data grows.</li>
+<li>Verify stricter PDF magic-byte validation if upload security requirements increase.</li>
+<li>Verify future date-window overlap handling for responsibility assignments beyond the current duplicate-active guard.</li>
+<li>Verify future billing access gates, customer portal needs, grace periods, trials, and plan limits.</li>
+<li>Verify broader attendance reporting, duplicate-aware risk escalation workflows, and configurable grade-risk thresholds for academic oversight.</li>
+</ul>
+</body></html>

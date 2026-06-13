@@ -1,0 +1,32 @@
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+    ports:
+      - "5000:5000"
+    env_file:
+      - .env.docker
+    volumes:
+      - .:/app
+      - /app/node_modules
+    depends_on:
+      - mongo
+
+  mongo:
+    image: mongo:7
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo_data:/data/db
+
+  stripe-cli:
+    image: stripe/stripe-cli:latest
+    env_file:
+      - .env.docker
+    command: listen --forward-to http://backend:5000/stripe/webhook
+    depends_on:
+      - backend
+
+volumes:
+  mongo_data:

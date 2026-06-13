@@ -1,0 +1,9 @@
+node_modules
+.git
+.env
+.env.docker
+.env.local
+.env.*.local
+uploads
+storage
+npm-debug.log

@@ -17,6 +17,7 @@
   - `node --test test/self-enrollment-write.test.js`
   - `node --test test/attendance.test.js`
   - `node --test test/responsibility-assignment-management.test.js`
+  - `node --test test/academic-oversight.test.js`
   - `node --test test/homework.test.js`
   - `node --test test/section-material.test.js`
   - `node --test test/authorization-permission.test.js`
@@ -1721,6 +1722,93 @@
   - result: 20 passing
   - ran `node --test test/responsibility-assignment-management.test.js test/authorization-permission.test.js test/section-list-permission.test.js test/section-session-permission.test.js test/attendance.test.js test/section-material.test.js test/homework.test.js`
   - result: 108 passing
+- 2026-06-10 Head academic oversight read model:
+  - activated Head scoped read-only permissions: `academicRisk.read_scope`, `academicProfile.read_scope`, and `academicStanding.read_scope`
+  - verified Head still does not receive section/session/attendance operational scoped permissions, and coordinator/mentor catalogs remain unchanged
+  - added dedicated read-only academic oversight routes for risk summary, scoped students list, and scoped student detail
+  - verified admin/owner institution-wide scope and active Head institution/department/classLevel scope resolution
+  - verified department scope derives through `Subject.departmentId -> Section.subjectId -> Enrollment`
+  - verified classLevel scope derives through `Subject.classLevelId` and `SchoolClass.classLevelId` relationships
+  - verified inactive, expired, cross-tenant, coordinator, mentor, student, and normal instructor access do not grant Head oversight
+  - verified query filters narrow but do not expand Head visibility
+  - verified attendance risk uses institution attendance policy fields and grade risk uses published assessment/result data
+  - verified missing standing/profile data returns safe null/empty values
+  - verified route/controller wiring passes actor context and uses auth/email/institution middleware
+  - verified mocked write methods for enrollment, attendance, assessment results, profiles, sections, and subjects are not called by list/summary reads
+  - ran `node --check src/services/academicOversightService.js`
+  - result: passed
+  - ran `node --check src/controllers/academicOversightController.js`
+  - result: passed
+  - ran `node --check src/auth/permissions.js`
+  - result: passed
+  - ran `node --check src/routes/institutionRoutes.js`
+  - result: passed
+  - ran `node --check test/academic-oversight.test.js`
+  - result: passed
+  - ran `node --test test/academic-oversight.test.js`
+  - result: 10 passing
+  - ran `node --test test/academic-oversight.test.js test/responsibility-assignment-management.test.js`
+  - result: 30 passing
+  - ran `node --test test/authorization-permission.test.js test/section-list-permission.test.js test/section-session-permission.test.js test/attendance.test.js`
+  - result: 43 passing
+  - ran `node --test test/academic-profile.test.js test/university-academic-standing-report.test.js`
+  - result: 26 passing
+  - ran `node --test test/school-outcome.test.js test/university-academic-outcome-foundation.test.js`
+  - result: 34 passing
+  - ran `node --test test/academic-oversight.test.js test/authorization-permission.test.js test/responsibility-assignment-management.test.js test/section-list-permission.test.js test/section-session-permission.test.js test/attendance.test.js test/academic-profile.test.js test/university-academic-standing-report.test.js`
+  - result: 99 passing
+  - note: there is no standalone `test/assessment.test.js`; assessment/result calculation coverage was verified through school and university outcome tests
+- 2026-06-11 Head academic oversight hardening:
+  - fixed grade risk so published assessments are counted only for students with active enrollments in the assessment section
+  - verified a visible Section B assessment no longer creates a missing result for a student enrolled only in Section A
+  - verified dropped/inactive enrollments do not pull assessments into a student's grade-risk calculation
+  - hardened query filtering so `departmentId`, `classLevelId`, `sectionId`, and `studentMemberId` narrow trusted student and related scope ids instead of only narrowing student ids
+  - verified Head department + section filtering returns only students in the filtered section, Head department + another department returns empty, class-level Head + outside section returns empty, and cross-tenant section filters return empty
+  - verified Department Head assignment ids are tenant-verified like ClassLevel ids; cross-tenant/invalid department and classLevel assignments fail closed
+  - verified tenant-owned Section/Subject/Enrollment/Assessment/AssessmentResult/AttendanceRecord reads include `institutionId`
+  - strengthened read-only test mocks so create/update/delete variants on tenant academic models throw if academic oversight calls them
+  - ran `node --check src/services/academicOversightService.js`
+  - result: passed
+  - ran `node --check test/academic-oversight.test.js`
+  - result: passed
+  - ran `node --test test/academic-oversight.test.js`
+  - result: 16 passing
+- 2026-06-11 Head academic oversight additive scope lock:
+  - locked V1 behavior so multiple independent Head assignments are additive OR grants
+  - verified a Math department assignment plus Grade 10 class-level assignment returns the union of both trusted scopes and does not infer Math AND Grade 10
+  - fixed query filter narrowing so department/classLevel metadata filters do not incorrectly clear students from a different valid assignment; concrete section filters still fail closed when outside the trusted union
+  - verified cross-tenant department, classLevel, and section filters return empty
+  - verified `AssessmentResult` reads remain scoped by `institutionId`, `sectionId`, `assessmentId`, and `studentMemberId`; `AssessmentResult.sectionId` is present and required in the model
+  - ran `node --check src/services/academicOversightService.js; node --check src/controllers/academicOversightController.js; node --check src/auth/permissions.js; node --check src/auth/scopedResponsibilities.js; node --check src/routes/institutionRoutes.js; node --check test/academic-oversight.test.js`
+  - result: passed
+  - ran `node --test test/academic-oversight.test.js`
+  - result: 18 passing
+  - ran `node --test test/academic-oversight.test.js test/responsibility-assignment-management.test.js test/authorization-permission.test.js test/section-list-permission.test.js test/section-session-permission.test.js test/attendance.test.js`
+  - result: 81 passing
+  - ran `node --test test/academic-profile.test.js test/university-academic-standing-report.test.js test/school-outcome.test.js test/university-academic-outcome-foundation.test.js`
+  - result: 60 passing
+- 2026-06-14 academic oversight and responsibility deactivation hardening:
+  - added actor membership/user binding coverage for academic oversight
+  - fixed attendance risk to build an active enrollment `studentMemberId -> sectionIds` map and count only same-student/same-section qualifying attendance records
+  - verified attendance from another authorized section, dropped/inactive enrollment section, and another student does not affect the target student's attendance risk
+  - changed zero qualifying attendance records to `attendanceRisk.level = unknown`
+  - verified risk list rows omit academic profile and academic standing fields unless the matching permission is explicitly checked through detail endpoints
+  - verified `academicProfile.read_scope` gates profile data and `academicStanding.read_scope` gates standing data
+  - verified successful standing calculation, genuine no-data standing, and unexpected calculation failure with `dataUnavailable=true`
+  - verified invalid published assessment configuration leaves grade risk `unknown` instead of making unusable data look good
+  - verified `AssessmentResult.sectionId` is required and populated by assessment create/update flows; duplicate results are DB-protected by `institutionId + assessmentId + enrollmentId`
+  - added generic `PATCH /institutions/:institutionId/responsibility-assignments/:assignmentId/deactivate` route coverage for Head, Coordinator, and Mentor assignments
+  - verified repeated deactivation remains safe, cross-tenant assignment deactivation is not found, unauthorized instructor/student actors are blocked, and deactivating one Coordinator assignment does not deactivate another scope
+  - ran `node --check src/services/academicOversightService.js; node --check src/controllers/academicOversightController.js; node --check src/routes/institutionRoutes.js; node --check test/academic-oversight.test.js; node --check test/responsibility-assignment-management.test.js`
+  - result: passed
+  - ran `node --test test/academic-oversight.test.js`
+  - result: 22 passing
+  - ran `node --test test/responsibility-assignment-management.test.js`
+  - result: 21 passing
+  - ran `node --test test/academic-oversight.test.js test/responsibility-assignment-management.test.js test/authorization-permission.test.js test/section-list-permission.test.js test/section-session-permission.test.js test/attendance.test.js`
+  - result: 86 passing
+  - ran `node --test test/academic-profile.test.js test/university-academic-standing-report.test.js test/school-outcome.test.js test/university-academic-outcome-foundation.test.js`
+  - result: 60 passing
 - TODO:
   - add real sample responses when helpful
   - add attendance response examples after first manual Postman pass

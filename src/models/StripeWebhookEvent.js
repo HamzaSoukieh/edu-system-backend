@@ -36,5 +36,6 @@ const stripeWebhookEventSchema = new mongoose.Schema(
 );
 
 stripeWebhookEventSchema.index({ stripeEventId: 1, status: 1 });
+stripeWebhookEventSchema.index({ status: 1, updatedAt: 1 });
 
 module.exports = mongoose.model("StripeWebhookEvent", stripeWebhookEventSchema);

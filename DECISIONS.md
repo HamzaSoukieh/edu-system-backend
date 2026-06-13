@@ -398,7 +398,7 @@
   - `ResponsibilityAssignment` is currently keyed by `institutionId + userId`, not `membershipId`; callers must always include `institutionId` when resolving responsibility authority.
   - Active/date checks still apply to responsibility assignments.
   - Active scoped catalog:
-    - `head`: no active permissions yet; assigned scopes are reserved for future academic/report oversight services.
+    - `head`: `academicRisk.read_scope`, `academicProfile.read_scope`, `academicStanding.read_scope` for the dedicated read-only academic oversight service.
     - `coordinator`: `section.read_scope`, `sectionSession.read_scope`, `sectionSession.manage_scope`, `attendance.read_scope`, `attendance.manage_scope`
     - `mentor`: no active scoped permissions yet, pending student/mentor-specific service enforcement.
   - Allowed responsibility scope combinations:
@@ -414,6 +414,27 @@
   - Duplicate active assignment creation for the same institution + user + responsibility type + scope is rejected; updates also check duplicate active assignments when changing scope or setting `isActive=true`; reusing the existing unique model key means a deactivated same-key row may be reactivated instead of inserting a second row.
   - Section read access for coordinator is resolved in `sectionService` into tenant-scoped `Section.find(...)` conditions derived from assigned department, class level, class, or section scopes.
   - Section-session and attendance scoped operations now check backend catalog permissions while deriving section, class, department, and class-level scope from trusted section/subject/class records.
-  - Head assignments do not grant generic operational section, section-session, attendance, schedule, homework, assessment, or material staff powers until dedicated academic/report oversight services exist.
+  - Head assignments do not grant generic operational section, section-session, attendance, schedule, homework, assessment, enrollment, result, membership, billing, or material staff powers.
   - Mentor responsibility does not grant generic staff section list/detail management scope.
-  - TODO/verify: do not activate `section.manage_scope`, `academicProfile.read_scope`, `studentProfile.read_scope`, `attendance.excuse_manage_scope`, `academicDecision.review_scope`, `enrollment.review_scope`, or `studentDropRisk.review_scope` until real service-level enforcement and tests exist.
+  - TODO/verify: do not activate `section.manage_scope`, `studentProfile.read_scope`, `attendance.excuse_manage_scope`, `academicDecision.review_scope`, `enrollment.review_scope`, or `studentDropRisk.review_scope` until real service-level enforcement and tests exist.
+
+## D050 - Head Academic Oversight Is Read-Only And Separate From Operational Endpoints
+- Status: Confirmed
+- Decision: Expose Head academic oversight through dedicated read-only routes instead of allowing Head to reuse coordinator/instructor operational endpoints.
+- Reason: Heads need visibility into academic profile, standing, attendance risk, and grade risk without gaining session, attendance, assessment, enrollment, or decision powers.
+- Notes:
+  - Head effective permissions are limited to `academicRisk.read_scope`, `academicProfile.read_scope`, and `academicStanding.read_scope`.
+  - Head allowed scopes remain `institution`, `department`, and `classLevel`; no class or section Head scope is added.
+  - The oversight resolver accepts owner/admin institution-wide access, or active same-tenant Head assignments with valid dates and backend-computed permissions.
+  - Academic oversight fails closed if the middleware-provided `actorMembership.userId` does not match the authenticated actor user.
+  - Multiple independent Head assignments are additive OR grants in V1. A Head assigned to Math department and Grade 10 class-level can see the union of Math-scope students and Grade 10-scope students; those two assignment rows are not reinterpreted as an implicit Math AND Grade 10 scope.
+  - If product needs AND-style scopes later, represent them with an explicit combined scope model/configuration rather than deriving combined meaning from separate `ResponsibilityAssignment` rows.
+  - Department Head scope first tenant-verifies assigned `Department` ids, then derives visible students through `Subject.departmentId`, same-tenant sections, and enrolled `Enrollment` rows.
+  - Class-level Head scope derives through `Subject.classLevelId` and `SchoolClass.classLevelId`, then same-tenant sections and enrolled rows.
+  - Optional filters can narrow the resolved student, section, subject, department, class-level, and school-class scope but cannot expand it.
+  - Risk list/summary reads require `academicRisk.read_scope` and return risk-only rows; academic profile fields require `academicProfile.read_scope`, and academic standing fields require `academicStanding.read_scope`.
+  - Attendance risk uses the existing `Institution.policies` attendance fields as response-only signals, but counts records only when the student has an active enrollment for the same section; no qualifying records is `unknown`.
+  - Grade risk is a conservative read-only projection over published `Assessment` and `AssessmentResult` rows, limited to each student's active enrolled sections so unrelated visible-section assessments do not become false missing results; invalid published assessment configuration does not make the student `good`; TODO/verify: replace fixed grade-risk bands with institution policy-aware rules if needed.
+  - `AssessmentResult.sectionId` is required and is populated from the parent assessment section in the assessment create/write flows. Duplicate result rows are DB-protected by `institutionId + assessmentId + enrollmentId`; TODO/verify whether a direct `institutionId + assessmentId + studentMemberId` unique index is needed later.
+  - University standing/profile summary reuses existing university academic outcome and standing calculations where available; school standing/profile remains compact/null until a school-specific standing/profile summary is needed; unexpected calculation failures return safe null fields with `dataUnavailable=true`.
+  - No write endpoints, student drops, removals, final decisions, attendance edits, grade/result edits, or enrollment changes are introduced.

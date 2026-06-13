@@ -1,0 +1,218 @@
+{
+  "info": {
+    "name": "Edu SaaS Stripe Billing APIs",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+    "description": "Local Stripe Phase 1 billing checks for login, institution context, checkout session creation, billing status, and webhook-driven subscription updates."
+  },
+  "item": [
+    {
+      "name": "00 Auth",
+      "item": [
+        {
+          "name": "Login Admin",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/auth/login",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{adminEmail}}\",\n  \"password\": \"{{adminPassword}}\"\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('login returns 200', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "let json = {};",
+                  "try { json = pm.response.json(); } catch (error) {}",
+                  "if (json.accessToken) {",
+                  "  pm.environment.set('accessToken', json.accessToken);",
+                  "}",
+                  "if (json.user?.id) {",
+                  "  pm.environment.set('adminUserId', json.user.id);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Get My Institution Context",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
+            ],
+            "url": "{{baseUrl}}/institutions/me"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('institution context returns 200', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "let json = {};",
+                  "try { json = pm.response.json(); } catch (error) {}",
+                  "const institutionId = json.activeInstitutionId || json.institutions?.[0]?.institutionId;",
+                  "if (institutionId) {",
+                  "  pm.environment.set('institutionId', institutionId);",
+                  "}",
+                  "const institutionName = json.institutions?.find((item) => item.institutionId === institutionId)?.name || json.institutions?.[0]?.name;",
+                  "if (institutionName) {",
+                  "  pm.environment.set('institutionName', institutionName);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "01 Billing",
+      "item": [
+        {
+          "name": "Get Billing Status",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
+            ],
+            "url": "{{baseUrl}}/institutions/{{institutionId}}/billing/status"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('billing status returns 200', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "let json = {};",
+                  "try { json = pm.response.json(); } catch (error) {}",
+                  "const profile = json.billingProfile;",
+                  "if (profile) {",
+                  "  pm.environment.set('billingStatus', profile.status || 'none');",
+                  "  pm.environment.set('stripeCustomerId', profile.stripeCustomerId || '');",
+                  "  pm.environment.set('stripeSubscriptionId', profile.stripeSubscriptionId || '');",
+                  "  pm.environment.set('stripePriceId', profile.stripePriceId || '');",
+                  "} else {",
+                  "  pm.environment.set('billingStatus', 'none');",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Create Checkout Session",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/institutions/{{institutionId}}/billing/checkout-session",
+            "body": {
+              "mode": "raw",
+              "raw": "{}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('checkout session is created', function () {",
+                  "  pm.response.to.have.status(201);",
+                  "});",
+                  "",
+                  "let json = {};",
+                  "try { json = pm.response.json(); } catch (error) {}",
+                  "if (json.checkoutSession?.id) {",
+                  "  pm.environment.set('checkoutSessionId', json.checkoutSession.id);",
+                  "}",
+                  "if (json.checkoutSession?.url) {",
+                  "  pm.environment.set('checkoutUrl', json.checkoutSession.url);",
+                  "  console.log('Open this Stripe Checkout URL:', json.checkoutSession.url);",
+                  "}",
+                  "if (json.billingProfile?.stripeCustomerId) {",
+                  "  pm.environment.set('stripeCustomerId', json.billingProfile.stripeCustomerId);",
+                  "}",
+                  "if (json.billingProfile?.stripePriceId) {",
+                  "  pm.environment.set('stripePriceId', json.billingProfile.stripePriceId);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Get Billing Status After Checkout/Webhooks",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
+            ],
+            "url": "{{baseUrl}}/institutions/{{institutionId}}/billing/status"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('billing status returns 200', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "let json = {};",
+                  "try { json = pm.response.json(); } catch (error) {}",
+                  "const profile = json.billingProfile;",
+                  "if (profile) {",
+                  "  pm.environment.set('billingStatus', profile.status || 'none');",
+                  "  pm.environment.set('stripeSubscriptionId', profile.stripeSubscriptionId || '');",
+                  "  pm.environment.set('stripePriceId', profile.stripePriceId || '');",
+                  "}"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

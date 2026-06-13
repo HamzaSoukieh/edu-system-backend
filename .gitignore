@@ -1,5 +1,10 @@
-node_modules
+node_modules/
 .env
+.env.*
+!.env.example
+!.env.docker.example
+!.env.production.example
 uploads/
 storage/
 postman/*.local.postman_environment.json
+scripts/seed-output/*.json

@@ -895,6 +895,109 @@ test("non-admin update/delete is rejected and tenant-scoped update/get/delete ca
     );
 });
 
+test("generic deactivation supports head coordinator and mentor without touching other assignments", async (t) => {
+    const headAssignmentId = "507f1f77bcf86cd799439052";
+    const mentorAssignmentId = "507f1f77bcf86cd799439053";
+    const otherCoordinatorAssignmentId = "507f1f77bcf86cd799439054";
+    const data = mockResponsibilityAssignmentDependencies(t, {
+        assignments: [
+            buildAssignment({ _id: assignmentId, responsibilityType: "coordinator", scopeType: "section", scopeId: sectionId }),
+            buildAssignment({ _id: headAssignmentId, responsibilityType: "head", scopeType: "department", scopeId: departmentId }),
+            buildAssignment({ _id: mentorAssignmentId, responsibilityType: "mentor", scopeType: "section", scopeId: sectionId }),
+            buildAssignment({ _id: otherCoordinatorAssignmentId, responsibilityType: "coordinator", scopeType: "section", scopeId: otherSectionId }),
+            buildAssignment({ _id: "507f1f77bcf86cd799439055", institutionId: otherInstitutionId, scopeId: otherSectionId }),
+        ],
+    });
+
+    const coordinator = await responsibilityAssignmentService.deactivateResponsibilityAssignment({
+        institutionId,
+        assignmentId,
+        ...adminActor(),
+    });
+    assert.equal(coordinator.responsibilityAssignment.isActive, false);
+
+    const repeated = await responsibilityAssignmentService.deactivateResponsibilityAssignment({
+        institutionId,
+        assignmentId,
+        ...adminActor(),
+    });
+    assert.equal(repeated.responsibilityAssignment.isActive, false);
+
+    const head = await responsibilityAssignmentService.deactivateResponsibilityAssignment({
+        institutionId,
+        assignmentId: headAssignmentId,
+        ...adminActor(),
+    });
+    assert.equal(head.responsibilityAssignment.responsibilityType, "head");
+    assert.equal(head.responsibilityAssignment.isActive, false);
+
+    const mentor = await responsibilityAssignmentService.deactivateResponsibilityAssignment({
+        institutionId,
+        assignmentId: mentorAssignmentId,
+        ...adminActor(),
+    });
+    assert.equal(mentor.responsibilityAssignment.responsibilityType, "mentor");
+    assert.equal(mentor.responsibilityAssignment.isActive, false);
+
+    const selectedCoordinator = data.assignments.find((assignment) => assignment._id === assignmentId);
+    const otherCoordinator = data.assignments.find((assignment) => assignment._id === otherCoordinatorAssignmentId);
+    assert.equal(selectedCoordinator.isActive, false);
+    assert.equal(otherCoordinator.isActive, true);
+    assert.equal(
+        hasResponsibilityPermissionWithinScope({
+            assignment: selectedCoordinator,
+            permission: "section.read_scope",
+            scopeType: "section",
+            scopeId: sectionId,
+        }),
+        false
+    );
+    assert.equal(
+        hasResponsibilityPermissionWithinScope({
+            assignment: otherCoordinator,
+            permission: "section.read_scope",
+            scopeType: "section",
+            scopeId: otherSectionId,
+        }),
+        true
+    );
+
+    await assertRejectsWith(
+        () =>
+            responsibilityAssignmentService.deactivateResponsibilityAssignment({
+                institutionId,
+                assignmentId: "507f1f77bcf86cd799439055",
+                ...adminActor(),
+            }),
+        404,
+        "Responsibility assignment not found"
+    );
+
+    await assertRejectsWith(
+        () =>
+            responsibilityAssignmentService.deactivateResponsibilityAssignment({
+                institutionId,
+                assignmentId: otherCoordinatorAssignmentId,
+                actorUserId: instructorUserId,
+                actorMembership: buildMembership({ _id: instructorMembershipId, userId: instructorUserId, role: "instructor" }),
+            }),
+        403,
+        "Permission denied"
+    );
+
+    await assertRejectsWith(
+        () =>
+            responsibilityAssignmentService.deactivateResponsibilityAssignment({
+                institutionId,
+                assignmentId: otherCoordinatorAssignmentId,
+                actorUserId: studentUserId,
+                actorMembership: buildMembership({ _id: studentMembershipId, userId: studentUserId, role: "student" }),
+            }),
+        403,
+        "Permission denied"
+    );
+});
+
 test("list/get are admin scoped, filters are safe, and permissions are omitted", async (t) => {
     const data = mockResponsibilityAssignmentDependencies(t, {
         assignments: [
@@ -1034,7 +1137,7 @@ test("controller passes actor context and route exposes responsibility assignmen
         .map((layer) => layer.route)
         .filter((route) => String(route.path).includes("responsibility-assignments"));
 
-    assert.equal(routes.length, 5);
+    assert.equal(routes.length, 6);
     for (const route of routes) {
         const handles = route.stack.map((layer) => layer.handle);
         assert.equal(handles.some((handle) => handle.requiredPermission), false);
@@ -1044,7 +1147,11 @@ test("controller passes actor context and route exposes responsibility assignmen
 test("regression: base admin permissions and scoped responsibility catalog remain unchanged", () => {
     assert.equal(ROLE_PERMISSIONS.admin.includes("membership.manage"), true);
     assert.equal(ROLE_PERMISSIONS.instructor.includes("membership.manage"), false);
-    assert.deepEqual(RESPONSIBILITY_PERMISSIONS.head, []);
+    assert.equal(RESPONSIBILITY_PERMISSIONS.head.includes("academicRisk.read_scope"), true);
+    assert.equal(RESPONSIBILITY_PERMISSIONS.head.includes("academicProfile.read_scope"), true);
+    assert.equal(RESPONSIBILITY_PERMISSIONS.head.includes("academicStanding.read_scope"), true);
+    assert.equal(RESPONSIBILITY_PERMISSIONS.head.includes("section.read_scope"), false);
+    assert.equal(RESPONSIBILITY_PERMISSIONS.head.includes("attendance.manage_scope"), false);
     assert.deepEqual(RESPONSIBILITY_PERMISSIONS.mentor, []);
     assert.equal(RESPONSIBILITY_PERMISSIONS.coordinator.includes("section.read_scope"), true);
     assert.equal(RESPONSIBILITY_PERMISSIONS.coordinator.includes("attendance.manage_scope"), true);

@@ -119,6 +119,7 @@
 - `GET /institutions/:institutionId/responsibility-assignments`
 - `GET /institutions/:institutionId/responsibility-assignments/:assignmentId`
 - `PATCH /institutions/:institutionId/responsibility-assignments/:assignmentId`
+- `PATCH /institutions/:institutionId/responsibility-assignments/:assignmentId/deactivate`
 - `DELETE /institutions/:institutionId/responsibility-assignments/:assignmentId`
 - Current implemented rules:
   - owner/admin-only management; authority comes from institution ownership or base `Membership.role` permissions such as `membership.manage`
@@ -135,10 +136,37 @@
   - scope records are validated as same-institution records; institution scope requires `scopeId` to match route `institutionId`
   - date inputs must be valid dates, and `endAt` cannot be before `startAt`
   - duplicate active same institution + user + responsibility type + scope assignment creation is rejected; update also checks duplicates when changing scope or setting `isActive=true`
-  - delete is a deactivation flow that sets `isActive=false` and sets `endAt` to now when needed
+  - `PATCH /:assignmentId/deactivate` and `DELETE /:assignmentId` both use the same generic soft-deactivation flow for Head, Coordinator, and Mentor assignments; they set `isActive=false`, set `endAt` to now when needed, and preserve assignment history
   - list supports safe filters: `userId`, `responsibilityType`, `scopeType`, `scopeId`, `isActive`, `activeNow`, `page`, and `limit`
   - responses omit `permissions`; authorization helpers continue to compute effective scoped permissions from the backend catalog
   - TODO/verify: full date-window overlap handling is deferred beyond the current conservative active duplicate guard
+
+### Academic Oversight
+- `GET /institutions/:institutionId/academic-oversight/risk-summary`
+- `GET /institutions/:institutionId/academic-oversight/students`
+- `GET /institutions/:institutionId/academic-oversight/students/:studentMemberId`
+- `GET /institutions/:institutionId/academic-oversight/students/:studentMemberId/standing`
+- Current implemented rules:
+  - dedicated read-only Head academic oversight module; it does not reuse operational attendance/session/assessment/enrollment endpoints
+  - owner/admin can read institution-wide oversight
+  - Head can read only through active same-tenant scoped `ResponsibilityAssignment` rows using backend-computed `academicRisk.read_scope`, `academicProfile.read_scope`, and `academicStanding.read_scope`
+  - actor membership context must belong to the authenticated actor user and the same institution, with active status
+  - Head scopes remain `institution`, `department`, and `classLevel`
+  - multiple Head assignments are additive OR grants; query filters narrow the authorized union and do not reinterpret independent department/classLevel assignments as an implicit AND scope
+  - future AND-style Head visibility such as Math + Grade 10 should be modeled as an explicit combined scope, not inferred from two separate assignments
+  - department scope tenant-verifies assigned `Department` ids, then derives students through `Subject.departmentId -> Section.subjectId -> Enrollment.studentMemberId`
+  - class-level scope derives through `Subject.classLevelId` and `SchoolClass.classLevelId -> Section -> Enrollment`
+  - query filters such as `departmentId`, `classLevelId`, `sectionId`, `studentMemberId`, `search`, and `riskLevel` can narrow but not expand the resolved scope; relationship filters narrow related section, subject, department, class-level, and school-class ids where practical
+  - risk summary and list rows require `academicRisk.read_scope` and return compact student identity, attendance risk, grade risk, combined risk, and reasons; they do not return academic profile or standing fields
+  - student detail requires `academicProfile.read_scope` and returns academic profile fields; student standing detail requires `academicStanding.read_scope` and returns academic standing fields
+  - attendance risk uses existing `Institution.policies` attendance fields without changing enrollments or attendance records; attendance records count only when the student has an active enrollment for that exact section, and zero qualifying records returns `unknown`
+  - grade risk uses published `Assessment` and `AssessmentResult` rows without changing grades/results and counts only assessments from each student's own active enrolled sections
+  - invalid published assessment configuration leaves grade risk `unknown` unless valid assessment data independently establishes warning/high risk
+  - university standing/profile summary reuses existing university outcome + standing calculations when available; unexpected calculation failures return safe null fields with `dataUnavailable=true`
+  - `AssessmentResult.sectionId` is present and required; assessment create snapshots rows with the parent assessment section, and result updates are tenant + section + assessment scoped
+  - no writes are performed to enrollment, attendance, assessment results, academic profiles, sections, subjects, sessions, schedules, final decisions, or standing snapshots
+  - TODO/verify: `AssessmentResult` has a unique index on `institutionId + assessmentId + enrollmentId`; there is no direct unique index on `institutionId + assessmentId + studentMemberId`
+  - TODO/verify: grade-risk bands are conservative V1 defaults and may need institution policy configuration later
 
 ## In Progress
 

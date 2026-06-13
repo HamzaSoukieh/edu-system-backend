@@ -26,7 +26,11 @@ const ROLE_PERMISSIONS = {
 };
 
 const RESPONSIBILITY_PERMISSIONS = {
-    head: [],
+    head: [
+        "academicRisk.read_scope",
+        "academicProfile.read_scope",
+        "academicStanding.read_scope",
+    ],
     coordinator: [
         "section.read_scope",
         "sectionSession.read_scope",

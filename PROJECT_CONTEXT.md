@@ -108,7 +108,8 @@
   - assignment targets must be active same-institution instructor memberships; students and admins are not eligible targets
   - create/update payloads do not accept `permissions`, membership role changes, tenant override ids, or audit actor fields
   - active scoped catalog currently grants coordinator section read, section-session read/manage, and attendance read/manage only where services enforce those scoped checks
-  - head currently has allowed assignment scopes but no active operational permissions until academic/report oversight services enforce safe scoped checks
+  - head now has read-only academic oversight permissions for academic risk, academic profile, and academic standing where the dedicated academic oversight service enforces trusted DB-derived scope
+  - head still has no operational section, section-session, attendance, assessment, enrollment, billing, or membership management permissions
   - mentor currently has allowed assignment scopes but no active scoped permissions until student/mentor-specific service enforcement exists
   - responsibility/scope combinations are backend-defined and validated
   - used by selected section-derived read/oversight flows, not as new membership roles
@@ -387,6 +388,27 @@
   - keeps school and university calculation logic inside the institution-specific providers
   - student self route returns only the authenticated student's own profile
   - admin/staff route currently uses route-level `membership.manage` plus provider-level school `class.manage` / university `section.manage`
+- Head Academic Oversight Read Model
+  - dedicated read-only routes under `/institutions/:institutionId/academic-oversight`
+  - routes expose risk summary, scoped student list, and one scoped student detail
+  - service-level access allows owner/admin institution-wide visibility or active Head `ResponsibilityAssignment` rows with backend-computed `academicRisk.read_scope` / `academicProfile.read_scope`
+  - actor membership context must belong to the authenticated actor user and be active in the route institution
+  - Head scopes remain `institution`, `department`, and `classLevel` only
+  - multiple independent Head assignments are additive OR grants in V1; adding a department assignment and a class-level assignment expands visibility to the union of both trusted scopes rather than creating an implicit department/class-level AND
+  - if product needs combined scopes such as Math + Grade 10 later, model that as an explicit combined scope instead of inferring it from two independent `ResponsibilityAssignment` rows
+  - department scope derives students through `Subject.departmentId -> Section.subjectId -> Enrollment.studentMemberId`
+  - department assignment ids are tenant-verified before deriving Head scope; invalid/cross-tenant department assignments fail closed
+  - class-level scope derives through `Subject.classLevelId` and `SchoolClass.classLevelId` before intersecting with enrolled sections
+  - optional query filters narrow the trusted scope across student, section, subject, department, class-level, and school-class ids; filters cannot expand Head access
+  - risk list/summary rows are gated by `academicRisk.read_scope` and do not expose academic profile or standing fields; profile and standing detail data are gated by `academicProfile.read_scope` and `academicStanding.read_scope`
+  - summaries reuse existing `Institution.policies` attendance risk semantics and existing published `Assessment` / `AssessmentResult` data for a conservative grade-risk read model
+  - attendance risk counts only attendance records where the student has a current active enrollment for the exact attendance section; zero qualifying records is `unknown`
+  - grade risk is calculated only from published assessments in each student's own active enrolled sections; dropped/inactive section assessments do not count as missing results
+  - invalid published assessment configuration leaves grade risk `unknown` unless valid assessment data independently establishes warning/high risk
+  - university standing/profile summary reuses existing university outcome + standing calculations when available; school standing/profile fields stay safe null/compact values for now; unexpected calculation failures return safe null fields with `dataUnavailable=true`
+  - read-only; does not update attendance, results, enrollments, standing, grades, sessions, schedules, sections, subjects, or final decisions
+  - TODO/verify: `AssessmentResult` prevents duplicates by `institutionId + assessmentId + enrollmentId`, not by a direct `assessmentId + studentMemberId` unique index
+  - TODO/verify: replace the simple grade-risk threshold with institution policy-aware risk rules if product needs configurable risk bands
 
 ## Next Likely Modules
 - School final outcome cancellation / recompute workflow and report-card final-outcome linking
@@ -424,6 +446,7 @@
 - Verify whether `lecture` / `lab` should remain the long-term shared `sessionType` enum for school support.
 - Verify whether session cancellation should later support richer notification flows beyond basic email.
 - Verify whether attendance should later support coordinator/admin oversight after instructor-first flow is stable.
+- Verify whether Head academic oversight grade-risk thresholds should become policy-configurable instead of the current conservative read-only defaults.
 - Verify whether old section schedules without `schedule[].sessionType` should get a dedicated backfill path before bulk session generation is used broadly.
 - Verify whether school policy `schoolStageId` should later point to a first-class tenant model instead of the current validated opaque ObjectId scope id.
 - Verify whether school yearly subject aggregation should later require full semester coverage instead of averaging over available weighted semesters when some results are missing.

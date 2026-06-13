@@ -21,6 +21,7 @@ const homeworkController = require("../controllers/homeworkController");
 const sectionMaterialController = require("../controllers/sectionMaterialController");
 const billingController = require("../controllers/billingController");
 const responsibilityAssignmentController = require("../controllers/responsibilityAssignmentController");
+const academicOversightController = require("../controllers/academicOversightController");
 const academicProfileController = require("../controllers/academicProfileController");
 const academicYearController = require("../controllers/academicYearController");
 const universityAcademicStandingController = require("../controllers/universityAcademicStandingController");
@@ -96,12 +97,47 @@ router.patch(
     institutionAccess(),
     responsibilityAssignmentController.updateResponsibilityAssignment
 );
+router.patch(
+    "/:institutionId/responsibility-assignments/:assignmentId/deactivate",
+    authJwt,
+    requireEmailVerified,
+    institutionAccess(),
+    responsibilityAssignmentController.deactivateResponsibilityAssignment
+);
 router.delete(
     "/:institutionId/responsibility-assignments/:assignmentId",
     authJwt,
     requireEmailVerified,
     institutionAccess(),
     responsibilityAssignmentController.deactivateResponsibilityAssignment
+);
+router.get(
+    "/:institutionId/academic-oversight/risk-summary",
+    authJwt,
+    requireEmailVerified,
+    institutionAccess(),
+    academicOversightController.getAcademicOversightRiskSummary
+);
+router.get(
+    "/:institutionId/academic-oversight/students",
+    authJwt,
+    requireEmailVerified,
+    institutionAccess(),
+    academicOversightController.listAcademicOversightStudents
+);
+router.get(
+    "/:institutionId/academic-oversight/students/:studentMemberId",
+    authJwt,
+    requireEmailVerified,
+    institutionAccess(),
+    academicOversightController.getAcademicOversightStudent
+);
+router.get(
+    "/:institutionId/academic-oversight/students/:studentMemberId/standing",
+    authJwt,
+    requireEmailVerified,
+    institutionAccess(),
+    academicOversightController.getAcademicOversightStudentStanding
 );
 router.post(
     "/:institutionId/academic-years",

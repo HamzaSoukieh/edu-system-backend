@@ -14,6 +14,8 @@ const otherInstitutionId = "507f1f77bcf86cd799439012";
 const ownerUserId = "507f1f77bcf86cd799439021";
 const adminMemberId = "507f1f77bcf86cd799439031";
 const studentMemberId = "507f1f77bcf86cd799439032";
+const staleWebhookUpdatedAt = new Date(Date.now() - 11 * 60 * 1000);
+const freshWebhookUpdatedAt = new Date(Date.now() - 2 * 60 * 1000);
 
 function createQuery(result) {
     return {
@@ -33,6 +35,52 @@ function normalizeId(value) {
 
 function matchesId(value, condition) {
     return normalizeId(value) === normalizeId(condition);
+}
+
+function matchesLessThanDate(value, condition) {
+    if (!condition || condition.$lt === undefined) {
+        return true;
+    }
+
+    if (!value) {
+        return false;
+    }
+
+    return new Date(value).getTime() < new Date(condition.$lt).getTime();
+}
+
+function matchesWebhookEventFilter(event, filter) {
+    if (!event || event.stripeEventId !== filter.stripeEventId) {
+        return false;
+    }
+
+    if (filter.status !== undefined && event.status !== filter.status) {
+        return false;
+    }
+
+    if (!Array.isArray(filter.$or)) {
+        return true;
+    }
+
+    return filter.$or.some((condition) => {
+        if (condition.status !== undefined && event.status !== condition.status) {
+            return false;
+        }
+
+        if (condition.updatedAt === null && event.updatedAt !== null && event.updatedAt !== undefined) {
+            return false;
+        }
+
+        if (condition.updatedAt && !matchesLessThanDate(event.updatedAt, condition.updatedAt)) {
+            return false;
+        }
+
+        if (condition.createdAt && !matchesLessThanDate(event.createdAt, condition.createdAt)) {
+            return false;
+        }
+
+        return true;
+    });
 }
 
 function buildInstitution(overrides = {}) {
@@ -196,11 +244,7 @@ function mockBillingDependencies(t, dataset = {}) {
     });
     t.mock.method(StripeWebhookEvent, "findOneAndUpdate", (filter, update) => {
         data.queryLog.push({ model: "StripeWebhookEvent", method: "findOneAndUpdate", query: filter, update });
-        if (
-            !data.webhookEvent ||
-            data.webhookEvent.stripeEventId !== filter.stripeEventId ||
-            (filter.status !== undefined && data.webhookEvent.status !== filter.status)
-        ) {
+        if (!matchesWebhookEventFilter(data.webhookEvent, filter)) {
             return createQuery(null);
         }
 
@@ -226,8 +270,8 @@ function buildStripeMock(overrides = {}) {
 
     const client = {
         customers: {
-            create: async (payload) => {
-                calls.customersCreate.push(payload);
+            create: async (payload, options) => {
+                calls.customersCreate.push({ ...payload, options });
                 return { id: "cus_new" };
             },
         },
@@ -290,6 +334,21 @@ test("billing models validate subscription status and expose tenant indexes", as
         type: "customer.subscription.updated",
     });
     await assert.doesNotReject(() => event.validate());
+    assert.equal(event.status, "processing");
+
+    for (const status of ["processing", "processed", "failed"]) {
+        const statusEvent = new StripeWebhookEvent({
+            stripeEventId: `evt_${status}`,
+            type: "customer.subscription.updated",
+            status,
+        });
+        await assert.doesNotReject(() => statusEvent.validate());
+    }
+
+    const nullCustomerProfileA = new InstitutionBillingProfile({ institutionId });
+    const nullCustomerProfileB = new InstitutionBillingProfile({ institutionId: otherInstitutionId });
+    await assert.doesNotReject(() => nullCustomerProfileA.validate());
+    await assert.doesNotReject(() => nullCustomerProfileB.validate());
 
     const profileIndexesWithOptions = InstitutionBillingProfile.schema.indexes();
     const profileIndexes = profileIndexesWithOptions.map(([fields]) => fields);
@@ -315,6 +374,7 @@ test("billing models validate subscription status and expose tenant indexes", as
 
     const eventIndexes = StripeWebhookEvent.schema.indexes().map(([fields]) => fields);
     assert.ok(eventIndexes.some((fields) => fields.stripeEventId === 1));
+    assert.ok(eventIndexes.some((fields) => fields.status === 1 && fields.updatedAt === 1));
 });
 
 test("checkout session creates Stripe customer and tenant-scoped billing profile", async (t) => {
@@ -333,6 +393,7 @@ test("checkout session creates Stripe customer and tenant-scoped billing profile
     assert.equal(result.billingProfile.stripeCustomerId, "cus_new");
     assert.equal(calls.customersCreate.length, 1);
     assert.deepEqual(calls.customersCreate[0].metadata, { institutionId });
+    assert.equal(calls.customersCreate[0].options.idempotencyKey, `customer:create:${institutionId}`);
     assert.equal(calls.checkoutSessionsCreate.length, 1);
     assert.equal(calls.checkoutSessionsCreate[0].mode, "subscription");
     assert.equal(calls.checkoutSessionsCreate[0].customer, "cus_new");
@@ -347,7 +408,11 @@ test("checkout session creates Stripe customer and tenant-scoped billing profile
 test("checkout session reuses existing Stripe customer", async (t) => {
     withBillingEnv(t);
     mockBillingDependencies(t, {
-        billingProfile: buildBillingProfile({ stripeCustomerId: "cus_existing" }),
+        billingProfile: buildBillingProfile({
+            stripeCustomerId: "cus_existing",
+            stripeSubscriptionId: null,
+            status: null,
+        }),
     });
     const { client, calls } = buildStripeMock();
     billingService.setStripeClientForTests(client);
@@ -360,6 +425,62 @@ test("checkout session reuses existing Stripe customer", async (t) => {
 
     assert.equal(result.billingProfile.stripeCustomerId, "cus_existing");
     assert.equal(calls.customersCreate.length, 0);
+    assert.equal(calls.checkoutSessionsCreate[0].customer, "cus_existing");
+});
+
+for (const status of ["active", "trialing", "past_due"]) {
+    test(`checkout session rejects institution with ${status} subscription`, async (t) => {
+        withBillingEnv(t);
+        mockBillingDependencies(t, {
+            billingProfile: buildBillingProfile({
+                stripeCustomerId: "cus_existing",
+                stripeSubscriptionId: `sub_${status}`,
+                status,
+            }),
+        });
+        const { client, calls } = buildStripeMock();
+        billingService.setStripeClientForTests(client);
+
+        await assert.rejects(
+            () =>
+                billingService.createCheckoutSession({
+                    institutionId,
+                    actorUserId: ownerUserId,
+                    actorMembership: buildMembership(),
+                }),
+            (error) => {
+                assert.equal(error.statusCode, 409);
+                assert.equal(error.message, "Institution already has an active subscription");
+                return true;
+            }
+        );
+
+        assert.equal(calls.customersCreate.length, 0);
+        assert.equal(calls.checkoutSessionsCreate.length, 0);
+    });
+}
+
+test("checkout session allows canceled subscription profile to start a new session", async (t) => {
+    withBillingEnv(t);
+    mockBillingDependencies(t, {
+        billingProfile: buildBillingProfile({
+            stripeCustomerId: "cus_existing",
+            stripeSubscriptionId: "sub_canceled",
+            status: "canceled",
+        }),
+    });
+    const { client, calls } = buildStripeMock();
+    billingService.setStripeClientForTests(client);
+
+    const result = await billingService.createCheckoutSession({
+        institutionId,
+        actorUserId: ownerUserId,
+        actorMembership: buildMembership(),
+    });
+
+    assert.equal(result.checkoutSession.url, "https://checkout.stripe.test/session");
+    assert.equal(calls.customersCreate.length, 0);
+    assert.equal(calls.checkoutSessionsCreate.length, 1);
     assert.equal(calls.checkoutSessionsCreate[0].customer, "cus_existing");
 });
 
@@ -472,6 +593,7 @@ test("stripe webhook duplicate events are ignored before processing", async (t) 
             stripeEventId: "evt_duplicate",
             type: "customer.subscription.updated",
             status: "processed",
+            updatedAt: freshWebhookUpdatedAt,
         },
     });
 
@@ -488,6 +610,104 @@ test("stripe webhook duplicate events are ignored before processing", async (t) 
 
     assert.deepEqual(result, { received: true, duplicate: true });
     assert.equal(data.queryLog.some((entry) => entry.model === "InstitutionBillingProfile" && entry.method === "findOneAndUpdate"), false);
+});
+
+test("stripe webhook fresh processing event is treated as duplicate", async (t) => {
+    withBillingEnv(t);
+    const data = mockBillingDependencies(t, {
+        webhookEvent: {
+            stripeEventId: "evt_processing_fresh",
+            type: "customer.subscription.updated",
+            status: "processing",
+            updatedAt: freshWebhookUpdatedAt,
+            createdAt: freshWebhookUpdatedAt,
+        },
+    });
+
+    const result = await billingService.processStripeWebhookEvent({
+        id: "evt_processing_fresh",
+        type: "customer.subscription.updated",
+        data: {
+            object: {
+                id: "sub_fresh",
+                customer: "cus_fresh",
+                status: "active",
+                current_period_end: 1782864000,
+                cancel_at_period_end: false,
+                trial_end: null,
+                metadata: { institutionId },
+                items: {
+                    data: [{ price: { id: "price_1TetMH3lPsyty9Ic5cBRcXvJ" } }],
+                },
+            },
+        },
+    });
+
+    assert.deepEqual(result, { received: true, duplicate: true });
+    assert.equal(data.webhookEvent.status, "processing");
+    assert.equal(data.queryLog.some((entry) => entry.model === "InstitutionBillingProfile" && entry.method === "findOneAndUpdate"), false);
+
+    const reclaimAttempt = data.queryLog.find(
+        (entry) =>
+            entry.model === "StripeWebhookEvent" &&
+            entry.method === "findOneAndUpdate" &&
+            Array.isArray(entry.query.$or)
+    );
+    assert.equal(reclaimAttempt.query.stripeEventId, "evt_processing_fresh");
+});
+
+test("stripe webhook stale processing event is reclaimed and retried", async (t) => {
+    withBillingEnv(t);
+    const data = mockBillingDependencies(t, {
+        webhookEvent: {
+            stripeEventId: "evt_processing_stale",
+            type: "customer.subscription.updated",
+            status: "processing",
+            processedAt: new Date("2026-06-01T00:00:00.000Z"),
+            errorMessage: "server crashed",
+            updatedAt: staleWebhookUpdatedAt,
+            createdAt: staleWebhookUpdatedAt,
+        },
+    });
+
+    const result = await billingService.processStripeWebhookEvent({
+        id: "evt_processing_stale",
+        type: "customer.subscription.updated",
+        data: {
+            object: {
+                id: "sub_stale",
+                customer: "cus_stale",
+                status: "active",
+                current_period_end: 1782864000,
+                cancel_at_period_end: false,
+                trial_end: null,
+                metadata: { institutionId },
+                items: {
+                    data: [{ price: { id: "price_1TetMH3lPsyty9Ic5cBRcXvJ" } }],
+                },
+            },
+        },
+    });
+
+    assert.deepEqual(result, { received: true, duplicate: false });
+    assert.equal(data.webhookEvent.status, "processed");
+    assert.equal(data.webhookEvent.errorMessage, null);
+
+    const retryClaim = data.queryLog.find(
+        (entry) =>
+            entry.model === "StripeWebhookEvent" &&
+            entry.method === "findOneAndUpdate" &&
+            Array.isArray(entry.query.$or) &&
+            entry.update.$set?.status === "processing"
+    );
+    assert.equal(retryClaim.query.stripeEventId, "evt_processing_stale");
+    assert.equal(retryClaim.update.$set.processedAt, null);
+    assert.equal(retryClaim.update.$set.errorMessage, null);
+
+    const profileUpdate = data.queryLog.find(
+        (entry) => entry.model === "InstitutionBillingProfile" && entry.method === "findOneAndUpdate"
+    );
+    assert.equal(normalizeId(profileUpdate.query.institutionId), institutionId);
 });
 
 test("subscription webhook updates tenant billing profile and records event", async (t) => {
@@ -514,6 +734,7 @@ test("subscription webhook updates tenant billing profile and records event", as
     });
 
     assert.deepEqual(result, { received: true, duplicate: false });
+    assert.equal(data.webhookEvent.status, "processed");
     const profileUpdate = data.queryLog.find((entry) => entry.model === "InstitutionBillingProfile" && entry.method === "findOneAndUpdate");
     assert.equal(normalizeId(profileUpdate.query.institutionId), institutionId);
     assert.equal(profileUpdate.update.$set.stripeSubscriptionId, "sub_123");
@@ -570,7 +791,8 @@ test("failed webhook processing marks failed and allows retry", async (t) => {
         (entry) =>
             entry.model === "StripeWebhookEvent" &&
             entry.method === "findOneAndUpdate" &&
-            entry.query.status === "failed" &&
+            Array.isArray(entry.query.$or) &&
+            entry.query.$or.some((condition) => condition.status === "failed") &&
             entry.update.$set?.status === "processing"
     );
     assert.equal(retryClaim.query.stripeEventId, "evt_retry");
