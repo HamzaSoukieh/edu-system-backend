@@ -571,10 +571,16 @@ test("permission catalog activates Head academic read-only permissions only", ()
     assert.equal(RESPONSIBILITY_PERMISSIONS.head.includes("academicRisk.read_scope"), true);
     assert.equal(RESPONSIBILITY_PERMISSIONS.head.includes("academicProfile.read_scope"), true);
     assert.equal(RESPONSIBILITY_PERMISSIONS.head.includes("academicStanding.read_scope"), true);
+    assert.equal(RESPONSIBILITY_PERMISSIONS.head.includes("academicDecision.read_scope"), true);
+    assert.equal(RESPONSIBILITY_PERMISSIONS.head.includes("academicDecision.recommend_scope"), true);
     assert.equal(RESPONSIBILITY_PERMISSIONS.head.includes("section.read_scope"), false);
     assert.equal(RESPONSIBILITY_PERMISSIONS.head.includes("sectionSession.manage_scope"), false);
     assert.equal(RESPONSIBILITY_PERMISSIONS.head.includes("attendance.read_scope"), false);
     assert.equal(RESPONSIBILITY_PERMISSIONS.head.includes("attendance.manage_scope"), false);
+    assert.equal(RESPONSIBILITY_PERMISSIONS.head.includes("academicDecision.approve"), false);
+    assert.equal(RESPONSIBILITY_PERMISSIONS.head.includes("academicDecision.reject"), false);
+    assert.equal(RESPONSIBILITY_PERMISSIONS.head.includes("academicDecision.apply"), false);
+    assert.equal(RESPONSIBILITY_PERMISSIONS.head.includes("enrollment.drop"), false);
     assert.equal(RESPONSIBILITY_PERMISSIONS.coordinator.includes("attendance.manage_scope"), true);
     assert.deepEqual(RESPONSIBILITY_PERMISSIONS.mentor, []);
 

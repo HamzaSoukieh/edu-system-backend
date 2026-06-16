@@ -108,11 +108,27 @@
   - assignment targets must be active same-institution instructor memberships; students and admins are not eligible targets
   - create/update payloads do not accept `permissions`, membership role changes, tenant override ids, or audit actor fields
   - active scoped catalog currently grants coordinator section read, section-session read/manage, and attendance read/manage only where services enforce those scoped checks
-  - head now has read-only academic oversight permissions for academic risk, academic profile, and academic standing where the dedicated academic oversight service enforces trusted DB-derived scope
+  - head now has academic oversight read permissions plus AcademicDecision Phase 1 read/recommend permissions where dedicated services enforce trusted DB-derived scope
   - head still has no operational section, section-session, attendance, assessment, enrollment, billing, or membership management permissions
   - mentor currently has allowed assignment scopes but no active scoped permissions until student/mentor-specific service enforcement exists
   - responsibility/scope combinations are backend-defined and validated
   - used by selected section-derived read/oversight flows, not as new membership roles
+- `AcademicDecision`
+  - tenant-scoped review workflow record for academic decisions
+  - Phase 1 supports Head-created `enrollment_drop` recommendations for one exact `Enrollment`
+  - Phase 2 supports Admin/Owner approval or rejection of recommended enrollment-drop decisions
+  - Phase 3 supports Admin/Owner application of approved enrollment-drop decisions
+  - stores server-built evidence and scope snapshots for audit only
+  - keeps decision target identity and evidence/scope snapshots immutable after creation
+  - uses `isOpen` plus a partial unique index to allow only one open decision of the same type per enrollment; `recommended`, `approved`, and transient `applying` are open, while `rejected`, `applied`, and `cancelled` are closed
+  - historical Head list/get visibility uses current authorized section scope from ResponsibilityAssignments, not continued active enrollment
+  - unsupported Head scope types fail closed for decision matching
+  - application changes only the exact referenced Enrollment from `enrolled` to `dropped`; it does not deactivate Membership, delete records, remove Subject/Section links, change attendance, change assessment results, change standing, or write final outcomes
+- `Notification`
+  - tenant-scoped in-app notification record
+  - supports AcademicDecision review/cancellation/approval/rejection/application notifications plus student-facing enrollment-status notification
+  - notification identity/content is immutable after creation; `readAt` is the mutable read-state field
+  - notifications are addressed to `recipientUserId` and list/mark-read APIs are always scoped to the authenticated user
 
 ## Completed Modules
 - Auth
@@ -184,6 +200,7 @@
   - status update
   - one record per institution + section + student membership
   - capacity checks use current enrolled records
+  - AcademicDecision application uses an internal exact transition to set one approved Enrollment drop target to `dropped`
 - Section Sessions
   - create
   - generate many dated sessions from recurring section schedule
@@ -409,6 +426,27 @@
   - read-only; does not update attendance, results, enrollments, standing, grades, sessions, schedules, sections, subjects, or final decisions
   - TODO/verify: `AssessmentResult` prevents duplicates by `institutionId + assessmentId + enrollmentId`, not by a direct `assessmentId + studentMemberId` unique index
   - TODO/verify: replace the simple grade-risk threshold with institution policy-aware risk rules if product needs configurable risk bands
+- AcademicDecision Phases 1-3
+  - dedicated routes under `/institutions/:institutionId/academic-decisions`
+  - Head can recommend dropping one exact active/enrolled section `Enrollment` only inside trusted academic oversight scope using backend-computed `academicDecision.recommend_scope`
+  - Head can list/get decisions inside current trusted scope using backend-computed `academicDecision.read_scope`
+  - Head can cancel only their own `recommended` decision; cancellation preserves history and never deletes the decision
+  - Admin/Owner can approve or reject `recommended` decisions
+  - Admin/Owner can apply approved enrollment-drop decisions, changing only the exact referenced Enrollment from `enrolled` to `dropped`
+  - Coordinator, Mentor, normal instructor, and student memberships do not receive AcademicDecision access
+  - Head still does not receive approve/reject/apply/drop enrollment permissions
+  - recommendation payload accepts only `enrollmentId`, `studentMemberId`, and `reason`; client-provided status, tenant ids, section ids, evidence, scope, actors, and history are rejected
+  - Enrollment validation uses `_id + institutionId + studentMemberId`, verifies the section belongs to the institution, and requires `Enrollment.status = enrolled`
+  - duplicate open drop recommendations for the same Enrollment are blocked through `isOpen=true` service checks plus the partial unique model index; historical `cancelled`, `rejected`, or `applied` decisions do not permanently block a new recommendation
+  - server-built `evidenceSnapshot` reuses academic oversight attendance/grade/standing calculations and is audit evidence only, not future authorization source
+  - evidence snapshot section ids are required, validated, deduped, and tenant-checked
+  - server-built `scopeSnapshot` records matched Head assignment ids and matched institution/department/class-level scope data
+  - on create, active Admin membership users receive in-app `academic_decision_review_required` notifications with safe IDs only; the Institution owner is included when they also have active admin membership access
+  - approval/rejection/application notifications are idempotent and safe; application notifies both the recommending Head and the affected student
+  - notification creation is best-effort after decision transitions and idempotent by recipient + decision + type; no durable outbox, WebSocket, push, or email behavior is introduced
+  - minimal notification APIs:
+    - `GET /institutions/:institutionId/notifications`
+    - `PATCH /institutions/:institutionId/notifications/:notificationId/read`
 
 ## Next Likely Modules
 - School final outcome cancellation / recompute workflow and report-card final-outcome linking

@@ -168,6 +168,74 @@
   - TODO/verify: `AssessmentResult` has a unique index on `institutionId + assessmentId + enrollmentId`; there is no direct unique index on `institutionId + assessmentId + studentMemberId`
   - TODO/verify: grade-risk bands are conservative V1 defaults and may need institution policy configuration later
 
+### Academic Decisions
+- `POST /institutions/:institutionId/academic-decisions/enrollment-drop`
+- `GET /institutions/:institutionId/academic-decisions`
+- `GET /institutions/:institutionId/academic-decisions/review-queue`
+- `GET /institutions/:institutionId/academic-decisions/:decisionId`
+- `POST /institutions/:institutionId/academic-decisions/:decisionId/approve`
+- `POST /institutions/:institutionId/academic-decisions/:decisionId/reject`
+- `POST /institutions/:institutionId/academic-decisions/:decisionId/apply`
+- `PATCH /institutions/:institutionId/academic-decisions/:decisionId/cancel`
+- Current implemented rules:
+  - Phase 1 supports Head recommendation-only `enrollment_drop` decisions for one exact section Enrollment
+  - Phase 2 supports Admin/Owner review of `recommended` decisions through dedicated approve/reject routes
+  - Phase 3 supports Admin/Owner application of approved `enrollment_drop` decisions through a dedicated apply route
+  - create body accepts only `enrollmentId`, `studentMemberId`, and `reason`
+  - Head recommendation access is service-scoped through active same-tenant Head responsibility rows with backend-computed `academicDecision.recommend_scope`
+  - Head list/get access is service-scoped through backend-computed `academicDecision.read_scope`
+  - Admin review authority uses explicit base-role `academicDecision.review`; Owner review authority is a service-level `institution.ownerUserId === actorUserId` check with active same-institution membership
+  - Admin apply authority uses explicit base-role `academicDecision.apply`; Owner apply authority is a service-level `institution.ownerUserId === actorUserId` check with active same-institution membership
+  - Head cannot approve/reject/apply; Admin/Owner cannot approve or reject their own recommendation
+  - approval/rejection requires `status=recommended` and `decisionType=enrollment_drop`, and uses an atomic expected-status update
+  - approval revalidates current trusted Enrollment, student Membership, Section, tenant relationships, and active Enrollment status; stale material evidence returns `409`
+  - approval sets `status=approved`, keeps `isOpen=true`, appends history, stores a safe current-data review snapshot, and does not update Enrollment or application fields
+  - rejection sets `status=rejected`, `isOpen=false`, appends history with the bounded rejection reason, and does not update Enrollment
+  - application requires `status=approved`, uses internal `applying` as a no-transaction claim/recovery marker, records `applyingByUserId/applyingAt` plus `approved -> applying` history, updates exactly one Enrollment from `enrolled` to `dropped`, then sets the decision to `applied` with `isOpen=false`
+  - applied Enrollment rows carry `droppedAt`, `droppedByUserId`, and `droppedByAcademicDecisionId` so retries can verify which AcademicDecision caused the drop
+  - stale `applying` decisions can be reclaimed when the exact Enrollment is still `enrolled`; linked dropped Enrollments can be finalized; unlinked mismatches require manual recovery
+  - application validates exact trusted relationships with `_id + institutionId + studentMemberId + sectionId`, and never lets the client choose target ids or resulting Enrollment status
+  - already-applied decisions return an idempotent applied response only when the exact Enrollment is already `dropped`; retries do not duplicate Enrollment writes, history, or notifications
+  - Coordinator, Mentor, normal instructor, student, inactive/expired/cross-tenant Head assignments, and arbitrary stored assignment permissions do not grant access
+  - service validates actor membership user binding, same institution, active membership status, active Head assignment, student in trusted scope, tenant-scoped Enrollment, Enrollment student ownership, Enrollment section scope, Enrollment status `enrolled`, and tenant-scoped Section
+  - create/review never update Enrollment, Membership, Subject, Section, Assessment, AttendanceRecord, or academic standing/final outcome data; apply updates only the exact Enrollment status
+  - duplicate open drop recommendations for the same Enrollment are blocked with `isOpen=true`; the model also has a partial unique index on one open `institutionId + enrollmentId + decisionType`, while historical `rejected`, `cancelled`, or `applied` decisions do not permanently block new recommendations
+  - `evidenceSnapshot` is server-built from current academic oversight attendance/grade/standing calculations and is audit evidence only
+  - evidence snapshot section IDs are required, validated, deduped, and tenant-checked instead of silently discarded
+  - `scopeSnapshot` is server-built from matched Head assignments and trusted section/subject/class records
+  - decision target identity fields plus evidence/scope snapshots are immutable after creation
+  - workflow transitions and keeping `status` synchronized with `isOpen` are service responsibilities; `recommended`, `approved`, and transient `applying` are open, while `rejected`, `applied`, and `cancelled` are closed
+  - approval/rejection/cancellation resolve all unread review-required notifications for the decision in the same institution
+  - cancellation is allowed only for the recommending Head while status is `recommended` and `isOpen=true`; it atomically sets `isOpen=false`, sets cancellation audit fields, and appends history without deleting the decision
+  - historical list/get visibility is based on the decision's stored `sectionId` inside the Head's current authorized section scope, not on continued active enrollment
+  - unsupported Head scope types such as `section`, `class`, or unknown values fail closed
+- Response shapes:
+  - create/get/cancel/approve/reject: `{ academicDecision: { ... } }`
+  - apply: `{ academicDecision: { id, decisionType, status, studentMemberId, enrollmentId, sectionId, recommendedAt, approvedAt, appliedAt }, enrollment: { id, sectionId, studentMemberId, status } }`
+  - list/review-queue: `{ academicDecisions: [...], pagination: { page, limit, total, totalPages } }`
+- Still missing:
+  - TODO/verify: admin-facing manual recovery tooling for rare AcademicDecision/Enrollment mismatches that cannot be safely reconciled by audit linkage
+  - TODO/verify: transaction support if product requires atomic decision + notification creation
+
+### Notifications
+- `GET /institutions/:institutionId/notifications`
+- `PATCH /institutions/:institutionId/notifications/:notificationId/read`
+- Current implemented rules:
+  - minimal in-app Notification module for AcademicDecision review/cancellation notifications
+  - create recommendation notifies active same-institution Admin memberships, plus the Institution owner when the owner has active same-institution membership access
+  - approve/reject notifies the recommending Head with safe in-app notification messages and ids only
+  - apply notifies the recommending Head with `academic_decision_applied`
+  - apply notifies the affected student, resolved through trusted Membership.userId, with `enrollment_status_changed`
+  - approve/reject may mark only the current reviewer's own `academic_decision_review_required` notification as read
+  - recipients are deduped by `userId`; inactive and cross-tenant Admin memberships are excluded
+  - notification messages contain no private grade, GPA, attendance count, or evidence details
+  - duplicate notifications are prevented by unique index and service-level idempotency for `institutionId + recipientUserId + type + data.academicDecisionId`
+  - notification identity and content fields are immutable after creation; `readAt` remains the source of truth for read state
+  - list reads only `institutionId + recipientUserId = authenticated user`
+  - mark-read updates only `_id + institutionId + recipientUserId = authenticated user`
+  - no WebSocket, push, email, durable outbox, or notification queue dependency is added
+  - TODO/verify: add a durable notification retry/outbox if administrative review notifications need guaranteed delivery
+
 ## In Progress
 
 ### Sections

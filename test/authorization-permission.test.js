@@ -3,6 +3,7 @@ const assert = require("node:assert/strict");
 
 const ResponsibilityAssignment = require("../src/models/ResponsibilityAssignment");
 const {
+    ROLE_PERMISSIONS,
     RESPONSIBILITY_ALLOWED_SCOPES,
     RESPONSIBILITY_PERMISSIONS,
     isResponsibilityScopeAllowed,
@@ -124,11 +125,20 @@ test("responsibility helper treats institutionId plus userId as assignment ident
 });
 
 test("responsibility catalog contains only currently enforced scoped permissions", () => {
+    assert.equal(ROLE_PERMISSIONS.admin.includes("academicDecision.review"), true);
+    assert.equal(ROLE_PERMISSIONS.admin.includes("academicDecision.apply"), true);
+    assert.equal(ROLE_PERMISSIONS.instructor.includes("academicDecision.review"), false);
+    assert.equal(ROLE_PERMISSIONS.instructor.includes("academicDecision.apply"), false);
+    assert.equal(ROLE_PERMISSIONS.student.includes("academicDecision.review"), false);
+    assert.equal(ROLE_PERMISSIONS.student.includes("academicDecision.apply"), false);
+
     assert.deepEqual(RESPONSIBILITY_PERMISSIONS, {
         head: [
             "academicRisk.read_scope",
             "academicProfile.read_scope",
             "academicStanding.read_scope",
+            "academicDecision.read_scope",
+            "academicDecision.recommend_scope",
         ],
         coordinator: [
             "section.read_scope",
@@ -148,7 +158,15 @@ test("responsibility catalog contains only currently enforced scoped permissions
     assert.equal(activePermissions.includes("academicRisk.read_scope"), true);
     assert.equal(activePermissions.includes("academicProfile.read_scope"), true);
     assert.equal(activePermissions.includes("academicStanding.read_scope"), true);
+    assert.equal(activePermissions.includes("academicDecision.read_scope"), true);
+    assert.equal(activePermissions.includes("academicDecision.recommend_scope"), true);
+    assert.equal(activePermissions.includes("academicDecision.review"), false);
     assert.equal(activePermissions.includes("academicDecision.review_scope"), false);
+    assert.equal(activePermissions.includes("academicDecision.apply"), false);
+    assert.equal(activePermissions.includes("academicDecision.approve"), false);
+    assert.equal(activePermissions.includes("academicDecision.reject"), false);
+    assert.equal(activePermissions.includes("academicDecision.apply"), false);
+    assert.equal(activePermissions.includes("enrollment.drop"), false);
     assert.equal(activePermissions.includes("studentDropRisk.review_scope"), false);
     assert.equal(activePermissions.includes("enrollment.review_scope"), false);
     assert.equal(activePermissions.includes("studentProfile.read_scope"), false);

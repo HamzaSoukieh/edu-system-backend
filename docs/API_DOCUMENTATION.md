@@ -1,6 +1,6 @@
 # Edu SaaS Backend API Documentation
 
-Generated from the repository code on 2026-06-10. This documentation covers only endpoints mounted in `src/app.js`, `src/routes/authRoutes.js`, and `src/routes/institutionRoutes.js`. When exact behavior is broad or product-dependent, it is marked TODO/VERIFY instead of guessed.
+Generated from the repository code on 2026-06-16. This documentation covers only endpoints mounted in `src/app.js`, `src/routes/authRoutes.js`, and `src/routes/institutionRoutes.js`. When exact behavior is broad or product-dependent, it is marked TODO/VERIFY instead of guessed.
 
 ## Overview
 
@@ -72,7 +72,7 @@ Scoping rules:
 
 | Role | Permissions |
 |---|---|
-| admin | institution.manage, department.manage, class.manage, membership.manage, semester.manage, subject.manage, section.read, section.manage, student.kick, attendance.manage, billing.manage |
+| admin | institution.manage, department.manage, class.manage, membership.manage, semester.manage, subject.manage, section.read, section.manage, student.kick, attendance.manage, billing.manage, academicDecision.review, academicDecision.apply |
 | instructor | section.read, attendance.take, attendance.excuse |
 | student | section.read, enrollment.self_manage, attendance.read_self, billing.read_self |
 
@@ -91,7 +91,7 @@ Responsibilities are scoped assignments, not `Membership.role` values. The backe
 
 | Responsibility | Effective permissions |
 |---|---|
-| head | academicRisk.read_scope, academicProfile.read_scope, academicStanding.read_scope |
+| head | academicRisk.read_scope, academicProfile.read_scope, academicStanding.read_scope, academicDecision.read_scope, academicDecision.recommend_scope |
 | coordinator | section.read_scope, sectionSession.read_scope, sectionSession.manage_scope, attendance.read_scope, attendance.manage_scope |
 | mentor | none currently active |
 
@@ -105,7 +105,7 @@ Allowed responsibility scopes:
 
 Assignments must be active, within optional `startAt` / `endAt`, same tenant, and valid for their responsibility/scope combination.
 
-Head assignments provide read-only academic oversight only. Head does not receive section/session/attendance/enrollment/assessment/result/billing/membership write or operational permissions.
+Head assignments provide read-only academic oversight plus scoped AcademicDecision read/recommend behavior only. Head does not receive section/session/attendance/enrollment/assessment/result/billing/membership write or operational permissions, and cannot approve/reject/apply decisions.
 
 Coordinator assignments are currently used by selected section reads, section-session reads/management, and attendance reads/management.
 
@@ -233,7 +233,8 @@ Owner/admin management for scoped Head, Coordinator, and Mentor assignments. The
 | GET | `/institutions/:institutionId/responsibility-assignments` | Query `userId`, `responsibilityType`, `scopeType`, `scopeId`, `isActive`, `activeNow`, `page`, `limit`. | `200 { responsibilityAssignments, pagination }` | Always scoped by route `institutionId`; `activeNow=true` or `activeNow=false` is evaluated by assignment status and date window. |
 | GET | `/institutions/:institutionId/responsibility-assignments/:assignmentId` | Path `assignmentId`. | `200 { responsibilityAssignment }` | Tenant-scoped by `institutionId + assignmentId`. |
 | PATCH | `/institutions/:institutionId/responsibility-assignments/:assignmentId` | JSON patch `scopeType`, `scopeId`, `startAt`, `endAt`, `isActive`. | `200 { responsibilityAssignment }` | `userId` and `responsibilityType` are not changed in V1; create a new assignment instead. |
-| DELETE | `/institutions/:institutionId/responsibility-assignments/:assignmentId` | No body. | `200 { responsibilityAssignment }` | Soft-deactivates by setting `isActive=false` and closing `endAt` when needed. |
+| PATCH | `/institutions/:institutionId/responsibility-assignments/:assignmentId/deactivate` | No body. | `200 { responsibilityAssignment }` | Explicit soft-deactivation route for Head, Coordinator, and Mentor assignments. |
+| DELETE | `/institutions/:institutionId/responsibility-assignments/:assignmentId` | No body. | `200 { responsibilityAssignment }` | Backward-compatible soft-deactivation by setting `isActive=false` and closing `endAt` when needed. |
 
 Create/update payload safety:
 
@@ -265,9 +266,10 @@ Read-only academic visibility for admin/owner and scoped Head assignments. These
 
 | Method | Path | Request / query | Success | Notes |
 |---|---|---|---|---|
-| GET | `/institutions/:institutionId/academic-oversight/risk-summary` | Optional narrowing filters `departmentId`, `classLevelId`, `sectionId`, `studentMemberId`, `search`, `riskLevel`, `standing`, `page`, `limit`. | `200 { academicRiskSummary }` | Summary is derived from attendance, published assessment results, and standing/profile services where available. |
-| GET | `/institutions/:institutionId/academic-oversight/students` | Same safe narrowing filters. | `200 { academicRiskSummary, students, pagination }` | Returns compact student rows only inside the actor's derived scope. |
-| GET | `/institutions/:institutionId/academic-oversight/students/:studentMemberId` | Path `studentMemberId`, optional academic filters. | `200 { student }` | Detail is still read-only and same derived scope enforced. |
+| GET | `/institutions/:institutionId/academic-oversight/risk-summary` | Optional narrowing filters `departmentId`, `classLevelId`, `sectionId`, `studentMemberId`, `search`, `riskLevel`, `page`, `limit`. | `200 { academicRiskSummary }` | Risk-only summary derived from attendance and published assessment results. |
+| GET | `/institutions/:institutionId/academic-oversight/students` | Same safe narrowing filters. | `200 { academicRiskSummary, students, pagination }` | Returns risk-only compact student rows inside the actor's derived scope; no profile/standing fields. |
+| GET | `/institutions/:institutionId/academic-oversight/students/:studentMemberId` | Path `studentMemberId`. | `200 { student }` | Profile detail route. Requires `academicProfile.read_scope`; returns `academicProfile` but not `academicStanding`. |
+| GET | `/institutions/:institutionId/academic-oversight/students/:studentMemberId/standing` | Path `studentMemberId`. | `200 { student }` | Standing detail route. Requires `academicStanding.read_scope`; returns `academicStanding` but not `academicProfile`. |
 
 Head scope derivation:
 
@@ -278,17 +280,19 @@ Head scope derivation:
 
 Academic risk derivation:
 
-- Attendance risk uses closed section sessions, attendance records, and `Institution.policies` thresholds such as warning/drop absence counts, late-to-absence ratio, and whether excused counts as an absence.
-- Grade risk uses published assessment results and missing published result rows.
-- Academic profile and standing are reused from existing academic services where available. Missing optional data returns safe empty/null fields instead of blocking the list.
+- Attendance risk uses only closed section sessions and attendance records from sections where the student has an active enrollment. Missing qualifying attendance records produce `level: "unknown"` rather than a false good state.
+- Grade risk uses only published assessments from sections where the student has an active enrollment, plus matching assessment results. Missing published results and invalid assessment configuration are surfaced as risk reasons.
+- Academic profile and standing are reused from existing academic services only on their dedicated detail routes. Missing optional data returns safe empty/null fields with `dataUnavailable` where appropriate.
+- The `standing` query filter is not accepted on risk-only list/summary routes unless a route explicitly loads standing data; current risk endpoints return `403` for `standing=...`.
 
 Frontend flow:
 
 1. Use these routes only for admin/owner users or users with an active Head responsibility assignment.
 2. Do not send a scope claim such as "I am department head of X" as authority. The backend reads the active `ResponsibilityAssignment` records and derives the allowed students.
-3. Use filters for UI narrowing only, such as department, class level, section, risk level, standing, or search.
+3. Use filters for UI narrowing only, such as department, class level, section, risk level, or search.
 4. Treat the response as read-only oversight. There are no actions here to drop students, override outcomes, excuse attendance, edit grades, or manage memberships.
-5. For drill-down, call the student detail route with the returned `student.studentMembershipId`.
+5. For profile drill-down, call `GET /academic-oversight/students/:studentMemberId` with the returned `student.id`.
+6. For standing drill-down, call `GET /academic-oversight/students/:studentMemberId/standing`.
 
 Backend flow:
 
@@ -296,7 +300,205 @@ Backend flow:
 2. Service requires an active actor membership. Owner/admin gets institution-wide read scope.
 3. Non-admin actors must have an active Head assignment with the required academic permission from the backend catalog.
 4. Service derives student membership ids from tenant DB records and applies any query filters as narrowing constraints.
-5. Service computes read-only risk/profile/standing rows and returns compact safe data only.
+5. Risk routes compute read-only risk rows and return compact safe data only.
+6. Profile and standing details are gated by their own scoped permissions and response shapes.
+
+### Academic Decisions
+
+AcademicDecision is an auditable workflow for enrollment-drop recommendations. It does not let Heads directly drop students. All routes use `authJwt`, `requireEmailVerified`, and `institutionAccess()`. The service performs all role, ownership, Head scope, tenant, state-transition, and current-record checks.
+
+Supported V1 decision type:
+
+- `enrollment_drop`
+
+Supported statuses:
+
+- `recommended`
+- `approved`
+- `applying`
+- `rejected`
+- `applied`
+- `cancelled`
+
+Open states are `recommended`, `approved`, and `applying`. Closed states are `rejected`, `applied`, and `cancelled`.
+
+Allowed transitions:
+
+- Head: `recommended` create
+- Head: `recommended -> cancelled` for their own recommendation only
+- Admin/Owner: `recommended -> approved`
+- Admin/Owner: `recommended -> rejected`
+- Admin/Owner: `approved -> applying -> applied`
+
+| Method | Path | Request / query | Success | Authority / notes |
+|---|---|---|---|---|
+| POST | `/institutions/:institutionId/academic-decisions/enrollment-drop` | JSON `enrollmentId`, `studentMemberId`, `reason`. | `201 { academicDecision }` | Head only through `academicDecision.recommend_scope`; target Enrollment must be exact, active/enrolled, same tenant, same student, and inside current Head scope. Does not update Enrollment. |
+| GET | `/institutions/:institutionId/academic-decisions` | Query `status`, `decisionType`, `studentMemberId`, `sectionId`, `recommendedByUserId`, `page`, `limit`. | `200 { academicDecisions, pagination }` | Head list is limited to decisions whose stored `sectionId` is inside current Head scope. Admin/Owner institution-wide read is supported for review users. |
+| GET | `/institutions/:institutionId/academic-decisions/review-queue` | Query `status`, `decisionType`, `studentMemberId`, `sectionId`, `recommendedByUserId`, `page`, `limit`. | `200 { academicDecisions, pagination }` | Admin/Owner review queue. Defaults to `status=recommended`. Head, Coordinator, Mentor, normal instructor, and student are blocked. |
+| GET | `/institutions/:institutionId/academic-decisions/:decisionId` | Path `decisionId`. | `200 { academicDecision }` | Tenant-scoped by `_id + institutionId`. Head can read only inside current Head section scope. Admin/Owner can read institution decisions for review. |
+| POST | `/institutions/:institutionId/academic-decisions/:decisionId/approve` | Optional JSON `note` up to 1000 chars. | `200 { academicDecision }` | Admin/Owner only. Requires `recommended + isOpen=true + decisionType=enrollment_drop`. Self-review is blocked. Does not update Enrollment. |
+| POST | `/institutions/:institutionId/academic-decisions/:decisionId/reject` | JSON `reason` 10..1000 chars. | `200 { academicDecision }` | Admin/Owner only. Requires `recommended + isOpen=true + decisionType=enrollment_drop`. Self-review is blocked. Rejected is terminal in V1. |
+| POST | `/institutions/:institutionId/academic-decisions/:decisionId/apply` | No body. | `200 { academicDecision, enrollment }` | Admin/Owner only. Requires approved enrollment-drop decision. Drops exactly the linked Enrollment and then marks the decision applied. |
+| PATCH | `/institutions/:institutionId/academic-decisions/:decisionId/cancel` | No body. | `200 { academicDecision }` | Recommending Head only while `status=recommended`. Does not delete the decision or update Enrollment. |
+
+Create recommendation request:
+
+```json
+{
+  "enrollmentId": "507f1f77bcf86cd799439061",
+  "studentMemberId": "507f1f77bcf86cd799439071",
+  "reason": "Repeated academic and attendance risk requires administrative review for this enrollment."
+}
+```
+
+Decision response shape:
+
+```json
+{
+  "academicDecision": {
+    "id": "507f1f77bcf86cd799439081",
+    "institutionId": "507f1f77bcf86cd799439011",
+    "studentMemberId": "507f1f77bcf86cd799439071",
+    "enrollmentId": "507f1f77bcf86cd799439061",
+    "sectionId": "507f1f77bcf86cd799439051",
+    "decisionType": "enrollment_drop",
+    "status": "recommended",
+    "isOpen": true,
+    "reason": "Repeated academic and attendance risk requires administrative review for this enrollment.",
+    "evidenceSnapshot": {
+      "capturedAt": "2026-06-16T13:06:56.976Z",
+      "attendanceRisk": { "level": "warning" },
+      "gradeRisk": { "level": "good" },
+      "academicStanding": { "standing": "no_standing_yet", "dataUnavailable": false }
+    },
+    "scopeSnapshot": {
+      "responsibilityType": "head",
+      "matchedAssignmentIds": ["507f1f77bcf86cd799439091"],
+      "institutionWide": false,
+      "departmentIds": ["507f1f77bcf86cd799439041"],
+      "classLevelIds": [],
+      "sectionId": "507f1f77bcf86cd799439051"
+    },
+    "reviewSnapshot": null,
+    "recommendedByUserId": "507f1f77bcf86cd799439023",
+    "approvedByUserId": null,
+    "rejectedByUserId": null,
+    "applyingByUserId": null,
+    "appliedByUserId": null,
+    "cancelledByUserId": null,
+    "recommendedAt": "2026-06-16T13:06:56.976Z",
+    "approvedAt": null,
+    "rejectedAt": null,
+    "applyingAt": null,
+    "appliedAt": null,
+    "cancelledAt": null,
+    "history": [
+      {
+        "action": "recommended",
+        "fromStatus": null,
+        "toStatus": "recommended",
+        "actorUserId": "507f1f77bcf86cd799439023",
+        "at": "2026-06-16T13:06:56.976Z",
+        "note": null
+      }
+    ]
+  }
+}
+```
+
+Apply response shape:
+
+```json
+{
+  "academicDecision": {
+    "id": "507f1f77bcf86cd799439081",
+    "decisionType": "enrollment_drop",
+    "status": "applied",
+    "studentMemberId": "507f1f77bcf86cd799439071",
+    "enrollmentId": "507f1f77bcf86cd799439061",
+    "sectionId": "507f1f77bcf86cd799439051",
+    "recommendedAt": "2026-06-16T13:06:56.976Z",
+    "approvedAt": "2026-06-16T13:10:00.000Z",
+    "appliedAt": "2026-06-16T13:15:00.000Z"
+  },
+  "enrollment": {
+    "id": "507f1f77bcf86cd799439061",
+    "sectionId": "507f1f77bcf86cd799439051",
+    "studentMemberId": "507f1f77bcf86cd799439071",
+    "status": "dropped"
+  }
+}
+```
+
+Frontend workflow:
+
+1. Head logs in and calls `POST /academic-decisions/enrollment-drop` with the exact `enrollmentId`, `studentMemberId`, and a reason.
+2. Backend creates the recommendation, builds evidence/scope snapshots, and sends `academic_decision_review_required` notifications to eligible Admin/Owner reviewers.
+3. Admin/Owner lists `GET /academic-decisions/review-queue`, opens the decision detail, then approves or rejects.
+4. Approval keeps the decision open and notifies the recommending Head with `academic_decision_approved`. Rejection closes the decision and notifies the Head with `academic_decision_rejected`.
+5. Admin/Owner applies an approved decision through `POST /:decisionId/apply`. This is the only AcademicDecision route that mutates Enrollment.
+6. Successful application changes only the exact Enrollment from `enrolled` to `dropped`, marks the decision `applied`, notifies the Head with `academic_decision_applied`, and notifies the affected student with `enrollment_status_changed`.
+7. Head can read the final status if the decision's section remains inside their current Head scope.
+
+Frontend safety notes:
+
+- Do not send `status`, `decisionType`, `sectionId`, evidence snapshots, scope snapshots, actor ids, timestamps, or history from the client.
+- Do not expose approval/apply buttons to Head-only users.
+- Do not expose apply for `recommended`, `rejected`, `cancelled`, or already inconsistent decisions.
+- Treat `applying` as an in-progress/recovery state. The frontend should show a disabled "application in progress" state and allow refresh/retry only for Admin/Owner.
+- Duplicate create for the same open Enrollment returns `409 { "message": "An open enrollment drop recommendation already exists for this enrollment" }`; frontend should find/list the existing decision instead of retrying create forever.
+- Notification messages intentionally omit private grade, GPA, attendance counts, and review notes. Use decision detail for authorized evidence display.
+
+Backend consistency notes:
+
+- New recommendations, approvals, rejections, cancellations, application claims, and completions append history.
+- Application uses `approved -> applying -> applied` because the repo has no existing MongoDB transaction/session pattern.
+- The Enrollment drop stores `droppedAt`, `droppedByUserId`, and `droppedByAcademicDecisionId` for audit/recovery linkage.
+- If AcademicDecision and Enrollment state cannot be reconciled safely, apply returns `409` manual-recovery style errors rather than guessing.
+- Approval/rejection/cancellation resolve all unread `academic_decision_review_required` notifications for that decision inside the institution.
+
+### Notifications
+
+Minimal in-app notifications for AcademicDecision and enrollment-status events. Routes use `authJwt`, `requireEmailVerified`, and `institutionAccess()`. Users can only list/update their own notifications.
+
+| Method | Path | Request / query | Success | Notes |
+|---|---|---|---|---|
+| GET | `/institutions/:institutionId/notifications` | Query `unreadOnly`, `page`, `limit`. | `200 { notifications, pagination }` | Tenant-scoped by `institutionId + recipientUserId`; sorted recent first. |
+| PATCH | `/institutions/:institutionId/notifications/:notificationId/read` | No body. | `200 { notification }` | Updates only `_id + institutionId + recipientUserId`; cannot mark another user's notification read. |
+
+Notification response shape:
+
+```json
+{
+  "notification": {
+    "id": "507f1f77bcf86cd799439101",
+    "institutionId": "507f1f77bcf86cd799439011",
+    "recipientUserId": "507f1f77bcf86cd799439021",
+    "type": "academic_decision_review_required",
+    "title": "Enrollment drop recommendation requires review",
+    "message": "A Head submitted an enrollment drop recommendation that requires administrative review.",
+    "data": {
+      "academicDecisionId": "507f1f77bcf86cd799439081",
+      "studentMemberId": "507f1f77bcf86cd799439071",
+      "enrollmentId": "507f1f77bcf86cd799439061",
+      "sectionId": "507f1f77bcf86cd799439051"
+    },
+    "createdByUserId": "507f1f77bcf86cd799439023",
+    "readAt": null,
+    "createdAt": "2026-06-16T13:06:57.000Z",
+    "updatedAt": "2026-06-16T13:06:57.000Z"
+  }
+}
+```
+
+Current notification types:
+
+- `academic_decision_review_required`
+- `academic_decision_cancelled`
+- `academic_decision_approved`
+- `academic_decision_rejected`
+- `academic_decision_applied`
+- `enrollment_status_changed`
 
 ### Academic Years
 
@@ -757,23 +959,245 @@ Authorization: Bearer <JWT_TOKEN>
 {
   "academicRiskSummary": {
     "totalStudents": 1,
-    "highRiskCount": 1,
-    "warningRiskCount": 0,
-    "lowRiskCount": 0
+    "riskLevels": { "good": 0, "warning": 0, "high": 1, "unknown": 0 },
+    "attendanceRisk": { "good": 0, "warning": 0, "high": 1, "unknown": 0 },
+    "gradeRisk": { "good": 1, "warning": 0, "high": 0, "unknown": 0 },
+    "standingSummary": {}
   },
   "students": [
     {
       "student": {
-        "studentMembershipId": "507f1f77bcf86cd799439071",
+        "id": "507f1f77bcf86cd799439071",
+        "userId": "507f1f77bcf86cd799439091",
         "name": "Sara Ali",
         "email": "sara@example.test"
       },
       "riskLevel": "high",
-      "attendanceRisk": { "riskLevel": "high", "absenceCount": 6 },
-      "gradeRisk": { "riskLevel": "low", "averagePercentage": 82 },
-      "academicStanding": null,
-      "academicProfile": null,
-      "reasons": ["Attendance absence count reached a high-risk threshold."]
+      "attendanceRisk": {
+        "level": "high",
+        "absences": 6,
+        "lateCount": 0,
+        "excusedCount": 0,
+        "effectiveAbsences": 6,
+        "reasons": ["attendance_drop_risk_threshold_reached"]
+      },
+      "gradeRisk": {
+        "level": "good",
+        "currentAverage": 82,
+        "missingResults": 0,
+        "failedAssessments": 0,
+        "reasons": []
+      },
+      "reasons": ["attendance_drop_risk_threshold_reached"]
+    }
+  ],
+  "pagination": { "page": 1, "limit": 20, "total": 1, "totalPages": 1 }
+}
+```
+
+```http
+GET /institutions/507f1f77bcf86cd799439011/academic-oversight/students/507f1f77bcf86cd799439071
+Authorization: Bearer <JWT_TOKEN>
+```
+
+```json
+{
+  "student": {
+    "student": {
+      "id": "507f1f77bcf86cd799439071",
+      "userId": "507f1f77bcf86cd799439091",
+      "name": "Sara Ali",
+      "email": "sara@example.test"
+    },
+    "riskLevel": "unknown",
+    "attendanceRisk": { "level": "unknown" },
+    "gradeRisk": { "level": "unknown" },
+    "academicProfile": {
+      "program": null,
+      "department": null,
+      "classLevel": null,
+      "gpa": 2.4,
+      "credits": { "earned": 30, "attempted": 36 },
+      "status": "active",
+      "dataUnavailable": false
+    },
+    "reasons": []
+  }
+}
+```
+
+```http
+GET /institutions/507f1f77bcf86cd799439011/academic-oversight/students/507f1f77bcf86cd799439071/standing
+Authorization: Bearer <JWT_TOKEN>
+```
+
+```json
+{
+  "student": {
+    "student": {
+      "id": "507f1f77bcf86cd799439071",
+      "userId": "507f1f77bcf86cd799439091",
+      "name": "Sara Ali",
+      "email": "sara@example.test"
+    },
+    "riskLevel": "warning",
+    "academicStanding": {
+      "standing": "probation",
+      "requiresReview": false,
+      "reason": "gpa_in_probation_band",
+      "dataUnavailable": false
+    },
+    "reasons": ["gpa_in_probation_band"]
+  }
+}
+```
+
+### Academic Decisions
+
+Head recommends one exact Enrollment drop:
+
+```http
+POST /institutions/507f1f77bcf86cd799439011/academic-decisions/enrollment-drop
+Authorization: Bearer <HEAD_JWT_TOKEN>
+Content-Type: application/json
+
+{
+  "enrollmentId": "507f1f77bcf86cd799439061",
+  "studentMemberId": "507f1f77bcf86cd799439071",
+  "reason": "Repeated academic and attendance risk requires administrative review for this enrollment."
+}
+```
+
+```json
+{
+  "academicDecision": {
+    "id": "507f1f77bcf86cd799439081",
+    "decisionType": "enrollment_drop",
+    "status": "recommended",
+    "isOpen": true,
+    "studentMemberId": "507f1f77bcf86cd799439071",
+    "enrollmentId": "507f1f77bcf86cd799439061",
+    "sectionId": "507f1f77bcf86cd799439051",
+    "recommendedByUserId": "507f1f77bcf86cd799439023",
+    "evidenceSnapshot": {
+      "attendanceRisk": { "level": "warning" },
+      "gradeRisk": { "level": "good" },
+      "academicStanding": { "standing": "no_standing_yet" }
+    },
+    "scopeSnapshot": {
+      "responsibilityType": "head",
+      "institutionWide": false,
+      "sectionId": "507f1f77bcf86cd799439051"
+    }
+  }
+}
+```
+
+Admin lists the review queue:
+
+```http
+GET /institutions/507f1f77bcf86cd799439011/academic-decisions/review-queue?limit=20
+Authorization: Bearer <ADMIN_JWT_TOKEN>
+```
+
+```json
+{
+  "academicDecisions": [
+    {
+      "id": "507f1f77bcf86cd799439081",
+      "decisionType": "enrollment_drop",
+      "status": "recommended",
+      "isOpen": true,
+      "studentMemberId": "507f1f77bcf86cd799439071",
+      "enrollmentId": "507f1f77bcf86cd799439061",
+      "sectionId": "507f1f77bcf86cd799439051"
+    }
+  ],
+  "pagination": { "page": 1, "limit": 20, "total": 1, "totalPages": 1 }
+}
+```
+
+Admin approves:
+
+```http
+POST /institutions/507f1f77bcf86cd799439011/academic-decisions/507f1f77bcf86cd799439081/approve
+Authorization: Bearer <ADMIN_JWT_TOKEN>
+Content-Type: application/json
+
+{
+  "note": "Reviewed current records and approved for application."
+}
+```
+
+```json
+{
+  "academicDecision": {
+    "id": "507f1f77bcf86cd799439081",
+    "decisionType": "enrollment_drop",
+    "status": "approved",
+    "isOpen": true,
+    "approvedByUserId": "507f1f77bcf86cd799439021",
+    "approvedAt": "2026-06-16T13:10:00.000Z",
+    "reviewSnapshot": {
+      "reviewedAt": "2026-06-16T13:10:00.000Z",
+      "enrollmentStatus": "enrolled",
+      "evidenceChanged": false
+    }
+  }
+}
+```
+
+Admin applies:
+
+```http
+POST /institutions/507f1f77bcf86cd799439011/academic-decisions/507f1f77bcf86cd799439081/apply
+Authorization: Bearer <ADMIN_JWT_TOKEN>
+```
+
+```json
+{
+  "academicDecision": {
+    "id": "507f1f77bcf86cd799439081",
+    "decisionType": "enrollment_drop",
+    "status": "applied",
+    "studentMemberId": "507f1f77bcf86cd799439071",
+    "enrollmentId": "507f1f77bcf86cd799439061",
+    "sectionId": "507f1f77bcf86cd799439051",
+    "recommendedAt": "2026-06-16T13:06:56.976Z",
+    "approvedAt": "2026-06-16T13:10:00.000Z",
+    "appliedAt": "2026-06-16T13:15:00.000Z"
+  },
+  "enrollment": {
+    "id": "507f1f77bcf86cd799439061",
+    "sectionId": "507f1f77bcf86cd799439051",
+    "studentMemberId": "507f1f77bcf86cd799439071",
+    "status": "dropped"
+  }
+}
+```
+
+Head checks notifications:
+
+```http
+GET /institutions/507f1f77bcf86cd799439011/notifications?unreadOnly=true&limit=20
+Authorization: Bearer <HEAD_JWT_TOKEN>
+```
+
+```json
+{
+  "notifications": [
+    {
+      "id": "507f1f77bcf86cd799439101",
+      "type": "academic_decision_approved",
+      "title": "Enrollment drop recommendation approved",
+      "message": "Your enrollment drop recommendation was approved and is awaiting application.",
+      "data": {
+        "academicDecisionId": "507f1f77bcf86cd799439081",
+        "studentMemberId": "507f1f77bcf86cd799439071",
+        "enrollmentId": "507f1f77bcf86cd799439061",
+        "sectionId": "507f1f77bcf86cd799439051"
+      },
+      "readAt": null
     }
   ],
   "pagination": { "page": 1, "limit": 20, "total": 1, "totalPages": 1 }
@@ -800,7 +1224,7 @@ Authorization: Bearer <JWT_TOKEN>
 
 ## Postman / Test Artifacts Inspected
 
-Postman collections/environments exist for academic profile, academic year, attendance, homework, school academic services, school promotion dashboard, section material, self-enrollment, Stripe billing, repeat policy, and academic standing.
+Postman collections/environments exist for academic decision workflow, academic profile, academic year, attendance, homework, school academic services, school promotion dashboard, section material, self-enrollment, Stripe billing, repeat policy, responsibility assignments, academic standing, and academic oversight light smoke testing.
 
 Focused tests exist for billing, attendance, homework, section material, authorization/permissions, scoped responsibility management, Head academic oversight, section list permissions, academic profile, academic year, school academic policy/outcomes/report cards/final outcomes/promotion dashboards, university academic policy/profile/outcomes/standing, and self-enrollment.
 

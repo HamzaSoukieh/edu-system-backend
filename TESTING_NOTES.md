@@ -18,6 +18,7 @@
   - `node --test test/attendance.test.js`
   - `node --test test/responsibility-assignment-management.test.js`
   - `node --test test/academic-oversight.test.js`
+  - `node --test test/academic-decision.test.js`
   - `node --test test/homework.test.js`
   - `node --test test/section-material.test.js`
   - `node --test test/authorization-permission.test.js`
@@ -213,10 +214,70 @@
 - Current academic profile providers:
   - school: `buildSchoolAcademicProfile`
   - university: `buildUniversityAcademicProfile`
+- Current academic decision routes:
+  - `POST /institutions/:institutionId/academic-decisions/enrollment-drop`
+  - `GET /institutions/:institutionId/academic-decisions`
+  - `GET /institutions/:institutionId/academic-decisions/review-queue`
+  - `GET /institutions/:institutionId/academic-decisions/:decisionId`
+  - `POST /institutions/:institutionId/academic-decisions/:decisionId/approve`
+  - `POST /institutions/:institutionId/academic-decisions/:decisionId/reject`
+  - `POST /institutions/:institutionId/academic-decisions/:decisionId/apply`
+  - `PATCH /institutions/:institutionId/academic-decisions/:decisionId/cancel`
+- Current notification routes:
+  - `GET /institutions/:institutionId/notifications`
+  - `PATCH /institutions/:institutionId/notifications/:notificationId/read`
 - Current self-enrollment preview route:
   - `GET /institutions/:institutionId/students/me/self-enrollment/sections/:sectionId/eligibility`
 - Current self-enrollment submission route:
   - `POST /institutions/:institutionId/students/me/self-enrollment/submissions`
+
+## AcademicDecision Checks
+- Valid Head can recommend inside department, classLevel, and institution Head scopes.
+- Coordinator, Mentor, normal instructor, student, inactive/expired/cross-tenant Head assignment, and arbitrary stored permissions are blocked.
+- Recommendation create validates actor membership user binding and active same-institution membership.
+- Enrollment lookup must include `_id + institutionId + studentMemberId`.
+- Enrollment must be `enrolled`, belong to the requested student, and be inside the resolved Head section scope.
+- Create must not update Enrollment, Membership, Subject, Section, Assessment, or AttendanceRecord.
+- Payload rejects client-provided status, tenant/section ids, decision type, evidence, scope, actor/audit fields, history, and unknown fields.
+- Reason must be meaningful and no more than 2000 characters.
+- Duplicate open recommendations are blocked through `isOpen=true`; cancelled/rejected/applied history should not permanently block new recommendations.
+- Cancellation must atomically set `status=cancelled`, `isOpen=false`, cancellation actor/time fields, and one history entry using a conditional update that includes institution, expected status, `isOpen=true`, and original recommender.
+- Mocked duplicate-key tests cover the partial unique open-decision index race translation to `409`; a real MongoDB index race is not exercised here.
+- Historical list/get checks use current authorized stored-section scope, not continued active student enrollment.
+- Unsupported Head scope types such as `section`, `class`, malformed, or unknown values fail closed for decision matching.
+- Admin review uses base-role `academicDecision.review`; Owner review uses service-level owner matching plus active same-institution membership.
+- Admin/Owner review queue lists institution decisions requiring review; Head, Coordinator, Mentor, normal instructor, and student actors are blocked.
+- Approval/rejection use dedicated expected-status transitions from `recommended`; approved/rejected/cancelled/applied decisions cannot be reviewed again.
+- Reviewers cannot approve or reject their own recommendation, even when the reviewer is also Admin or Owner.
+- Approval revalidates current Enrollment, student Membership, Section, active Enrollment status, tenant relationships, and material evidence freshness before transition.
+- Approval and rejection do not update Enrollment, Membership, Subject, or Section.
+- Application requires active Admin `academicDecision.apply` or valid active Owner context.
+- Application moves exactly one trusted Enrollment from `enrolled` to `dropped` using `_id + institutionId + studentMemberId + sectionId + status=enrolled`.
+- Application uses transient `applying` as the no-transaction claim/recovery marker; the claim records `applyingByUserId`, `applyingAt`, and `approved -> applying` history.
+- Final success records `applying -> applied`, sets `applied`, `isOpen=false`, `appliedByUserId`, and a fresh `appliedAt`.
+- Enrollment drops record `droppedAt`, `droppedByUserId`, and `droppedByAcademicDecisionId` audit linkage.
+- Already-applied decisions are idempotent only when the exact Enrollment is already `dropped` and linked to the same AcademicDecision.
+- Stale `applying` claims with an enrolled Enrollment can be reclaimed; dropped Enrollments without matching decision linkage require manual recovery.
+- Application does not deactivate Membership, delete Enrollment, delete grades, delete attendance history, or modify Subject/Section.
+- Model checks verify the partial unique open-decision index on `institutionId + enrollmentId + decisionType`, recent-first review queue index, controlled history actions, immutable target/snapshot fields, and `isOpen` default.
+- Current model tests inspect schema index definitions; they do not build indexes against a real MongoDB instance.
+- Evidence snapshot must be server-generated and safe; section ids are required, validated, deduped, and tenant-checked, and notification messages must not include sensitive evidence.
+- Cancellation is allowed only by the recommending Head while status is `recommended`, preserves history, and does not delete the decision.
+
+## Notification Checks
+- Recommendation notifies active Admin users; the Institution owner is notified when the owner has active same-institution membership access.
+- Owner/Admin duplicate user ids are notified only once.
+- Inactive Admin and cross-tenant Admin memberships are not notified.
+- Duplicate notification retries are idempotent by recipient + decision + type.
+- Notification creation is best-effort after decision creation; current tests verify failures are logged without invalidating the decision.
+- Approval/rejection notify the recommending Head without sensitive evidence or review notes in the message.
+- Application notifies the recommending Head with `academic_decision_applied` and the affected student with `enrollment_status_changed`.
+- Student notification recipient is resolved from trusted `Membership.userId`; messages omit private evidence, scores, GPA, and review notes.
+- Opening review detail may mark only the current reviewer's own review-required notification read.
+- Approval, rejection, and Head cancellation resolve all unread `academic_decision_review_required` notifications for that decision inside the same institution.
+- Model checks verify notification decision `data` is a required `_id: false` embedded schema, identity/content fields are immutable, `readAt` stays mutable, and the decision-notification unique index remains present.
+- Users list only their own notifications.
+- Users cannot mark another user's notification read.
 
 ## Common Things To Verify
 - Invalid ObjectId returns clean `400`
@@ -1809,6 +1870,159 @@
   - result: 86 passing
   - ran `node --test test/academic-profile.test.js test/university-academic-standing-report.test.js test/school-outcome.test.js test/university-academic-outcome-foundation.test.js`
   - result: 60 passing
+- 2026-06-14 AcademicDecision/Notification model hardening:
+  - verified AcademicDecision controlled history actions, note length limit, `fromStatus: null` initial history validation under Mongoose 9.2.1, `isOpen` default, immutable identity/snapshot field configuration, partial unique open-decision index, recent-first review queue index, and no duplicate schema index definitions
+  - verified Notification required `_id: false` decision-data sub-schema, nested required validation, immutable identity/content field configuration, mutable `readAt`, and preserved decision-notification unique index
+  - model tests inspect schema index definitions and do not build indexes against a real MongoDB instance
+  - ran `node --check src/models/AcademicDecision.js`
+  - result: passed
+  - ran `node --check src/models/Notification.js`
+  - result: passed
+  - ran `node --check test/academic-decision-model.test.js`
+  - result: passed
+  - ran `node --test test/academic-decision-model.test.js`
+  - result: 19 passing
+  - ran `node --test test/academic-decision.test.js`
+  - result: 9 passing
+- 2026-06-15 AcademicDecision service hardening:
+  - verified cancellation atomically sets `status=cancelled`, `isOpen=false`, cancellation actor/time fields, and one history entry with a conditional update including tenant, status, `isOpen=true`, and recommender
+  - verified duplicate recommendation pre-check uses `isOpen=true`, closed historical decisions do not block a new recommendation, and mocked partial-unique duplicate-key create races become `409`
+  - verified unrelated duplicate-key errors are not converted to `409`
+  - verified unsupported Head scope types fail closed for decision matching
+  - verified historical list/get authorization uses stored section scope and does not require continued active enrollment
+  - verified evidence snapshot section ids are required, invalid ids fail, tenant section lookup runs, risk fields map from real helper return names, and no unintended `undefined` values are present
+  - verified active reviewer notifications are deduped, owner inclusion requires active same-institution membership access, and notification failure does not invalidate a created decision
+  - duplicate-key race coverage is mocked; no real MongoDB concurrent unique-index integration test was run
+  - ran `node --check src/services/academicDecisionService.js`
+  - result: passed
+  - ran `node --check src/services/academicOversightService.js`
+  - result: passed
+  - ran `node --check test/academic-decision.test.js`
+  - result: passed
+  - ran `node --test test/academic-decision.test.js`
+  - result: 15 passing
+  - ran `node --test test/academic-decision-model.test.js`
+  - result: 19 passing
+  - ran `node --test test/academic-oversight.test.js`
+  - result: 22 passing
+- 2026-06-15 AcademicDecision Admin/Owner review:
+  - added Admin base-role `academicDecision.review` and kept Head responsibility permissions scoped to read/recommend only
+  - added review queue, approve, and reject routes with the existing auth/email/institution middleware stack
+  - verified active Admin and active Owner review authority, and blocked Head-only, Coordinator, Mentor, normal instructor, student, inactive, mismatched, and cross-tenant actors
+  - verified `recommended -> approved` keeps `isOpen=true`, `recommended -> rejected` sets `isOpen=false`, and non-recommended statuses cannot be reviewed again
+  - verified self-review prevention for Admin/Owner recommenders
+  - verified approval revalidates current Enrollment, student Membership, Section, tenant relationships, active enrollment status, and material evidence freshness
+  - verified approval/rejection do not update Enrollment, Membership, Subject, or Section
+  - verified approval/rejection notify the recommending Head with safe ids/messages and mark only the current reviewer's own review-required notification read
+  - ran `node --check src/auth/permissions.js`
+  - result: passed
+  - ran `node --check src/models/AcademicDecision.js`
+  - result: passed
+  - ran `node --check src/services/academicDecisionService.js`
+  - result: passed
+  - ran `node --check src/services/notificationService.js`
+  - result: passed
+  - ran `node --check src/controllers/academicDecisionController.js`
+  - result: passed
+  - ran `node --check src/routes/institutionRoutes.js`
+  - result: passed
+  - ran `node --check test/academic-decision.test.js`
+  - result: passed
+  - ran `node --check test/authorization-permission.test.js`
+  - result: passed
+  - ran `node --test test/academic-decision.test.js`
+  - result: 20 passing
+  - ran `node --test test/academic-decision.test.js test/academic-decision-model.test.js test/authorization-permission.test.js test/academic-oversight.test.js`
+  - result: 70 passing
+- 2026-06-15 AcademicDecision application:
+  - added Admin base-role `academicDecision.apply`; Head/Coordinator/Mentor/Student responsibilities do not receive apply authority
+  - added `POST /institutions/:institutionId/academic-decisions/:decisionId/apply`
+  - added internal Enrollment transition for trusted AcademicDecision context only, using exact `_id + institutionId + studentMemberId + sectionId + status=enrolled` to set `status=dropped`
+  - verified active Admin and active Owner can apply approved enrollment-drop decisions, while Head, Coordinator, Mentor, normal instructor, student, inactive, mismatched, and cross-tenant actors are blocked
+  - verified recommended/rejected/cancelled/applying decisions cannot apply, and already-applied decisions return idempotently without duplicate writes/history/notifications
+  - verified apply uses transient `applying` because there is no existing transaction/session pattern; enrollment-update failures revert to approved, while final-decision failures leave `applying` for manual recovery instead of falsely reporting success
+  - verified application does not deactivate Membership, delete Enrollment, change Subject/Section, or change assessment/attendance data
+  - verified Head and student notifications are idempotent and safe
+  - ran `node --check src/auth/permissions.js`
+  - result: passed
+  - ran `node --check src/models/AcademicDecision.js`
+  - result: passed
+  - ran `node --check src/models/Notification.js`
+  - result: passed
+  - ran `node --check src/services/enrollmentService.js`
+  - result: passed
+  - ran `node --check src/services/academicDecisionService.js`
+  - result: passed
+  - ran `node --check src/services/notificationService.js`
+  - result: passed
+  - ran `node --check src/controllers/academicDecisionController.js`
+  - result: passed
+  - ran `node --check src/routes/institutionRoutes.js`
+  - result: passed
+  - ran `node --check test/academic-decision.test.js`
+  - result: passed
+  - ran `node --check test/academic-decision-model.test.js`
+  - result: passed
+  - ran `node --check test/authorization-permission.test.js`
+  - result: passed
+  - ran `node --test test/academic-decision.test.js`
+  - result: 26 passing
+  - ran `node --test test/academic-decision-model.test.js`
+  - result: 19 passing
+  - ran `node --test test/authorization-permission.test.js`
+  - result: 9 passing
+  - ran `node --test test/academic-oversight.test.js`
+  - result: 22 passing
+  - ran `node --test test/self-enrollment-write.test.js`
+  - result: 6 passing
+  - ran `node --test test/academic-decision.test.js test/academic-decision-model.test.js test/authorization-permission.test.js test/academic-oversight.test.js test/self-enrollment-write.test.js`
+  - result: 82 passing
+- 2026-06-14 AcademicDecision Phase 1:
+  - added first-class `AcademicDecision` model and recommendation-only Head workflow for exact Enrollment drop recommendations
+  - added minimal in-app `Notification` model/service/controller/routes
+  - activated Head scoped permissions `academicDecision.read_scope` and `academicDecision.recommend_scope`
+  - verified Head cannot approve/reject/apply/drop enrollment through the scoped catalog
+  - verified Coordinator, Mentor, normal instructor, student, inactive/expired/cross-tenant Head assignments, and arbitrary stored permissions do not grant recommendation access
+  - verified tenant-scoped Enrollment lookup uses `_id + institutionId + studentMemberId`
+  - verified create rejects dangerous client-provided status/evidence and invalid reasons
+  - verified duplicate open recommendations are blocked and cancelled history does not permanently block new recommendations
+  - verified evidence snapshot is server-generated from current oversight calculations
+  - verified active Admin users and Institution owner are notified with safe IDs only, deduped by user id
+  - verified notification retry idempotency and own-user notification list/mark-read scoping
+  - verified cancellation preserves history and does not update Enrollment
+  - verified route/controller wiring uses auth/email/institution middleware without broad route-level decision permissions
+  - ran `node --check src/auth/permissions.js`
+  - result: passed
+  - ran `node --check src/services/academicOversightService.js`
+  - result: passed
+  - ran `node --check src/models/AcademicDecision.js`
+  - result: passed
+  - ran `node --check src/models/Notification.js`
+  - result: passed
+  - ran `node --check src/services/academicDecisionService.js`
+  - result: passed
+  - ran `node --check src/services/notificationService.js`
+  - result: passed
+  - ran `node --check src/controllers/academicDecisionController.js`
+  - result: passed
+  - ran `node --check src/controllers/notificationController.js`
+  - result: passed
+  - ran `node --check src/routes/institutionRoutes.js`
+  - result: passed
+  - ran `node --check test/academic-decision.test.js`
+  - result: passed
+  - ran `node --check test/authorization-permission.test.js`
+  - result: passed
+  - ran `node --check test/academic-oversight.test.js`
+  - result: passed
+  - ran `node --test test/academic-decision.test.js`
+  - result: 9 passing
+  - ran `node --test test/authorization-permission.test.js`
+  - result: 9 passing
+  - ran `node --test test/academic-oversight.test.js`
+  - result: 22 passing
+  - ran `node --test test/academic-decision.test.js test/academic-oversight.test.js test/authorization-permission.test.js test/responsibility-assignment-management.test.js`
+  - result: 61 passing
 - TODO:
   - add real sample responses when helpful
   - add attendance response examples after first manual Postman pass

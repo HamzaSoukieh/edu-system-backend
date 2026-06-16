@@ -21,7 +21,7 @@ const ENROLLMENT_STATUSES = ["enrolled", "dropped"];
 const ENROLLABLE_SECTION_STATUSES = ["draft", "active"];
 const STUDENT_MEMBER_ROLES = ["student"];
 const ENROLLMENT_SELECT_FIELDS =
-    "_id sectionId studentMemberId status enrolledAt createdByUserId createdAt updatedAt";
+    "_id sectionId studentMemberId status enrolledAt droppedAt droppedByUserId droppedByAcademicDecisionId createdByUserId createdAt updatedAt";
 
 function createError(statusCode, message) {
     const error = new Error(message);
@@ -767,13 +767,20 @@ async function updateEnrollmentStatus({ institutionId, sectionId, enrollmentId, 
         });
     }
 
+    const updates = { status };
+    if (status === "enrolled") {
+        updates.droppedAt = null;
+        updates.droppedByUserId = null;
+        updates.droppedByAcademicDecisionId = null;
+    }
+
     const updatedEnrollment = await Enrollment.findOneAndUpdate(
         {
             _id: enrollmentId,
             institutionId,
             sectionId,
         },
-        { $set: { status } },
+        { $set: updates },
         { returnDocument: "after", runValidators: true }
     )
         .select(ENROLLMENT_SELECT_FIELDS)
@@ -781,6 +788,64 @@ async function updateEnrollmentStatus({ institutionId, sectionId, enrollmentId, 
 
     if (!updatedEnrollment) {
         throw createError(404, "Enrollment not found");
+    }
+
+    return {
+        enrollment: toEnrollmentResponse(updatedEnrollment),
+    };
+}
+
+async function dropEnrollmentForAcademicDecision({
+    institutionId,
+    enrollmentId,
+    studentMemberId,
+    sectionId,
+    academicDecisionId,
+    actorUserId,
+}) {
+    if (!institutionId || !isValidObjectId(institutionId)) {
+        throw createError(400, "Invalid institution context");
+    }
+    if (!enrollmentId || !isValidObjectId(enrollmentId)) {
+        throw createError(400, "Invalid enrollment id");
+    }
+    if (!studentMemberId || !isValidObjectId(studentMemberId)) {
+        throw createError(400, "Invalid studentMemberId");
+    }
+    if (!sectionId || !isValidObjectId(sectionId)) {
+        throw createError(400, "Invalid section id");
+    }
+    if (!academicDecisionId || !isValidObjectId(academicDecisionId)) {
+        throw createError(400, "Invalid academicDecisionId");
+    }
+    if (!actorUserId || !isValidObjectId(actorUserId)) {
+        throw createError(401, "Unauthorized");
+    }
+
+    const droppedAt = new Date();
+    const updatedEnrollment = await Enrollment.findOneAndUpdate(
+        {
+            _id: enrollmentId,
+            institutionId,
+            studentMemberId,
+            sectionId,
+            status: "enrolled",
+        },
+        {
+            $set: {
+                status: "dropped",
+                droppedAt,
+                droppedByUserId: actorUserId,
+                droppedByAcademicDecisionId: academicDecisionId,
+            },
+        },
+        { returnDocument: "after", runValidators: true }
+    )
+        .select(ENROLLMENT_SELECT_FIELDS)
+        .lean();
+
+    if (!updatedEnrollment) {
+        throw createError(409, "Enrollment could not be dropped safely");
     }
 
     return {
@@ -1558,6 +1623,7 @@ module.exports = {
     listEnrollments,
     getEnrollmentById,
     updateEnrollmentStatus,
+    dropEnrollmentForAcademicDecision,
     validateSelfEnrollmentBrowseQuery,
     validateSelfEnrollmentSubmissionInput,
     resolveSelfEnrollmentBrowseCandidates,

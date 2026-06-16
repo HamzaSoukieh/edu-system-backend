@@ -142,6 +142,102 @@ Key result:
 - `PATCH /institutions/:institutionId/responsibility-assignments/:assignmentId/deactivate` soft-deactivates Head, Coordinator, or Mentor assignments without hard delete
 - verified `AssessmentResult.sectionId` is required and populated by assessment writes; duplicate rows are protected by `institutionId + assessmentId + enrollmentId`, with direct assessment+student uniqueness left as TODO/verify
 
+## 2026-06-14 AcademicDecision/Notification Model Hardening
+
+User asked to harden only the existing AcademicDecision and Notification models before service review.
+
+Key result:
+- added controlled AcademicDecision history actions and history note length limit
+- added `isOpen` plus a partial unique index for one open `institutionId + enrollmentId + decisionType`
+- made AcademicDecision target identity and evidence/scope snapshots immutable
+- replaced the review queue index with `{ institutionId: 1, status: 1, createdAt: -1 }`
+- converted Notification decision `data` into a required `_id: false` embedded schema
+- made Notification identity/content immutable while keeping `readAt` mutable
+- added focused schema validation/index tests
+- left services, controllers, routes, permissions, and Enrollment workflow untouched
+
+## 2026-06-15 AcademicDecision Service Hardening
+
+User asked to harden the existing Head-side AcademicDecision recommendation service and academic-oversight evidence snapshot helper.
+
+Key result:
+- synchronized cancellation with `status=cancelled` and `isOpen=false` in one atomic update
+- switched open recommendation pre-checks to `isOpen=true`
+- translated mocked partial unique open-decision duplicate-key races to HTTP 409 while preserving unrelated DB errors
+- failed closed for unsupported Head scope types in decision section matching
+- preserved historical list/get visibility by current authorized stored-section scope instead of current active enrollment
+- required, validated, deduped, and tenant-checked evidence snapshot section ids
+- verified evidence snapshot field mapping from actual attendance/grade risk return shapes
+- kept recommendation notification creation best-effort/idempotent and documented durable retry/outbox as deferred
+- required active same-institution membership access for owner notification inclusion
+- did not add admin review/apply behavior, Enrollment mutation, controller changes, or route changes
+
+## 2026-06-15 AcademicDecision Admin/Owner Review
+
+User asked to add Phase 2 Admin/Owner review of Head enrollment-drop recommendations without applying Enrollment changes.
+
+Key result:
+- added Admin base-role permission `academicDecision.review`; Owner review remains a service-level owner check with active same-institution membership
+- added `GET /institutions/:institutionId/academic-decisions/review-queue`
+- added `POST /institutions/:institutionId/academic-decisions/:decisionId/approve`
+- added `POST /institutions/:institutionId/academic-decisions/:decisionId/reject`
+- approve/reject are dedicated service transitions from `recommended`, not generic status updates
+- reviewers cannot approve or reject their own recommendations, even when also Admin or Owner
+- approval revalidates current trusted Enrollment, student Membership, Section, active Enrollment status, tenant relationships, and material evidence freshness
+- approval keeps `isOpen=true`; rejection sets `isOpen=false`; neither updates Enrollment or application fields
+- approval/rejection notify the recommending Head through idempotent in-app notifications and may mark only the current reviewer's own review-required notification read
+
+## 2026-06-15 AcademicDecision Application
+
+User asked to add Phase 3 application of approved enrollment-drop AcademicDecision records.
+
+Key result:
+- added Admin base-role permission `academicDecision.apply`; Owner apply remains a service-level owner check with active same-institution membership
+- added `POST /institutions/:institutionId/academic-decisions/:decisionId/apply`
+- added an internal trusted Enrollment transition that changes exactly `_id + institutionId + studentMemberId + sectionId + status=enrolled` to `status=dropped`
+- apply requires `decisionType=enrollment_drop` and `status=approved`; Head, Coordinator, Mentor, normal instructor, and student actors cannot apply
+- because the repo has no transaction/session pattern, apply uses transient `applying` as a claim/recovery marker before dropping Enrollment
+- successful application sets `status=applied`, `isOpen=false`, `appliedByUserId`, `appliedAt`, and one applied history entry
+- already-applied decisions are idempotent when the exact Enrollment is already dropped
+- application notifies the recommending Head (`academic_decision_applied`) and affected student (`enrollment_status_changed`) with safe IDs and no private evidence
+- no Membership deactivation, Enrollment deletion, Subject removal, grade deletion, attendance deletion, homework deletion, material deletion, billing change, WebSocket, push, or email behavior was added
+
+## 2026-06-16 AcademicDecision Apply Recovery Hardening
+
+User asked to harden Phase 2/3 review and application recovery without rebuilding the module.
+
+Key result:
+- added `applying` as a controlled history action plus mutable `applyingByUserId` / `applyingAt` model fields
+- normalized Head scope student/section ids before comparing Mongoose ObjectIds to request strings
+- application claim now atomically writes `approved -> applying` history and claim metadata before dropping Enrollment
+- Enrollment drops now record `droppedAt`, `droppedByUserId`, and `droppedByAcademicDecisionId`
+- successful completion records `applying -> applied` with a fresh `appliedAt`
+- stale `applying` claims can be reclaimed when the exact Enrollment is still enrolled, while unlinked dropped Enrollments fail closed for manual recovery
+- approval, rejection, and cancellation resolve all stale review-required notifications for the decision in the same institution
+- review recipients are active admin users plus the owner only when the owner has active institution membership access
+- category-only evidence drift remains the approval-blocking rule with TODO/verify for numeric evidence policy
+
+## 2026-06-14 AcademicDecision Phase 1
+
+User asked to add recommendation-only AcademicDecision workflow for Head enrollment-drop recommendations and in-app Admin/Owner notifications.
+
+Key result:
+- added first-class `AcademicDecision` model with status/history/evidence/scope snapshots
+- added minimal first-class in-app `Notification` module
+- added Head scoped permissions `academicDecision.read_scope` and `academicDecision.recommend_scope`
+- added `POST /institutions/:institutionId/academic-decisions/enrollment-drop`
+- added `GET /institutions/:institutionId/academic-decisions`
+- added `GET /institutions/:institutionId/academic-decisions/:decisionId`
+- added `PATCH /institutions/:institutionId/academic-decisions/:decisionId/cancel`
+- added `GET /institutions/:institutionId/notifications`
+- added `PATCH /institutions/:institutionId/notifications/:notificationId/read`
+- Head can recommend only inside trusted department/classLevel/institution Head scope and cancel only their own still-`recommended` decision
+- Head cannot approve, reject, apply, drop Enrollment, deactivate Membership, or remove students
+- recommendation create validates exact tenant-scoped Enrollment by `_id + institutionId + studentMemberId`
+- server builds evidence and scope snapshots; client evidence/scope/status/audit/history fields are rejected
+- active Admin users and the Institution owner receive safe in-app review notifications, deduped and idempotent by recipient + decision + type
+- no Enrollment, Membership, Subject, Section, Assessment, AttendanceRecord, email, push, WebSocket, or Admin review/apply behavior was added
+
 ## 2026-05-31 Attendance Local QR Date Override
 
 User could not test QR because today's date was not included in semester teaching days, while the available session was scheduled for a future teaching day.

@@ -22,6 +22,8 @@ const sectionMaterialController = require("../controllers/sectionMaterialControl
 const billingController = require("../controllers/billingController");
 const responsibilityAssignmentController = require("../controllers/responsibilityAssignmentController");
 const academicOversightController = require("../controllers/academicOversightController");
+const academicDecisionController = require("../controllers/academicDecisionController");
+const notificationController = require("../controllers/notificationController");
 const academicProfileController = require("../controllers/academicProfileController");
 const academicYearController = require("../controllers/academicYearController");
 const universityAcademicStandingController = require("../controllers/universityAcademicStandingController");
@@ -138,6 +140,76 @@ router.get(
     requireEmailVerified,
     institutionAccess(),
     academicOversightController.getAcademicOversightStudentStanding
+);
+router.post(
+    "/:institutionId/academic-decisions/enrollment-drop",
+    authJwt,
+    requireEmailVerified,
+    institutionAccess(),
+    academicDecisionController.recommendEnrollmentDrop
+);
+router.get(
+    "/:institutionId/academic-decisions",
+    authJwt,
+    requireEmailVerified,
+    institutionAccess(),
+    academicDecisionController.listAcademicDecisions
+);
+router.get(
+    "/:institutionId/academic-decisions/review-queue",
+    authJwt,
+    requireEmailVerified,
+    institutionAccess(),
+    academicDecisionController.listAcademicDecisionReviewQueue
+);
+router.get(
+    "/:institutionId/academic-decisions/:decisionId",
+    authJwt,
+    requireEmailVerified,
+    institutionAccess(),
+    academicDecisionController.getAcademicDecisionById
+);
+router.post(
+    "/:institutionId/academic-decisions/:decisionId/approve",
+    authJwt,
+    requireEmailVerified,
+    institutionAccess(),
+    academicDecisionController.approveAcademicDecision
+);
+router.post(
+    "/:institutionId/academic-decisions/:decisionId/reject",
+    authJwt,
+    requireEmailVerified,
+    institutionAccess(),
+    academicDecisionController.rejectAcademicDecision
+);
+router.post(
+    "/:institutionId/academic-decisions/:decisionId/apply",
+    authJwt,
+    requireEmailVerified,
+    institutionAccess(),
+    academicDecisionController.applyAcademicDecision
+);
+router.patch(
+    "/:institutionId/academic-decisions/:decisionId/cancel",
+    authJwt,
+    requireEmailVerified,
+    institutionAccess(),
+    academicDecisionController.cancelAcademicDecision
+);
+router.get(
+    "/:institutionId/notifications",
+    authJwt,
+    requireEmailVerified,
+    institutionAccess(),
+    notificationController.listMyNotifications
+);
+router.patch(
+    "/:institutionId/notifications/:notificationId/read",
+    authJwt,
+    requireEmailVerified,
+    institutionAccess(),
+    notificationController.markMyNotificationRead
 );
 router.post(
     "/:institutionId/academic-years",

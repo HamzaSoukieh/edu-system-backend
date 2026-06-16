@@ -10,6 +10,8 @@ const ROLE_PERMISSIONS = {
         "section.manage",
         "student.kick",
         "attendance.manage",
+        "academicDecision.review",
+        "academicDecision.apply",
         "billing.manage",
     ],
     instructor: [
@@ -30,6 +32,8 @@ const RESPONSIBILITY_PERMISSIONS = {
         "academicRisk.read_scope",
         "academicProfile.read_scope",
         "academicStanding.read_scope",
+        "academicDecision.read_scope",
+        "academicDecision.recommend_scope",
     ],
     coordinator: [
         "section.read_scope",

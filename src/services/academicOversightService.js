@@ -416,6 +416,8 @@ async function resolveAcademicOversightStudentScope({
     actorUserId,
     actorMembership,
     permission,
+    allowInstitutionRoleAccess = true,
+    includeAssignments = false,
 }) {
     const normalizedInstitutionId = validateObjectId(institutionId, "institutionId");
     ensureActorMembership({
@@ -429,7 +431,7 @@ async function resolveAcademicOversightStudentScope({
     const isOwner = normalizeId(institution.ownerUserId) === actorId;
     const isAdmin = hasRolePermission(actorMembership.role, "membership.manage");
 
-    if (isOwner || isAdmin) {
+    if (allowInstitutionRoleAccess && (isOwner || isAdmin)) {
         const studentMemberIds = await loadActiveStudentMembershipIds(normalizedInstitutionId);
         const enrollmentScope = await loadActiveEnrollmentScope({
             institutionId: normalizedInstitutionId,
@@ -447,6 +449,7 @@ async function resolveAcademicOversightStudentScope({
                 classLevelIds: [],
                 schoolClassIds: [],
             },
+            assignments: [],
         };
     }
 
@@ -521,12 +524,14 @@ async function resolveAcademicOversightStudentScope({
         return {
             institution,
             scope,
+            assignments: includeAssignments ? assignments : undefined,
         };
     }
 
     return {
         institution,
         scope,
+        assignments: includeAssignments ? assignments : undefined,
     };
 }
 
@@ -1182,6 +1187,99 @@ async function buildStandingAndProfile({ institution, institutionId, studentMemb
     }
 }
 
+async function buildAcademicOversightEvidenceSnapshot({
+    institution,
+    institutionId,
+    studentMemberId,
+    sectionIds,
+    capturedAt = new Date(),
+}) {
+    const normalizedInstitutionId = validateObjectId(institutionId, "institutionId");
+    const normalizedStudentMemberId = validateObjectId(studentMemberId, "studentMemberId");
+    const rawSectionIds = Array.isArray(sectionIds) ? sectionIds : [];
+    const normalizedSectionIds = uniqueIds(rawSectionIds);
+    if (!normalizedSectionIds.length) {
+        throw createError(400, "At least one sectionId is required");
+    }
+    if (normalizedSectionIds.some((sectionId) => !isValidObjectId(sectionId))) {
+        throw createError(400, "sectionIds contains an invalid sectionId");
+    }
+
+    const tenantSections = await Section.find({
+        _id: { $in: normalizedSectionIds },
+        institutionId: normalizedInstitutionId,
+    })
+        .select("_id")
+        .lean();
+    if (uniqueIds(tenantSections.map((section) => section._id)).length !== normalizedSectionIds.length) {
+        throw createError(404, "Section not found");
+    }
+
+    const membership = await Membership.findOne({
+        _id: normalizedStudentMemberId,
+        institutionId: normalizedInstitutionId,
+        role: "student",
+        status: ACTIVE_MEMBERSHIP_STATUS,
+    })
+        .select("_id institutionId userId role status")
+        .lean();
+
+    if (!membership) {
+        throw createError(404, "Student member not found");
+    }
+
+    const attendancePolicySummary = resolveAttendancePolicySummary(institution?.policies || {});
+    const [attendanceRiskByStudentId, gradeRiskByStudentId, academicData] = await Promise.all([
+        loadAttendanceRiskByStudent({
+            institutionId: normalizedInstitutionId,
+            studentMemberIds: [normalizedStudentMemberId],
+            sectionIds: normalizedSectionIds,
+            attendancePolicySummary,
+        }),
+        loadGradeRiskByStudent({
+            institutionId: normalizedInstitutionId,
+            studentMemberIds: [normalizedStudentMemberId],
+            sectionIds: normalizedSectionIds,
+        }),
+        buildStandingAndProfile({
+            institution,
+            institutionId: normalizedInstitutionId,
+            studentMemberId: normalizedStudentMemberId,
+            membership,
+        }),
+    ]);
+
+    const attendanceRisk = attendanceRiskByStudentId.get(normalizedStudentMemberId) || buildAttendanceRisk(
+        createAttendanceMetrics(),
+        attendancePolicySummary
+    );
+    const gradeRisk = gradeRiskByStudentId.get(normalizedStudentMemberId) || buildGradeRisk(createGradeAccumulator());
+
+    return {
+        capturedAt,
+        attendanceRisk: {
+            level: attendanceRisk.level,
+            effectiveAbsences: attendanceRisk.effectiveAbsences,
+            absentCount: attendanceRisk.absences,
+            lateCount: attendanceRisk.lateCount,
+            excusedCount: attendanceRisk.excusedCount,
+            warnAfterAbsences: attendanceRisk.threshold.warnAfterAbsences,
+            dropAfterAbsences: attendanceRisk.threshold.dropAfterAbsences,
+            lateToAbsenceRatio: attendanceRisk.threshold.lateToAbsenceRatio,
+            excusedCountsAsAbsence: attendanceRisk.threshold.excusedCountsAsAbsence,
+            reasons: attendanceRisk.reasons,
+        },
+        gradeRisk: {
+            level: gradeRisk.level,
+            currentAverage: gradeRisk.currentAverage,
+            missingResults: gradeRisk.missingResults,
+            failedAssessments: gradeRisk.failedAssessments,
+            reasons: gradeRisk.reasons,
+        },
+        academicStanding: academicData.academicStanding || null,
+    };
+}
+
 async function buildStudentRows({
     institution,
     institutionId,
@@ -1492,6 +1590,7 @@ async function getAcademicOversightStudentStanding({
 
 module.exports = {
     resolveAcademicOversightStudentScope,
+    buildAcademicOversightEvidenceSnapshot,
     getAcademicOversightRiskSummary,
     listAcademicOversightStudents,
     getAcademicOversightStudent,

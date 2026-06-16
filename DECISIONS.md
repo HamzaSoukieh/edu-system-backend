@@ -398,7 +398,7 @@
   - `ResponsibilityAssignment` is currently keyed by `institutionId + userId`, not `membershipId`; callers must always include `institutionId` when resolving responsibility authority.
   - Active/date checks still apply to responsibility assignments.
   - Active scoped catalog:
-    - `head`: `academicRisk.read_scope`, `academicProfile.read_scope`, `academicStanding.read_scope` for the dedicated read-only academic oversight service.
+    - `head`: `academicRisk.read_scope`, `academicProfile.read_scope`, `academicStanding.read_scope`, `academicDecision.read_scope`, and `academicDecision.recommend_scope` for dedicated academic oversight/decision services.
     - `coordinator`: `section.read_scope`, `sectionSession.read_scope`, `sectionSession.manage_scope`, `attendance.read_scope`, `attendance.manage_scope`
     - `mentor`: no active scoped permissions yet, pending student/mentor-specific service enforcement.
   - Allowed responsibility scope combinations:
@@ -416,14 +416,14 @@
   - Section-session and attendance scoped operations now check backend catalog permissions while deriving section, class, department, and class-level scope from trusted section/subject/class records.
   - Head assignments do not grant generic operational section, section-session, attendance, schedule, homework, assessment, enrollment, result, membership, billing, or material staff powers.
   - Mentor responsibility does not grant generic staff section list/detail management scope.
-  - TODO/verify: do not activate `section.manage_scope`, `studentProfile.read_scope`, `attendance.excuse_manage_scope`, `academicDecision.review_scope`, `enrollment.review_scope`, or `studentDropRisk.review_scope` until real service-level enforcement and tests exist.
+  - TODO/verify: do not activate `section.manage_scope`, `studentProfile.read_scope`, `attendance.excuse_manage_scope`, `academicDecision.review_scope`, `academicDecision.approve`, `academicDecision.reject`, `academicDecision.apply`, `enrollment.drop`, `enrollment.review_scope`, or `studentDropRisk.review_scope` until real service-level enforcement and tests exist.
 
 ## D050 - Head Academic Oversight Is Read-Only And Separate From Operational Endpoints
 - Status: Confirmed
 - Decision: Expose Head academic oversight through dedicated read-only routes instead of allowing Head to reuse coordinator/instructor operational endpoints.
 - Reason: Heads need visibility into academic profile, standing, attendance risk, and grade risk without gaining session, attendance, assessment, enrollment, or decision powers.
 - Notes:
-  - Head effective permissions are limited to `academicRisk.read_scope`, `academicProfile.read_scope`, and `academicStanding.read_scope`.
+  - Head effective permissions for this area are limited to academic oversight reads plus AcademicDecision Phase 1 read/recommend: `academicRisk.read_scope`, `academicProfile.read_scope`, `academicStanding.read_scope`, `academicDecision.read_scope`, and `academicDecision.recommend_scope`.
   - Head allowed scopes remain `institution`, `department`, and `classLevel`; no class or section Head scope is added.
   - The oversight resolver accepts owner/admin institution-wide access, or active same-tenant Head assignments with valid dates and backend-computed permissions.
   - Academic oversight fails closed if the middleware-provided `actorMembership.userId` does not match the authenticated actor user.
@@ -438,3 +438,63 @@
   - `AssessmentResult.sectionId` is required and is populated from the parent assessment section in the assessment create/write flows. Duplicate result rows are DB-protected by `institutionId + assessmentId + enrollmentId`; TODO/verify whether a direct `institutionId + assessmentId + studentMemberId` unique index is needed later.
   - University standing/profile summary reuses existing university academic outcome and standing calculations where available; school standing/profile remains compact/null until a school-specific standing/profile summary is needed; unexpected calculation failures return safe null fields with `dataUnavailable=true`.
   - No write endpoints, student drops, removals, final decisions, attendance edits, grade/result edits, or enrollment changes are introduced.
+
+## D051 - AcademicDecision Phase 1 Is Recommendation-Only
+- Status: Confirmed
+- Decision: Add a first-class tenant-scoped `AcademicDecision` workflow record for Head enrollment-drop recommendations, plus minimal in-app `Notification` records for administrative review.
+- Reason: Heads need an auditable escalation path for risky enrollments without gaining direct operational power to drop students.
+- Notes:
+  - Phase 1 supports only `decisionType = enrollment_drop`.
+  - A Head can create/list/get scoped recommendations and cancel their own `recommended` decision.
+  - Heads cannot approve, reject, apply, update Enrollment status, deactivate Membership, remove a student from a Subject, or remove a student from the institution.
+  - Head decision authority uses backend-computed `academicDecision.read_scope` and `academicDecision.recommend_scope`; raw stored `ResponsibilityAssignment.permissions` remains ignored.
+  - Coordinator and Mentor responsibilities do not gain AcademicDecision access.
+  - Recommendation validation is based on trusted tenant-scoped DB records: active actor membership, active Head assignment, active student membership, exact Enrollment by `_id + institutionId + studentMemberId`, exact Section by `_id + institutionId`, and Head section/student scope.
+  - New recommendations start as `recommended`, set `recommendedByUserId` / `recommendedAt`, and append a history entry.
+  - Duplicate open enrollment-drop recommendations are blocked by `isOpen=true` in service logic and by a partial unique model index for one open `institutionId + enrollmentId + decisionType`; `recommended`, `approved`, and `applying` are open, while rejected, cancelled, and applied history can coexist.
+  - `evidenceSnapshot` and `scopeSnapshot` are server-built audit evidence only and must not become the only future authorization source.
+  - Decision target identity fields and evidence/scope snapshots are immutable after creation.
+  - Workflow transition validation and keeping `status` synchronized with `isOpen` remain service responsibilities; `approved` remains open until the decision reaches a terminal state such as `applied`, `cancelled`, or another closed outcome.
+  - Historical list/get visibility is based on the decision's stored `sectionId` being inside the Head's current authorized section scope; the student does not need to remain actively enrolled for historical visibility.
+  - Unsupported Head assignment scope types fail closed for AcademicDecision section matching; Head scope remains limited to `institution`, `department`, and `classLevel`.
+  - Creating a recommendation creates in-app `academic_decision_review_required` notifications for active same-institution Admin memberships, plus the Institution owner when the owner has active same-institution membership access, deduped by user id.
+  - Notification messages intentionally contain no grades, GPA, attendance counts, or private evidence; notification `data` contains only safe ids.
+  - Notification identity/content is immutable after creation; only `readAt` changes. Notification creation is idempotent by `recipientUserId + academicDecisionId + type`; Phase 1 uses best-effort post-decision creation and does not claim transaction atomicity or durable retry/outbox behavior yet.
+  - WebSockets, push notifications, emails, application behavior, and Enrollment mutations remain deferred. Admin/Owner approve/reject review is added separately in D052.
+
+## D052 - AcademicDecision Phase 2 Adds Admin/Owner Review Without Application
+- Status: Confirmed
+- Decision: Add Admin/Owner review routes for Head enrollment-drop recommendations, limited to approving or rejecting `recommended` decisions.
+- Reason: Administrative review should be auditable and explicit before any future Enrollment-changing application step exists.
+- Notes:
+  - Admin review authority is the explicit base-role permission `academicDecision.review`; Owner authority is checked separately with `institution.ownerUserId === actorUserId` plus an active same-institution membership.
+  - Head responsibilities do not receive review/approve/reject/apply permissions. Coordinator, Mentor, normal instructor, and student memberships cannot review decisions.
+  - Review transitions are dedicated service functions/routes, not a generic client-controlled status update.
+  - Allowed Phase 2 transitions are `recommended -> approved` and `recommended -> rejected`; `approved`, `rejected`, `cancelled`, and `applied` cannot be reviewed again.
+  - A reviewer cannot approve or reject their own recommendation, even if they are also Admin or Owner. The recommender can still use the Head cancellation flow while the decision is `recommended`.
+  - Approval revalidates current trusted records for the exact decision, Enrollment, student Membership, Section, active Enrollment status, and tenant relationships. `evidenceSnapshot` remains audit evidence only.
+  - If current evidence risk categories or academic-standing value differ from the original snapshot, approval returns `409`; numeric evidence drift without category drift is a TODO/verify product policy. The old recommendation may be rejected and a Head may create a new one if still needed.
+  - Approval sets `status=approved`, keeps `isOpen=true`, stores approval actor/time fields, appends history, and does not set application fields or update Enrollment.
+  - Rejection sets `status=rejected`, `isOpen=false`, stores rejection actor/time fields, appends history with a bounded reason, and does not update Enrollment.
+  - Approval/rejection creates idempotent in-app notifications to the recommending Head with safe ids only and resolves all unread `academic_decision_review_required` notifications for that decision inside the same institution.
+
+## D053 - AcademicDecision Phase 3 Applies One Approved Enrollment Drop
+- Status: Confirmed
+- Decision: Add an Admin/Owner-only apply step for approved `enrollment_drop` AcademicDecision records that drops exactly the referenced Enrollment.
+- Reason: The actual Enrollment mutation should be separate from Head recommendation and Admin/Owner review, but still auditable and tenant-scoped.
+- Notes:
+  - Admin application authority uses explicit base-role `academicDecision.apply`; Owner authority is checked separately through `institution.ownerUserId === actorUserId` plus an active same-institution membership.
+  - Head, Coordinator, Mentor, normal instructor, and student memberships cannot apply AcademicDecision records.
+  - Application is exposed only through a dedicated apply route/service function, not through arbitrary status updates.
+  - New application claims require `decisionType=enrollment_drop`, `status=approved`, and `isOpen=true`; recommended, rejected, cancelled, and unrelated decisions cannot be applied. Existing `applying` decisions enter the recovery path.
+  - The Enrollment mutation uses the existing shared Enrollment statuses: `enrolled -> dropped`.
+  - The exact Enrollment update is scoped by `_id + institutionId + studentMemberId + sectionId + status=enrolled`; the client cannot choose the target or resulting status.
+  - Application does not deactivate Membership, delete Enrollment, delete attendance, delete grades/results, delete homework/submissions, delete materials, remove Subjects, or change billing.
+  - The repo has no existing MongoDB transaction/session pattern, so Phase 3 uses a minimal internal `applying` status as a claim marker before changing Enrollment. The claim stores `applyingByUserId`, `applyingAt`, and an `approved -> applying` history entry.
+  - Enrollment drops preserve audit linkage on the Enrollment through `droppedAt`, `droppedByUserId`, and `droppedByAcademicDecisionId`.
+  - If the Enrollment update fails, the service re-reads the exact Enrollment. It reverts `applying -> approved` only when the Enrollment is verified still `enrolled`; if the Enrollment was dropped by this exact decision it finalizes, otherwise it returns a manual-recovery conflict.
+  - Stale `applying` decisions can be reclaimed after the configured recovery window when the exact Enrollment is still `enrolled`. Recent `applying` claims return an in-progress conflict. Missing claim metadata fails closed unless exact Enrollment linkage proves a safe finalization path.
+  - Successful application sets `status=applied`, `isOpen=false`, `appliedByUserId`, `appliedAt`, and appends one `applying -> applied` history entry. `applyingByUserId` and `applyingAt` are preserved as claim audit metadata.
+  - Already-applied decisions are idempotent only when the exact Enrollment is `dropped` and linked to the same AcademicDecision; mismatches return a manual-recovery conflict without another Enrollment update, history entry, or notification.
+  - Successful application sends idempotent in-app notifications to the recommending Head (`academic_decision_applied`) and the affected student (`enrollment_status_changed`) with safe navigation ids and no private evidence or review notes.
+  - Existing inactive, closed, or cancelled Sections may still be used for review/application cleanup as long as the exact tenant-scoped Section record exists; no new Section status policy is introduced here.

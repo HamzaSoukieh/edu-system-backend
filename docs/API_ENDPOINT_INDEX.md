@@ -19,10 +19,22 @@
 | GET | `/institutions/:institutionId/responsibility-assignments` | Responsibility assignments | Protected | Owner/admin service check | List tenant-scoped responsibility assignments with safe filters. |
 | GET | `/institutions/:institutionId/responsibility-assignments/:assignmentId` | Responsibility assignments | Protected | Owner/admin service check | Get one tenant-scoped responsibility assignment. |
 | PATCH | `/institutions/:institutionId/responsibility-assignments/:assignmentId` | Responsibility assignments | Protected | Owner/admin service check | Update assignment scope/date/isActive fields. |
+| PATCH | `/institutions/:institutionId/responsibility-assignments/:assignmentId/deactivate` | Responsibility assignments | Protected | Owner/admin service check | Soft-deactivate a Head, Coordinator, or Mentor assignment. |
 | DELETE | `/institutions/:institutionId/responsibility-assignments/:assignmentId` | Responsibility assignments | Protected | Owner/admin service check | Soft-deactivate a responsibility assignment. |
-| GET | `/institutions/:institutionId/academic-oversight/risk-summary` | Academic oversight | Protected | Owner/admin or Head scoped service check | Read derived attendance/grade/standing risk summary. |
-| GET | `/institutions/:institutionId/academic-oversight/students` | Academic oversight | Protected | Owner/admin or Head scoped service check | List scoped students with read-only academic risk/profile/standing data. |
-| GET | `/institutions/:institutionId/academic-oversight/students/:studentMemberId` | Academic oversight | Protected | Owner/admin or Head scoped service check | Get one scoped student's read-only academic oversight row. |
+| GET | `/institutions/:institutionId/academic-oversight/risk-summary` | Academic oversight | Protected | Owner/admin or Head `academicRisk.read_scope` | Read derived attendance/grade risk summary. |
+| GET | `/institutions/:institutionId/academic-oversight/students` | Academic oversight | Protected | Owner/admin or Head `academicRisk.read_scope` | List scoped students with read-only risk rows. |
+| GET | `/institutions/:institutionId/academic-oversight/students/:studentMemberId` | Academic oversight | Protected | Owner/admin or Head `academicProfile.read_scope` | Get one scoped student's profile detail row. |
+| GET | `/institutions/:institutionId/academic-oversight/students/:studentMemberId/standing` | Academic oversight | Protected | Owner/admin or Head `academicStanding.read_scope` | Get one scoped student's standing detail row. |
+| POST | `/institutions/:institutionId/academic-decisions/enrollment-drop` | Academic decisions | Protected | Head `academicDecision.recommend_scope` | Create enrollment-drop recommendation without changing Enrollment. |
+| GET | `/institutions/:institutionId/academic-decisions` | Academic decisions | Protected | Head `academicDecision.read_scope` or Admin/Owner service check | List visible AcademicDecision records with safe filters. |
+| GET | `/institutions/:institutionId/academic-decisions/review-queue` | Academic decisions | Protected | Admin `academicDecision.review` or Owner service check | List institution decisions requiring administrative review. |
+| GET | `/institutions/:institutionId/academic-decisions/:decisionId` | Academic decisions | Protected | Head scoped read or Admin/Owner service check | Get one tenant-scoped AcademicDecision. |
+| POST | `/institutions/:institutionId/academic-decisions/:decisionId/approve` | Academic decisions | Protected | Admin `academicDecision.review` or Owner service check | Approve a recommended enrollment-drop decision without applying it. |
+| POST | `/institutions/:institutionId/academic-decisions/:decisionId/reject` | Academic decisions | Protected | Admin `academicDecision.review` or Owner service check | Reject a recommended enrollment-drop decision. |
+| POST | `/institutions/:institutionId/academic-decisions/:decisionId/apply` | Academic decisions | Protected | Admin `academicDecision.apply` or Owner service check | Apply an approved enrollment-drop decision to the exact Enrollment. |
+| PATCH | `/institutions/:institutionId/academic-decisions/:decisionId/cancel` | Academic decisions | Protected | Recommending Head in current scope | Cancel own recommended decision. |
+| GET | `/institutions/:institutionId/notifications` | Notifications | Protected | Own active institution membership | List current user's in-app notifications. |
+| PATCH | `/institutions/:institutionId/notifications/:notificationId/read` | Notifications | Protected | Own active institution membership | Mark current user's notification read. |
 | POST | `/institutions/:institutionId/academic-years` | Academic Years | Protected | institution.manage | Create academic year. |
 | GET | `/institutions/:institutionId/academic-years` | Academic Years | Protected | institution.manage | List academic years. |
 | GET | `/institutions/:institutionId/academic-years/active` | Academic Years | Protected | institution.manage | Get active academic year. |

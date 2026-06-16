@@ -33,6 +33,21 @@ const enrollmentSchema = new mongoose.Schema(
             default: Date.now,
             required: true,
         },
+        droppedAt: {
+            type: Date,
+            default: null,
+        },
+        droppedByUserId: {
+            type: mongoose.Schema.Types.ObjectId,
+            ref: "User",
+            default: null,
+        },
+        droppedByAcademicDecisionId: {
+            type: mongoose.Schema.Types.ObjectId,
+            ref: "AcademicDecision",
+            default: null,
+            index: true,
+        },
         createdByUserId: {
             type: mongoose.Schema.Types.ObjectId,
             ref: "User",

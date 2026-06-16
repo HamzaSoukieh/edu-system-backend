@@ -1,0 +1,586 @@
+{
+  "info": {
+    "name": "Edu SaaS AcademicDecision Workflow Smoke",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+    "description": "Local smoke pack for Head enrollment-drop recommendation, Admin review/apply, and in-app notifications. The happy path drops the configured Enrollment; use a fresh enrolled Enrollment before rerunning the apply path."
+  },
+  "event": [
+    {
+      "listen": "test",
+      "script": {
+        "type": "text/javascript",
+        "exec": [
+          "function jsonBody() {",
+          "  try { return pm.response.json(); } catch (error) { return null; }",
+          "}",
+          "const expectedStatus = pm.variables.get('expectedStatus');",
+          "if (expectedStatus) {",
+          "  const statuses = String(expectedStatus).split(',').map((value) => Number(value.trim())).filter(Boolean);",
+          "  pm.test(`status is ${expectedStatus}`, function () {",
+          "    pm.expect(statuses).to.include(pm.response.code);",
+          "  });",
+          "}",
+          "const json = jsonBody();",
+          "pm.test('response is JSON', function () {",
+          "  pm.expect(json).to.not.equal(null);",
+          "});",
+          "if (pm.response.code >= 400) {",
+          "  pm.test('error message exists', function () {",
+          "    pm.expect(json?.message || json?.error).to.be.ok;",
+          "  });",
+          "}"
+        ]
+      }
+    }
+  ],
+  "item": [
+    {
+      "name": "01 Auth",
+      "item": [
+        {
+          "name": "01 Login Head",
+          "variable": [
+            {
+              "key": "expectedStatus",
+              "value": "200"
+            }
+          ],
+          "auth": {
+            "type": "noauth"
+          },
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/auth/login",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{headEmail}}\",\n  \"password\": \"{{headPassword}}\"\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const json = pm.response.json();",
+                  "if (json.accessToken) pm.environment.set('headToken', json.accessToken);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "02 Login Admin",
+          "variable": [
+            {
+              "key": "expectedStatus",
+              "value": "200"
+            }
+          ],
+          "auth": {
+            "type": "noauth"
+          },
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/auth/login",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{adminEmail}}\",\n  \"password\": \"{{adminPassword}}\"\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const json = pm.response.json();",
+                  "if (json.accessToken) pm.environment.set('adminToken', json.accessToken);"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "02 Happy Path: Recommend -> Approve -> Apply",
+      "item": [
+        {
+          "name": "01 Head Recommend Enrollment Drop",
+          "variable": [
+            {
+              "key": "expectedStatus",
+              "value": "201,409"
+            }
+          ],
+          "auth": {
+            "type": "bearer",
+            "bearer": [
+              {
+                "key": "token",
+                "value": "{{headToken}}",
+                "type": "string"
+              }
+            ]
+          },
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/institutions/{{institutionId}}/academic-decisions/enrollment-drop",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"enrollmentId\": \"{{enrollmentId}}\",\n  \"studentMemberId\": \"{{studentMemberId}}\",\n  \"reason\": \"Repeated academic and attendance risk requires administrative review for this enrollment.\"\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "let json = {};",
+                  "try { json = pm.response.json(); } catch (error) {}",
+                  "if (json.academicDecision?.id) pm.environment.set('academicDecisionId', json.academicDecision.id);",
+                  "if (pm.response.code === 201) {",
+                  "  pm.test('recommendation status is recommended', function () {",
+                  "    pm.expect(json.academicDecision.status).to.equal('recommended');",
+                  "  });",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "02 Head List Target Decisions And Save Decision Id",
+          "variable": [
+            {
+              "key": "expectedStatus",
+              "value": "200"
+            }
+          ],
+          "auth": {
+            "type": "bearer",
+            "bearer": [
+              {
+                "key": "token",
+                "value": "{{headToken}}",
+                "type": "string"
+              }
+            ]
+          },
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/institutions/{{institutionId}}/academic-decisions?decisionType=enrollment_drop&studentMemberId={{studentMemberId}}&sectionId={{sectionId}}&limit=20"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const json = pm.response.json();",
+                  "const enrollmentId = pm.environment.get('enrollmentId');",
+                  "const found = (json.academicDecisions || []).find((item) => item.enrollmentId === enrollmentId);",
+                  "if (found?.id) pm.environment.set('academicDecisionId', found.id);",
+                  "pm.test('decision id is available', function () {",
+                  "  pm.expect(pm.environment.get('academicDecisionId')).to.be.ok;",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "03 Admin List Unread Notifications",
+          "variable": [
+            {
+              "key": "expectedStatus",
+              "value": "200"
+            }
+          ],
+          "auth": {
+            "type": "bearer",
+            "bearer": [
+              {
+                "key": "token",
+                "value": "{{adminToken}}",
+                "type": "string"
+              }
+            ]
+          },
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/institutions/{{institutionId}}/notifications?unreadOnly=true&limit=20"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const json = pm.response.json();",
+                  "const decisionId = pm.environment.get('academicDecisionId');",
+                  "const notification = (json.notifications || []).find((item) => item.type === 'academic_decision_review_required' && item.data?.academicDecisionId === decisionId);",
+                  "if (notification?.id) pm.environment.set('adminReviewNotificationId', notification.id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "04 Admin Review Queue",
+          "variable": [
+            {
+              "key": "expectedStatus",
+              "value": "200"
+            }
+          ],
+          "auth": {
+            "type": "bearer",
+            "bearer": [
+              {
+                "key": "token",
+                "value": "{{adminToken}}",
+                "type": "string"
+              }
+            ]
+          },
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/institutions/{{institutionId}}/academic-decisions/review-queue?limit=20"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const json = pm.response.json();",
+                  "const enrollmentId = pm.environment.get('enrollmentId');",
+                  "const found = (json.academicDecisions || []).find((item) => item.enrollmentId === enrollmentId);",
+                  "if (found?.id) pm.environment.set('academicDecisionId', found.id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "05 Admin Get Decision",
+          "variable": [
+            {
+              "key": "expectedStatus",
+              "value": "200"
+            }
+          ],
+          "auth": {
+            "type": "bearer",
+            "bearer": [
+              {
+                "key": "token",
+                "value": "{{adminToken}}",
+                "type": "string"
+              }
+            ]
+          },
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/institutions/{{institutionId}}/academic-decisions/{{academicDecisionId}}"
+          }
+        },
+        {
+          "name": "06 Head Cannot Approve",
+          "variable": [
+            {
+              "key": "expectedStatus",
+              "value": "403"
+            }
+          ],
+          "auth": {
+            "type": "bearer",
+            "bearer": [
+              {
+                "key": "token",
+                "value": "{{headToken}}",
+                "type": "string"
+              }
+            ]
+          },
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/institutions/{{institutionId}}/academic-decisions/{{academicDecisionId}}/approve",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"note\": \"Head should not be able to approve.\"\n}"
+            }
+          }
+        },
+        {
+          "name": "07 Admin Approve",
+          "variable": [
+            {
+              "key": "expectedStatus",
+              "value": "200,409"
+            }
+          ],
+          "auth": {
+            "type": "bearer",
+            "bearer": [
+              {
+                "key": "token",
+                "value": "{{adminToken}}",
+                "type": "string"
+              }
+            ]
+          },
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/institutions/{{institutionId}}/academic-decisions/{{academicDecisionId}}/approve",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"note\": \"Reviewed current records and approved for application smoke testing.\"\n}"
+            }
+          }
+        },
+        {
+          "name": "08 Head List Notifications After Approval",
+          "variable": [
+            {
+              "key": "expectedStatus",
+              "value": "200"
+            }
+          ],
+          "auth": {
+            "type": "bearer",
+            "bearer": [
+              {
+                "key": "token",
+                "value": "{{headToken}}",
+                "type": "string"
+              }
+            ]
+          },
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/institutions/{{institutionId}}/notifications?limit=20"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const json = pm.response.json();",
+                  "const decisionId = pm.environment.get('academicDecisionId');",
+                  "const notification = (json.notifications || []).find((item) => item.type === 'academic_decision_approved' && item.data?.academicDecisionId === decisionId);",
+                  "if (notification?.id) pm.environment.set('headNotificationId', notification.id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "09 Head Cannot Apply",
+          "variable": [
+            {
+              "key": "expectedStatus",
+              "value": "403"
+            }
+          ],
+          "auth": {
+            "type": "bearer",
+            "bearer": [
+              {
+                "key": "token",
+                "value": "{{headToken}}",
+                "type": "string"
+              }
+            ]
+          },
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/institutions/{{institutionId}}/academic-decisions/{{academicDecisionId}}/apply"
+          }
+        },
+        {
+          "name": "10 Admin Apply",
+          "variable": [
+            {
+              "key": "expectedStatus",
+              "value": "200,409"
+            }
+          ],
+          "auth": {
+            "type": "bearer",
+            "bearer": [
+              {
+                "key": "token",
+                "value": "{{adminToken}}",
+                "type": "string"
+              }
+            ]
+          },
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/institutions/{{institutionId}}/academic-decisions/{{academicDecisionId}}/apply"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "let json = {};",
+                  "try { json = pm.response.json(); } catch (error) {}",
+                  "if (pm.response.code === 200) {",
+                  "  pm.test('decision applied and enrollment dropped', function () {",
+                  "    pm.expect(json.academicDecision.status).to.equal('applied');",
+                  "    pm.expect(json.enrollment.status).to.equal('dropped');",
+                  "  });",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "11 Head List Notifications After Apply",
+          "variable": [
+            {
+              "key": "expectedStatus",
+              "value": "200"
+            }
+          ],
+          "auth": {
+            "type": "bearer",
+            "bearer": [
+              {
+                "key": "token",
+                "value": "{{headToken}}",
+                "type": "string"
+              }
+            ]
+          },
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/institutions/{{institutionId}}/notifications?limit=20"
+          }
+        }
+      ]
+    },
+    {
+      "name": "03 Optional Branches",
+      "item": [
+        {
+          "name": "Optional Head Cancel Recommended Decision - Run Before Approval Only",
+          "variable": [
+            {
+              "key": "expectedStatus",
+              "value": "200,409"
+            }
+          ],
+          "auth": {
+            "type": "bearer",
+            "bearer": [
+              {
+                "key": "token",
+                "value": "{{headToken}}",
+                "type": "string"
+              }
+            ]
+          },
+          "request": {
+            "method": "PATCH",
+            "url": "{{baseUrl}}/institutions/{{institutionId}}/academic-decisions/{{academicDecisionId}}/cancel"
+          }
+        },
+        {
+          "name": "Optional Admin Reject Recommended Decision - Run Instead Of Approval",
+          "variable": [
+            {
+              "key": "expectedStatus",
+              "value": "200,409"
+            }
+          ],
+          "auth": {
+            "type": "bearer",
+            "bearer": [
+              {
+                "key": "token",
+                "value": "{{adminToken}}",
+                "type": "string"
+              }
+            ]
+          },
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/institutions/{{institutionId}}/academic-decisions/{{academicDecisionId}}/reject",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"reason\": \"Rejecting this recommendation for smoke-test coverage.\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Admin Mark Review Notification Read",
+          "variable": [
+            {
+              "key": "expectedStatus",
+              "value": "200,404"
+            }
+          ],
+          "auth": {
+            "type": "bearer",
+            "bearer": [
+              {
+                "key": "token",
+                "value": "{{adminToken}}",
+                "type": "string"
+              }
+            ]
+          },
+          "request": {
+            "method": "PATCH",
+            "url": "{{baseUrl}}/institutions/{{institutionId}}/notifications/{{adminReviewNotificationId}}/read"
+          }
+        }
+      ]
+    }
+  ]
+}
