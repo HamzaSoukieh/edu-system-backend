@@ -2,6 +2,8 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 
 const {
+    buildSchoolUsefulRoutes,
+    buildUsefulRoutes,
     getDatabaseNameFromUri,
     looksLikeLocalDatabaseName,
     normalizeEmail,
@@ -39,4 +41,36 @@ test("seed helpers identify reset-safe local database names", () => {
 test("seed helpers parse reset argument", () => {
     assert.deepEqual(parseArgs([]), { reset: false });
     assert.deepEqual(parseArgs(["--reset"]), { reset: true });
+});
+
+test("seed output route helpers include existing university and new school demo routes", () => {
+    const universityRoutes = buildUsefulRoutes(
+        "institution-university",
+        { programmingA: "section-programming" },
+        { student1: "student-one" }
+    );
+    assert.ok(universityRoutes.includes("/institutions/institution-university/sections/section-programming/results"));
+
+    const schoolRoutes = buildSchoolUsefulRoutes(
+        "institution-school",
+        { grade7MathA: "section-math" },
+        { schoolStudentA: "student-aya" },
+        {
+            academicYearId: "year-school",
+            semesterId: "semester-school",
+            schoolClassId: "class-grade-seven-a",
+        }
+    );
+
+    assert.ok(schoolRoutes.includes("/institutions/institution-school/class-levels"));
+    assert.ok(
+        schoolRoutes.includes(
+            "/institutions/institution-school/school-outcomes/classes/class-grade-seven-a/academic-years/year-school/promotion-summary"
+        )
+    );
+    assert.ok(
+        schoolRoutes.includes(
+            "/institutions/institution-school/students/me/academic-profile?academicYearId=year-school"
+        )
+    );
 });

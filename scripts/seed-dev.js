@@ -11,6 +11,8 @@ const AcademicYear = require("../src/models/AcademicYear");
 const Assessment = require("../src/models/Assessment");
 const AssessmentResult = require("../src/models/AssessmentResult");
 const AttendanceRecord = require("../src/models/AttendanceRecord");
+const ClassLevel = require("../src/models/ClassLevel");
+const ClassStudentAssignment = require("../src/models/ClassStudentAssignment");
 const Department = require("../src/models/Department");
 const Enrollment = require("../src/models/Enrollment");
 const Homework = require("../src/models/Homework");
@@ -21,6 +23,9 @@ const InstitutionBillingProfile = require("../src/models/InstitutionBillingProfi
 const MemberProfile = require("../src/models/MemberProfile");
 const Membership = require("../src/models/Membership");
 const ResponsibilityAssignment = require("../src/models/ResponsibilityAssignment");
+const SchoolAcademicPolicy = require("../src/models/SchoolAcademicPolicy");
+const SchoolClass = require("../src/models/SchoolClass");
+const SchoolFinalOutcome = require("../src/models/SchoolFinalOutcome");
 const Section = require("../src/models/Section");
 const SectionMaterial = require("../src/models/SectionMaterial");
 const SectionSession = require("../src/models/SectionSession");
@@ -31,6 +36,8 @@ const User = require("../src/models/User");
 const DEMO_PASSWORD = "Password123!";
 const DEMO_INSTITUTION_NAME = "Demo University";
 const DEMO_INSTITUTION_TYPE = "university";
+const SCHOOL_DEMO_INSTITUTION_NAME = "Demo School";
+const SCHOOL_DEMO_INSTITUTION_TYPE = "school";
 const OUTPUT_FILE = path.resolve(__dirname, "seed-output", "frontend-demo-data.json");
 
 const DEMO_USERS = [
@@ -43,6 +50,18 @@ const DEMO_USERS = [
     { key: "student1", email: "student1@example.test", role: "student", firstName: "Sam", lastName: "Strong" },
     { key: "student2", email: "student2@example.test", role: "student", firstName: "Wendy", lastName: "Warning" },
     { key: "student3", email: "student3@example.test", role: "student", firstName: "Rami", lastName: "Risk" },
+];
+
+const SCHOOL_DEMO_USERS = [
+    { key: "schoolOwner", email: "school.owner@example.test", role: "admin", firstName: "Nadia", lastName: "Principal", gender: "female", birthDate: "1982-03-18" },
+    { key: "schoolAdmin", email: "school.admin@example.test", role: "admin", firstName: "Omar", lastName: "Registrar", gender: "male", birthDate: "1986-11-02" },
+    { key: "schoolMathTeacher", email: "school.math.teacher@example.test", role: "instructor", firstName: "Lina", lastName: "Haddad", gender: "female", birthDate: "1990-04-12" },
+    { key: "schoolScienceTeacher", email: "school.science.teacher@example.test", role: "instructor", firstName: "Karim", lastName: "Mansour", gender: "male", birthDate: "1989-08-25" },
+    { key: "schoolStudentA", email: "school.student.aya@example.test", role: "student", firstName: "Aya", lastName: "Saleh", gender: "female", birthDate: "2013-02-10" },
+    { key: "schoolStudentB", email: "school.student.yousef@example.test", role: "student", firstName: "Yousef", lastName: "Darwish", gender: "male", birthDate: "2013-07-04" },
+    { key: "schoolStudentC", email: "school.student.mira@example.test", role: "student", firstName: "Mira", lastName: "Risk", gender: "female", birthDate: "2013-12-19" },
+    { key: "schoolStudentD", email: "school.student.khaled@example.test", role: "student", firstName: "Khaled", lastName: "Review", gender: "male", birthDate: "2013-05-22" },
+    { key: "schoolStudentE", email: "school.student.nour@example.test", role: "student", firstName: "Nour", lastName: "GradeEight", gender: "female", birthDate: "2012-09-15" },
 ];
 
 const DEMO_DEPARTMENTS = [
@@ -126,11 +145,150 @@ const MATERIALS = [
     { title: "Demo Archived Reference", titleNormalized: "demo archived reference", status: "archived" },
 ];
 
+const SCHOOL_CLASS_LEVELS = [
+    { key: "grade7", code: "DEMO-G7", name: "Demo Grade 7", description: "Lower secondary demo class level." },
+    { key: "grade8", code: "DEMO-G8", name: "Demo Grade 8", description: "Upper demo class level for cross-level UI states." },
+];
+
+const SCHOOL_CLASSES = [
+    { key: "grade7A", classLevelKey: "grade7", code: "DEMO-G7A", name: "Demo Grade 7 A" },
+    { key: "grade8A", classLevelKey: "grade8", code: "DEMO-G8A", name: "Demo Grade 8 A" },
+];
+
+const SCHOOL_SUBJECTS = [
+    { key: "grade7Arabic", classLevelKey: "grade7", code: "DEMO-G7-ARB", name: "Arabic Language" },
+    { key: "grade7Math", classLevelKey: "grade7", code: "DEMO-G7-MATH", name: "Mathematics" },
+    { key: "grade7Science", classLevelKey: "grade7", code: "DEMO-G7-SCI", name: "General Science" },
+    { key: "grade7SocialStudies", classLevelKey: "grade7", code: "DEMO-G7-SOC", name: "Social Studies" },
+    { key: "grade8Math", classLevelKey: "grade8", code: "DEMO-G8-MATH", name: "Mathematics 8" },
+];
+
+const SCHOOL_SECTIONS = [
+    {
+        key: "grade7ArabicA",
+        classKey: "grade7A",
+        subjectKey: "grade7Arabic",
+        instructorKey: "schoolScienceTeacher",
+        code: "DEMO-G7-ARB-A",
+        title: "Grade 7 Arabic A",
+        room: "G7-201",
+        scheduleDay: "sunday",
+        startTime: "08:00",
+        endTime: "08:45",
+    },
+    {
+        key: "grade7MathA",
+        classKey: "grade7A",
+        subjectKey: "grade7Math",
+        instructorKey: "schoolMathTeacher",
+        code: "DEMO-G7-MATH-A",
+        title: "Grade 7 Mathematics A",
+        room: "G7-202",
+        scheduleDay: "monday",
+        startTime: "09:00",
+        endTime: "09:45",
+    },
+    {
+        key: "grade7ScienceA",
+        classKey: "grade7A",
+        subjectKey: "grade7Science",
+        instructorKey: "schoolScienceTeacher",
+        code: "DEMO-G7-SCI-A",
+        title: "Grade 7 Science A",
+        room: "LAB-S1",
+        scheduleDay: "wednesday",
+        startTime: "10:00",
+        endTime: "10:45",
+    },
+    {
+        key: "grade7SocialA",
+        classKey: "grade7A",
+        subjectKey: "grade7SocialStudies",
+        instructorKey: "schoolScienceTeacher",
+        code: "DEMO-G7-SOC-A",
+        title: "Grade 7 Social Studies A",
+        room: "G7-203",
+        scheduleDay: "thursday",
+        startTime: "11:00",
+        endTime: "11:45",
+    },
+    {
+        key: "grade8MathA",
+        classKey: "grade8A",
+        subjectKey: "grade8Math",
+        instructorKey: "schoolMathTeacher",
+        code: "DEMO-G8-MATH-A",
+        title: "Grade 8 Mathematics A",
+        room: "G8-101",
+        scheduleDay: "tuesday",
+        startTime: "09:00",
+        endTime: "09:45",
+    },
+];
+
+const SCHOOL_CLASS_ASSIGNMENTS = [
+    { studentKey: "schoolStudentA", classKey: "grade7A" },
+    { studentKey: "schoolStudentB", classKey: "grade7A" },
+    { studentKey: "schoolStudentC", classKey: "grade7A" },
+    { studentKey: "schoolStudentD", classKey: "grade7A" },
+    { studentKey: "schoolStudentE", classKey: "grade8A" },
+];
+
+const SCHOOL_SESSION_DATES_BY_SECTION = {
+    grade7MathA: ["2026-05-04", "2026-05-11", "2026-05-18", "2026-05-25"],
+    grade7ScienceA: ["2026-05-06", "2026-05-13"],
+};
+
+const SCHOOL_ASSESSMENTS = [
+    { key: "g7ArabicReading", sectionKey: "grade7ArabicA", title: "Reading Comprehension", type: "quiz", assessmentDate: "2026-05-10", maxScore: 100, weight: 100 },
+    { key: "g7MathQuiz", sectionKey: "grade7MathA", title: "Fractions Quiz", type: "quiz", assessmentDate: "2026-05-18", maxScore: 100, weight: 40 },
+    { key: "g7MathTerm", sectionKey: "grade7MathA", title: "Mathematics Term Test", type: "midterm", assessmentDate: "2026-06-01", maxScore: 100, weight: 60 },
+    { key: "g7ScienceLab", sectionKey: "grade7ScienceA", title: "Lab Skills Check", type: "practical", assessmentDate: "2026-05-20", maxScore: 100, weight: 100 },
+    { key: "g7SocialProject", sectionKey: "grade7SocialA", title: "Community Project", type: "project", assessmentDate: "2026-05-27", maxScore: 100, weight: 100 },
+    { key: "g8MathQuiz", sectionKey: "grade8MathA", title: "Linear Equations Quiz", type: "quiz", assessmentDate: "2026-05-19", maxScore: 100, weight: 100 },
+];
+
+const SCHOOL_ASSESSMENT_SCORES = {
+    g7ArabicReading: { schoolStudentA: 88, schoolStudentB: 82, schoolStudentC: 63, schoolStudentD: 80 },
+    g7MathQuiz: { schoolStudentA: 94, schoolStudentB: 76, schoolStudentC: 42, schoolStudentD: 70 },
+    g7MathTerm: { schoolStudentA: 92, schoolStudentB: 70, schoolStudentC: 38, schoolStudentD: 65 },
+    g7ScienceLab: { schoolStudentA: 90, schoolStudentB: 74, schoolStudentC: 52, schoolStudentD: null },
+    g7SocialProject: { schoolStudentA: 91, schoolStudentB: 78, schoolStudentC: 58, schoolStudentD: 72 },
+    g8MathQuiz: { schoolStudentE: 81 },
+};
+
+const SCHOOL_HOMEWORKS = [
+    {
+        key: "g7MathOffline",
+        sectionKey: "grade7MathA",
+        title: "Fractions Practice Sheet",
+        titleNormalized: "fractions practice sheet",
+        submissionMode: "offline",
+        dueAt: "2026-05-22T14:00:00.000Z",
+    },
+    {
+        key: "g7ScienceOnline",
+        sectionKey: "grade7ScienceA",
+        title: "Plant Cell Observation PDF",
+        titleNormalized: "plant cell observation pdf",
+        submissionMode: "online_upload",
+        dueAt: "2026-05-24T20:00:00.000Z",
+    },
+];
+
+const SCHOOL_MATERIALS = [
+    { sectionKey: "grade7MathA", title: "Fractions Lesson Notes", titleNormalized: "fractions lesson notes", materialType: "note_pdf", status: "published" },
+    { sectionKey: "grade7ScienceA", title: "Plant Cell Lab Guide", titleNormalized: "plant cell lab guide", materialType: "lecture_pdf", status: "published" },
+    { sectionKey: "grade7MathA", title: "Extension Problems Draft", titleNormalized: "extension problems draft", materialType: "resource_pdf", status: "draft" },
+];
+
 const TENANT_MODELS = [
     AcademicYear,
     Assessment,
     AssessmentResult,
     AttendanceRecord,
+    ClassLevel,
+    ClassStudentAssignment,
     Department,
     Enrollment,
     Homework,
@@ -140,6 +298,9 @@ const TENANT_MODELS = [
     MemberProfile,
     Membership,
     ResponsibilityAssignment,
+    SchoolAcademicPolicy,
+    SchoolClass,
+    SchoolFinalOutcome,
     Section,
     SectionMaterial,
     SectionSession,
@@ -234,11 +395,11 @@ async function upsertOne(Model, filter, set, setOnInsert = {}) {
     );
 }
 
-async function seedUsers() {
+async function seedUsers(demoUsers = DEMO_USERS) {
     const passwordHash = await bcrypt.hash(DEMO_PASSWORD, getSaltRounds());
     const usersByKey = new Map();
 
-    for (const demoUser of DEMO_USERS) {
+    for (const demoUser of demoUsers) {
         const user = await upsertOne(
             User,
             { email: normalizeEmail(demoUser.email) },
@@ -278,11 +439,33 @@ async function seedInstitution(ownerUser) {
     return institution;
 }
 
-async function seedMemberships({ institution, usersByKey }) {
+async function seedSchoolInstitution(ownerUser) {
+    const institution = await upsertOne(
+        Institution,
+        {
+            name: SCHOOL_DEMO_INSTITUTION_NAME,
+            type: SCHOOL_DEMO_INSTITUTION_TYPE,
+        },
+        {
+            ownerUserId: ownerUser._id,
+            status: "active",
+            policies: {
+                warnAfterAbsences: 2,
+                dropAfterAbsences: 4,
+                lateToAbsenceRatio: 3,
+                excusedCountsAsAbsence: false,
+            },
+        }
+    );
+
+    return institution;
+}
+
+async function seedMemberships({ institution, usersByKey, demoUsers = DEMO_USERS, ownerKey = "owner" }) {
     const membershipsByKey = new Map();
     const profilesByKey = new Map();
 
-    for (const demoUser of DEMO_USERS) {
+    for (const demoUser of demoUsers) {
         const user = usersByKey.get(demoUser.key);
         const membership = await upsertOne(
             Membership,
@@ -293,7 +476,7 @@ async function seedMemberships({ institution, usersByKey }) {
             {
                 role: demoUser.role,
                 status: "active",
-                invitedBy: usersByKey.get("owner")._id,
+                invitedBy: usersByKey.get(ownerKey)._id,
             }
         );
 
@@ -311,8 +494,8 @@ async function seedMemberships({ institution, usersByKey }) {
                 fatherName: "Demo",
                 motherName: "Example",
                 birthPlace: "Demo City",
-                birthDate: dateOnly(demoUser.role === "student" ? "2004-01-15" : "1988-05-20"),
-                gender: demoUser.key === "student2" ? "female" : "male",
+                birthDate: dateOnly(demoUser.birthDate || (demoUser.role === "student" ? "2004-01-15" : "1988-05-20")),
+                gender: demoUser.gender || (demoUser.key === "student2" ? "female" : "male"),
                 nationality: "Demo",
                 nationalNumber: `DEMO-${demoUser.key.toUpperCase()}-001`,
                 mobile: "+10000000000",
@@ -860,8 +1043,650 @@ async function seedUniversityPolicy({ institution, ownerUserId, semester }) {
     );
 }
 
+async function seedSchoolAcademicCalendar({ institution, ownerUserId }) {
+    const academicYear = await upsertOne(
+        AcademicYear,
+        {
+            institutionId: institution._id,
+            nameNormalized: "demo school academic year 2025-2026",
+        },
+        {
+            name: "Demo School Academic Year 2025-2026",
+            startDate: dateOnly("2025-09-01"),
+            endDate: dateOnly("2026-06-30"),
+            status: "active",
+            createdByUserId: ownerUserId,
+            archivedAt: null,
+        }
+    );
+
+    const semester = await upsertOne(
+        Semester,
+        {
+            institutionId: institution._id,
+            name: "Demo School Spring 2026",
+        },
+        {
+            academicYearId: academicYear._id,
+            startDate: dateOnly("2026-02-01"),
+            endDate: dateOnly("2026-06-30"),
+            teachingDays: ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday"],
+            calendarOverrides: [
+                { date: dateOnly("2026-04-12"), type: "off", reason: "Seeded school holiday" },
+            ],
+            examDates: [
+                { date: dateOnly("2026-06-01"), type: "midterm", reason: "Seeded term assessment week" },
+            ],
+            weekCount: 18,
+            status: "active",
+            createdByUserId: ownerUserId,
+        }
+    );
+
+    return { academicYear, semester };
+}
+
+async function seedSchoolClassLevels({ institution, ownerUserId }) {
+    const classLevelsByKey = new Map();
+    for (const classLevelInput of SCHOOL_CLASS_LEVELS) {
+        const classLevel = await upsertOne(
+            ClassLevel,
+            {
+                institutionId: institution._id,
+                code: classLevelInput.code,
+            },
+            {
+                name: classLevelInput.name,
+                nameNormalized: normalizeNameKey(classLevelInput.name),
+                code: classLevelInput.code,
+                description: classLevelInput.description,
+                status: "active",
+                createdByUserId: ownerUserId,
+            }
+        );
+        classLevelsByKey.set(classLevelInput.key, classLevel);
+    }
+    return classLevelsByKey;
+}
+
+async function seedSchoolClasses({ institution, ownerUserId, classLevelsByKey }) {
+    const schoolClassesByKey = new Map();
+    for (const schoolClassInput of SCHOOL_CLASSES) {
+        const schoolClass = await upsertOne(
+            SchoolClass,
+            {
+                institutionId: institution._id,
+                code: schoolClassInput.code,
+            },
+            {
+                classLevelId: classLevelsByKey.get(schoolClassInput.classLevelKey)._id,
+                name: schoolClassInput.name,
+                nameNormalized: normalizeNameKey(schoolClassInput.name),
+                code: schoolClassInput.code,
+                status: "active",
+                createdByUserId: ownerUserId,
+            }
+        );
+        schoolClassesByKey.set(schoolClassInput.key, schoolClass);
+    }
+    return schoolClassesByKey;
+}
+
+async function seedSchoolSubjects({ institution, ownerUserId, classLevelsByKey }) {
+    const subjectsByKey = new Map();
+    for (const subjectInput of SCHOOL_SUBJECTS) {
+        const subject = await upsertOne(
+            Subject,
+            {
+                institutionId: institution._id,
+                code: subjectInput.code,
+            },
+            {
+                departmentId: null,
+                classLevelId: classLevelsByKey.get(subjectInput.classLevelKey)._id,
+                name: subjectInput.name,
+                nameNormalized: normalizeNameKey(subjectInput.name),
+                code: subjectInput.code,
+                creditHours: null,
+                prerequisiteSubjectIds: [],
+                status: "active",
+                createdByUserId: ownerUserId,
+            }
+        );
+        subjectsByKey.set(subjectInput.key, subject);
+    }
+    return subjectsByKey;
+}
+
+async function seedSchoolSections({ institution, ownerUserId, semester, subjectsByKey, schoolClassesByKey, membershipsByKey }) {
+    const sectionsByKey = new Map();
+    for (const sectionInput of SCHOOL_SECTIONS) {
+        const section = await upsertOne(
+            Section,
+            {
+                institutionId: institution._id,
+                semesterId: semester._id,
+                subjectId: subjectsByKey.get(sectionInput.subjectKey)._id,
+                code: sectionInput.code,
+            },
+            {
+                schoolClassId: schoolClassesByKey.get(sectionInput.classKey)._id,
+                title: sectionInput.title,
+                instructorMemberId: membershipsByKey.get(sectionInput.instructorKey)._id,
+                capacity: 28,
+                schedule: [
+                    {
+                        sessionType: "lecture",
+                        day: sectionInput.scheduleDay,
+                        startTime: sectionInput.startTime,
+                        endTime: sectionInput.endTime,
+                        room: sectionInput.room,
+                    },
+                ],
+                status: "active",
+                createdByUserId: ownerUserId,
+            }
+        );
+        sectionsByKey.set(sectionInput.key, section);
+    }
+    return sectionsByKey;
+}
+
+async function seedSchoolClassAssignments({ institution, ownerUserId, semester, schoolClassesByKey, membershipsByKey }) {
+    const classAssignmentsByStudentKey = new Map();
+    for (const assignmentInput of SCHOOL_CLASS_ASSIGNMENTS) {
+        const assignment = await upsertOne(
+            ClassStudentAssignment,
+            {
+                institutionId: institution._id,
+                semesterId: semester._id,
+                studentMemberId: membershipsByKey.get(assignmentInput.studentKey)._id,
+            },
+            {
+                classId: schoolClassesByKey.get(assignmentInput.classKey)._id,
+                status: "assigned",
+                createdByUserId: ownerUserId,
+            }
+        );
+        classAssignmentsByStudentKey.set(assignmentInput.studentKey, assignment);
+    }
+    return classAssignmentsByStudentKey;
+}
+
+function getSchoolStudentKeysForSection(sectionInput) {
+    return SCHOOL_CLASS_ASSIGNMENTS
+        .filter((assignment) => assignment.classKey === sectionInput.classKey)
+        .map((assignment) => assignment.studentKey);
+}
+
+async function seedSchoolEnrollments({ institution, ownerUserId, sectionsByKey, membershipsByKey }) {
+    const enrollmentsBySectionKey = new Map();
+    for (const sectionInput of SCHOOL_SECTIONS) {
+        const section = sectionsByKey.get(sectionInput.key);
+        const enrollmentsByStudentKey = new Map();
+        for (const studentKey of getSchoolStudentKeysForSection(sectionInput)) {
+            const enrollment = await upsertOne(
+                Enrollment,
+                {
+                    institutionId: institution._id,
+                    sectionId: section._id,
+                    studentMemberId: membershipsByKey.get(studentKey)._id,
+                },
+                {
+                    status: "enrolled",
+                    enrolledAt: dateOnly("2026-02-01"),
+                    droppedAt: null,
+                    droppedByUserId: null,
+                    droppedByAcademicDecisionId: null,
+                    createdByUserId: ownerUserId,
+                }
+            );
+            enrollmentsByStudentKey.set(studentKey, enrollment);
+        }
+        enrollmentsBySectionKey.set(sectionInput.key, enrollmentsByStudentKey);
+    }
+    return enrollmentsBySectionKey;
+}
+
+async function seedSchoolSessionsAndAttendance({ institution, ownerUserId, sectionsByKey, enrollmentsBySectionKey, membershipsByKey }) {
+    const sessionsBySectionKey = new Map();
+    for (const [sectionKey, sessionDates] of Object.entries(SCHOOL_SESSION_DATES_BY_SECTION)) {
+        const sectionInput = SCHOOL_SECTIONS.find((input) => input.key === sectionKey);
+        const section = sectionsByKey.get(sectionKey);
+        const sessions = [];
+
+        for (const [index, sessionDate] of sessionDates.entries()) {
+            const session = await upsertOne(
+                SectionSession,
+                {
+                    institutionId: institution._id,
+                    sectionId: section._id,
+                    sessionDate: dateOnly(sessionDate),
+                    startTime: sectionInput.startTime,
+                    sessionType: "lecture",
+                },
+                {
+                    endTime: sectionInput.endTime,
+                    room: sectionInput.room,
+                    status: "completed",
+                    statusNote: "Seeded school completed class session",
+                    statusChangedAt: new Date(`${sessionDate}T11:00:00.000Z`),
+                    statusChangedByUserId: ownerUserId,
+                    attendanceState: "closed",
+                    attendanceOpenedAt: new Date(`${sessionDate}T08:55:00.000Z`),
+                    attendanceClosedAt: new Date(`${sessionDate}T11:00:00.000Z`),
+                    attendanceOpenedByUserId: ownerUserId,
+                    currentQrTokenHash: null,
+                    currentQrTokenExpiresAt: null,
+                    createdByUserId: ownerUserId,
+                }
+            );
+            sessions.push(session);
+
+            const statusesByStudent = {
+                schoolStudentA: "present",
+                schoolStudentB: index === 1 ? "late" : "present",
+                schoolStudentC: index < 3 ? "absent" : "late",
+                schoolStudentD: index === 2 ? "excused" : "present",
+            };
+
+            for (const [studentKey, attendanceStatus] of Object.entries(statusesByStudent)) {
+                const enrollment = enrollmentsBySectionKey.get(sectionKey)?.get(studentKey);
+                if (!enrollment) {
+                    continue;
+                }
+
+                await upsertOne(
+                    AttendanceRecord,
+                    {
+                        institutionId: institution._id,
+                        sectionSessionId: session._id,
+                        enrollmentId: enrollment._id,
+                    },
+                    {
+                        sectionId: section._id,
+                        studentMemberId: membershipsByKey.get(studentKey)._id,
+                        attendanceStatus,
+                        source: "manual",
+                        checkedInAt: attendanceStatus === "present" || attendanceStatus === "late"
+                            ? new Date(`${sessionDate}T09:05:00.000Z`)
+                            : null,
+                        note: "Seeded school attendance demo",
+                        recordedByUserId: ownerUserId,
+                    }
+                );
+            }
+        }
+
+        sessionsBySectionKey.set(sectionKey, sessions);
+    }
+
+    return sessionsBySectionKey;
+}
+
+function findFirstSchoolSessionForSection(sessionsBySectionKey, sectionKey) {
+    return sessionsBySectionKey.get(sectionKey)?.[0] || null;
+}
+
+async function seedSchoolAssessments({ institution, ownerUserId, sectionsByKey, sessionsBySectionKey, enrollmentsBySectionKey, membershipsByKey }) {
+    const assessmentsByKey = new Map();
+    for (const assessmentInput of SCHOOL_ASSESSMENTS) {
+        const section = sectionsByKey.get(assessmentInput.sectionKey);
+        const assessment = await upsertOne(
+            Assessment,
+            {
+                institutionId: institution._id,
+                sectionId: section._id,
+                title: assessmentInput.title,
+            },
+            {
+                sectionSessionId: findFirstSchoolSessionForSection(sessionsBySectionKey, assessmentInput.sectionKey)?._id || null,
+                description: "Seeded school published assessment for report-card and dashboard demos.",
+                type: assessmentInput.type,
+                assessmentDate: dateOnly(assessmentInput.assessmentDate),
+                maxScore: assessmentInput.maxScore,
+                weight: assessmentInput.weight,
+                status: "published",
+                publishedAt: new Date(`${assessmentInput.assessmentDate}T12:00:00.000Z`),
+                publishedByUserId: ownerUserId,
+                createdByUserId: ownerUserId,
+            }
+        );
+        assessmentsByKey.set(assessmentInput.key, assessment);
+
+        const scores = SCHOOL_ASSESSMENT_SCORES[assessmentInput.key] || {};
+        for (const [studentKey, score] of Object.entries(scores)) {
+            const enrollment = enrollmentsBySectionKey.get(assessmentInput.sectionKey)?.get(studentKey);
+            if (!enrollment) {
+                continue;
+            }
+
+            await upsertOne(
+                AssessmentResult,
+                {
+                    institutionId: institution._id,
+                    assessmentId: assessment._id,
+                    enrollmentId: enrollment._id,
+                },
+                {
+                    sectionId: section._id,
+                    studentMemberId: membershipsByKey.get(studentKey)._id,
+                    score,
+                    note: score === null ? "Seeded missing school result" : "Seeded school result",
+                    recordedByUserId: ownerUserId,
+                }
+            );
+        }
+    }
+    return assessmentsByKey;
+}
+
+async function seedSchoolHomeworks({ institution, ownerUserId, sectionsByKey, sessionsBySectionKey, enrollmentsBySectionKey, membershipsByKey }) {
+    const homeworksByKey = new Map();
+    for (const homeworkInput of SCHOOL_HOMEWORKS) {
+        const section = sectionsByKey.get(homeworkInput.sectionKey);
+        const homework = await upsertOne(
+            Homework,
+            {
+                institutionId: institution._id,
+                sectionId: section._id,
+                titleNormalized: homeworkInput.titleNormalized,
+            },
+            {
+                sectionSessionId: findFirstSchoolSessionForSection(sessionsBySectionKey, homeworkInput.sectionKey)?._id || null,
+                assessmentId: null,
+                title: homeworkInput.title,
+                instructions: "Seeded school homework for classroom workflow testing.",
+                type: "homework",
+                dueAt: new Date(homeworkInput.dueAt),
+                submissionMode: homeworkInput.submissionMode,
+                allowLate: true,
+                status: "assigned",
+                createdByUserId: ownerUserId,
+                archivedAt: null,
+            }
+        );
+        homeworksByKey.set(homeworkInput.key, homework);
+    }
+
+    const offlineHomework = homeworksByKey.get("g7MathOffline");
+    const offlineSubmissions = [
+        { studentKey: "schoolStudentA", status: "submitted", submittedAt: "2026-05-21T13:30:00.000Z" },
+        { studentKey: "schoolStudentB", status: "submitted", submittedAt: "2026-05-22T12:20:00.000Z" },
+        { studentKey: "schoolStudentC", status: "missing", submittedAt: null },
+        { studentKey: "schoolStudentD", status: "late", submittedAt: "2026-05-23T09:15:00.000Z" },
+    ];
+
+    for (const submissionInput of offlineSubmissions) {
+        const enrollment = enrollmentsBySectionKey.get("grade7MathA").get(submissionInput.studentKey);
+        await upsertOne(
+            HomeworkSubmission,
+            {
+                institutionId: institution._id,
+                homeworkId: offlineHomework._id,
+                enrollmentId: enrollment._id,
+            },
+            {
+                sectionId: sectionsByKey.get("grade7MathA")._id,
+                studentMemberId: membershipsByKey.get(submissionInput.studentKey)._id,
+                submissionMethod: "offline",
+                fileKey: null,
+                originalFilename: null,
+                mimeType: null,
+                sizeBytes: null,
+                submittedAt: submissionInput.submittedAt ? new Date(submissionInput.submittedAt) : null,
+                status: submissionInput.status,
+                studentNote: "",
+                instructorFeedback: "Seeded school offline submission state.",
+                markedByUserId: ownerUserId,
+            }
+        );
+    }
+
+    const onlineHomework = homeworksByKey.get("g7ScienceOnline");
+    const onlineEnrollment = enrollmentsBySectionKey.get("grade7ScienceA").get("schoolStudentA");
+    await upsertOne(
+        HomeworkSubmission,
+        {
+            institutionId: institution._id,
+            homeworkId: onlineHomework._id,
+            enrollmentId: onlineEnrollment._id,
+        },
+        {
+            sectionId: sectionsByKey.get("grade7ScienceA")._id,
+            studentMemberId: membershipsByKey.get("schoolStudentA")._id,
+            submissionMethod: "online_upload",
+            fileKey: "demo-school-plant-cell-aya.pdf",
+            originalFilename: "demo-school-plant-cell-aya.pdf",
+            mimeType: "application/pdf",
+            sizeBytes: 18432,
+            submittedAt: new Date("2026-05-23T18:00:00.000Z"),
+            status: "submitted",
+            studentNote: "Seeded school upload metadata only.",
+            instructorFeedback: "",
+            markedByUserId: null,
+        }
+    );
+
+    return homeworksByKey;
+}
+
+async function seedSchoolMaterials({ institution, ownerUserId, sectionsByKey, sessionsBySectionKey }) {
+    const materials = [];
+    for (const materialInput of SCHOOL_MATERIALS) {
+        const section = sectionsByKey.get(materialInput.sectionKey);
+        const fileSlug = materialInput.titleNormalized.replace(/\s+/g, "-");
+        const material = await upsertOne(
+            SectionMaterial,
+            {
+                institutionId: institution._id,
+                sectionId: section._id,
+                titleNormalized: materialInput.titleNormalized,
+            },
+            {
+                sectionSessionId: findFirstSchoolSessionForSection(sessionsBySectionKey, materialInput.sectionKey)?._id || null,
+                title: materialInput.title,
+                description: "Seeded private school material metadata. No public upload URL is created.",
+                materialType: materialInput.materialType,
+                sourceType: "file",
+                fileKey: `${fileSlug}.pdf`,
+                originalFilename: `${fileSlug}.pdf`,
+                mimeType: "application/pdf",
+                sizeBytes: 32768,
+                status: materialInput.status,
+                uploadedByUserId: ownerUserId,
+                publishedAt: materialInput.status === "published" ? new Date("2026-05-06T12:00:00.000Z") : null,
+                archivedAt: materialInput.status === "archived" ? new Date("2026-06-01T12:00:00.000Z") : null,
+            }
+        );
+        materials.push(material);
+    }
+    return materials;
+}
+
+async function seedSchoolAcademicPolicy({ institution, ownerUserId, academicYear, semester, classLevelsByKey, subjectsByKey }) {
+    return upsertOne(
+        SchoolAcademicPolicy,
+        {
+            institutionId: institution._id,
+            status: "active",
+            "appliesTo.academicYearId": academicYear._id,
+            "appliesTo.classLevelId": classLevelsByKey.get("grade7")._id,
+        },
+        {
+            name: "Demo Grade 7 Promotion Policy",
+            appliesTo: {
+                academicYearId: academicYear._id,
+                schoolStageId: null,
+                classLevelId: classLevelsByKey.get("grade7")._id,
+            },
+            gradingRules: {
+                gradingMode: "percentage",
+                scaleMax: 100,
+                subjectPassMinPercentage: 50,
+                yearPassMinPercentage: 60,
+            },
+            aggregationRules: {
+                yearCalculationMethod: "weighted_semesters",
+                semesterWeights: [{ semesterId: semester._id, weight: 100 }],
+            },
+            failureRules: {
+                failIfAnyCriticalSubjectFailed: true,
+                criticalSubjectRules: [
+                    {
+                        subjectId: subjectsByKey.get("grade7Math")._id,
+                        failAction: "repeat_year",
+                    },
+                ],
+                failIfFailedSubjectCountAtLeast: 2,
+                countCriticalSubjectsInFailedSubjectTotal: true,
+            },
+            promotionRules: {
+                enabled: true,
+                passDecision: "promoted",
+                failDecision: "repeat_year",
+                allowConditionalPromotion: true,
+                allowManualReview: true,
+            },
+            audit: {
+                createdBy: ownerUserId,
+                updatedBy: ownerUserId,
+            },
+        }
+    );
+}
+
+async function seedSchoolResponsibilities({ institution, usersByKey, classLevelsByKey }) {
+    const inputs = [
+        {
+            key: "grade7Coordinator",
+            userKey: "schoolMathTeacher",
+            responsibilityType: "coordinator",
+            scopeType: "classLevel",
+            scopeId: classLevelsByKey.get("grade7")._id,
+        },
+    ];
+    const assignmentsByKey = new Map();
+
+    for (const input of inputs) {
+        const assignment = await upsertOne(
+            ResponsibilityAssignment,
+            {
+                institutionId: institution._id,
+                userId: usersByKey.get(input.userKey)._id,
+                responsibilityType: input.responsibilityType,
+                scopeType: input.scopeType,
+                scopeId: input.scopeId,
+            },
+            {
+                permissions: [],
+                startAt: null,
+                endAt: null,
+                isActive: true,
+            }
+        );
+        assignmentsByKey.set(input.key, assignment);
+    }
+
+    return assignmentsByKey;
+}
+
+async function seedSchoolFinalOutcomes({ institution, ownerUserId, academicYear, schoolClassesByKey, classLevelsByKey, membershipsByKey, policy }) {
+    const grade7Class = schoolClassesByKey.get("grade7A");
+    const grade7Level = classLevelsByKey.get("grade7");
+    const finalOutcomeInputs = [
+        {
+            studentKey: "schoolStudentA",
+            yearlyAveragePercentage: 90.9,
+            failedSubjectCount: 0,
+            criticalFailedSubjects: [],
+            complete: true,
+            hasMissingResults: false,
+            missingResults: [],
+            calculatedDecision: "promoted",
+            calculatedReasonCodes: [],
+            calculatedReasons: [{ code: "YEAR_REQUIREMENTS_MET", message: "Seeded student meets promotion requirements." }],
+        },
+        {
+            studentKey: "schoolStudentC",
+            yearlyAveragePercentage: 53.2,
+            failedSubjectCount: 1,
+            criticalFailedSubjects: [
+                {
+                    subjectId: idOf(policy.failureRules.criticalSubjectRules[0].subjectId),
+                    subjectName: "Mathematics",
+                    percentage: 39.6,
+                },
+            ],
+            complete: true,
+            hasMissingResults: false,
+            missingResults: [],
+            calculatedDecision: "repeat_year",
+            calculatedReasonCodes: ["CRITICAL_SUBJECT_FAILED", "YEAR_AVERAGE_BELOW_MINIMUM"],
+            calculatedReasons: [
+                { code: "CRITICAL_SUBJECT_FAILED", message: "Seeded critical mathematics result is below the pass threshold." },
+                { code: "YEAR_AVERAGE_BELOW_MINIMUM", message: "Seeded yearly average is below the promotion threshold." },
+            ],
+        },
+    ];
+    const finalOutcomesByStudentKey = new Map();
+
+    for (const input of finalOutcomeInputs) {
+        const now = new Date("2026-06-15T12:00:00.000Z");
+        const outcome = await upsertOne(
+            SchoolFinalOutcome,
+            {
+                institutionId: institution._id,
+                academicYearId: academicYear._id,
+                studentMembershipId: membershipsByKey.get(input.studentKey)._id,
+                status: "finalized",
+            },
+            {
+                classLevelId: grade7Level._id,
+                schoolClassId: grade7Class._id,
+                policy: {
+                    policyId: policy._id,
+                    policyName: policy.name,
+                    resolutionLevel: "class_level",
+                },
+                outcomeSnapshot: {
+                    yearlyAveragePercentage: input.yearlyAveragePercentage,
+                    failedSubjectCount: input.failedSubjectCount,
+                    criticalFailedSubjects: input.criticalFailedSubjects,
+                    complete: input.complete,
+                    hasMissingResults: input.hasMissingResults,
+                    missingResults: input.missingResults,
+                },
+                calculatedDecision: input.calculatedDecision,
+                calculatedReasons: input.calculatedReasons,
+                calculatedReasonCodes: input.calculatedReasonCodes,
+                calculatedWarnings: [],
+                finalDecision: input.calculatedDecision,
+                finalReasons: input.calculatedReasons,
+                finalReasonCodes: input.calculatedReasonCodes,
+                finalWarnings: [],
+                override: {
+                    isOverridden: false,
+                    overriddenBy: null,
+                    overriddenAt: null,
+                    reason: null,
+                },
+                finalizedBy: ownerUserId,
+                finalizedAt: now,
+                audit: {
+                    createdBy: ownerUserId,
+                    updatedBy: ownerUserId,
+                },
+            }
+        );
+        finalOutcomesByStudentKey.set(input.studentKey, outcome);
+    }
+
+    return finalOutcomesByStudentKey;
+}
+
 async function resetSeededData() {
-    const demoEmails = DEMO_USERS.map((user) => user.email);
+    const demoEmails = [...DEMO_USERS, ...SCHOOL_DEMO_USERS].map((user) => user.email);
     const demoUsers = await User.find({ email: { $in: demoEmails } }).select("_id email").lean();
     const demoUserIds = demoUsers.map((user) => user._id);
     const institution = await Institution.findOne({
@@ -963,6 +1788,123 @@ async function resetSeededData() {
         }
     }
 
+    const schoolInstitution = await Institution.findOne({
+        name: SCHOOL_DEMO_INSTITUTION_NAME,
+        type: SCHOOL_DEMO_INSTITUTION_TYPE,
+    }).select("_id").lean();
+
+    if (schoolInstitution) {
+        const institutionId = schoolInstitution._id;
+        const schoolUserEmails = SCHOOL_DEMO_USERS.map((user) => user.email);
+        const schoolDemoUsers = demoUsers.filter((user) => schoolUserEmails.includes(user.email));
+        const schoolDemoUserIds = schoolDemoUsers.map((user) => user._id);
+        const schoolMemberships = await Membership.find({
+            institutionId,
+            userId: { $in: schoolDemoUserIds },
+        }).select("_id userId").lean();
+        const membershipIds = schoolMemberships.map((membership) => membership._id);
+        const studentMembershipIds = schoolMemberships
+            .filter((membership) => {
+                const user = schoolDemoUsers.find((item) => item._id.toString() === membership.userId.toString());
+                return user?.email?.startsWith("school.student.");
+            })
+            .map((membership) => membership._id);
+
+        const classLevels = await ClassLevel.find({
+            institutionId,
+            code: { $in: SCHOOL_CLASS_LEVELS.map((classLevel) => classLevel.code) },
+        }).select("_id").lean();
+        const classLevelIds = classLevels.map((classLevel) => classLevel._id);
+        const schoolClasses = await SchoolClass.find({
+            institutionId,
+            code: { $in: SCHOOL_CLASSES.map((schoolClass) => schoolClass.code) },
+        }).select("_id").lean();
+        const schoolClassIds = schoolClasses.map((schoolClass) => schoolClass._id);
+        const sections = await Section.find({
+            institutionId,
+            code: { $in: SCHOOL_SECTIONS.map((section) => section.code) },
+        }).select("_id").lean();
+        const sectionIds = sections.map((section) => section._id);
+        const sessions = await SectionSession.find({
+            institutionId,
+            sectionId: { $in: sectionIds },
+        }).select("_id").lean();
+        const sessionIds = sessions.map((session) => session._id);
+        const assessments = await Assessment.find({
+            institutionId,
+            sectionId: { $in: sectionIds },
+            title: { $in: SCHOOL_ASSESSMENTS.map((assessment) => assessment.title) },
+        }).select("_id").lean();
+        const assessmentIds = assessments.map((assessment) => assessment._id);
+        const homeworks = await Homework.find({
+            institutionId,
+            sectionId: { $in: sectionIds },
+            titleNormalized: { $in: SCHOOL_HOMEWORKS.map((homework) => homework.titleNormalized) },
+        }).select("_id").lean();
+        const homeworkIds = homeworks.map((homework) => homework._id);
+        const semester = await Semester.findOne({ institutionId, name: "Demo School Spring 2026" }).select("_id").lean();
+        const academicYear = await AcademicYear.findOne({
+            institutionId,
+            nameNormalized: "demo school academic year 2025-2026",
+        }).select("_id").lean();
+
+        await HomeworkSubmission.deleteMany({ institutionId, homeworkId: { $in: homeworkIds } });
+        await Homework.deleteMany({ institutionId, _id: { $in: homeworkIds } });
+        await SectionMaterial.deleteMany({
+            institutionId,
+            sectionId: { $in: sectionIds },
+            titleNormalized: { $in: SCHOOL_MATERIALS.map((material) => material.titleNormalized) },
+        });
+        await AssessmentResult.deleteMany({ institutionId, assessmentId: { $in: assessmentIds } });
+        await Assessment.deleteMany({ institutionId, _id: { $in: assessmentIds } });
+        await AttendanceRecord.deleteMany({ institutionId, sectionSessionId: { $in: sessionIds } });
+        await SectionSession.deleteMany({ institutionId, _id: { $in: sessionIds } });
+        await Enrollment.deleteMany({
+            institutionId,
+            sectionId: { $in: sectionIds },
+            studentMemberId: { $in: studentMembershipIds },
+        });
+        await SchoolFinalOutcome.deleteMany({
+            institutionId,
+            ...(academicYear ? { academicYearId: academicYear._id } : {}),
+            studentMembershipId: { $in: studentMembershipIds },
+        });
+        await ClassStudentAssignment.deleteMany({
+            institutionId,
+            ...(semester ? { semesterId: semester._id } : {}),
+            studentMemberId: { $in: studentMembershipIds },
+        });
+        await ResponsibilityAssignment.deleteMany({
+            institutionId,
+            userId: { $in: schoolDemoUserIds },
+            responsibilityType: { $in: ["head", "coordinator", "mentor"] },
+        });
+        await Section.deleteMany({ institutionId, _id: { $in: sectionIds } });
+        await SchoolAcademicPolicy.deleteMany({
+            institutionId,
+            name: "Demo Grade 7 Promotion Policy",
+            ...(academicYear ? { "appliesTo.academicYearId": academicYear._id } : {}),
+        });
+        await Subject.deleteMany({
+            institutionId,
+            code: { $in: SCHOOL_SUBJECTS.map((subject) => subject.code) },
+        });
+        await SchoolClass.deleteMany({ institutionId, _id: { $in: schoolClassIds } });
+        await ClassLevel.deleteMany({ institutionId, _id: { $in: classLevelIds } });
+        await Semester.deleteMany({ institutionId, name: "Demo School Spring 2026" });
+        await AcademicYear.deleteMany({
+            institutionId,
+            nameNormalized: "demo school academic year 2025-2026",
+        });
+        await MemberProfile.deleteMany({ institutionId, membershipId: { $in: membershipIds } });
+        await Membership.deleteMany({ institutionId, _id: { $in: membershipIds } });
+
+        const remainingTenantRecordCount = await countInstitutionOwnedRecords(institutionId);
+        if (remainingTenantRecordCount === 0) {
+            await Institution.deleteOne({ _id: institutionId });
+        }
+    }
+
     for (const user of demoUsers) {
         const remainingMembershipCount = await Membership.countDocuments({ userId: user._id });
         if (remainingMembershipCount === 0) {
@@ -995,6 +1937,7 @@ function buildFrontendSummary({
     assignmentsByKey,
     billingProfile,
     academicPolicy,
+    schoolSummary = null,
 }) {
     const accounts = DEMO_USERS.map((user) => ({
         email: user.email,
@@ -1047,6 +1990,82 @@ function buildFrontendSummary({
         usefulRoutes: buildUsefulRoutes(idOf(institution), Object.fromEntries([...sectionsByKey.entries()].map(([key, value]) => [key, idOf(value)])), {
             student1: idOf(membershipsByKey.get("student1")),
         }),
+        school: schoolSummary,
+    };
+}
+
+function buildSchoolFrontendSummary({
+    institution,
+    academicYear,
+    semester,
+    classLevelsByKey,
+    schoolClassesByKey,
+    subjectsByKey,
+    sectionsByKey,
+    membershipsByKey,
+    classAssignmentsByStudentKey,
+    enrollmentsBySectionKey,
+    sessionsBySectionKey,
+    assessmentsByKey,
+    homeworksByKey,
+    materials,
+    schoolPolicy,
+    finalOutcomesByStudentKey,
+    assignmentsByKey,
+}) {
+    const accounts = SCHOOL_DEMO_USERS.map((user) => ({
+        email: user.email,
+        baseRole: user.role,
+        responsibility: user.key === "schoolMathTeacher" ? "coordinator" : null,
+        membershipId: idOf(membershipsByKey.get(user.key)),
+    }));
+    const studentKeys = SCHOOL_DEMO_USERS.filter((user) => user.role === "student").map((user) => user.key);
+    const sectionIds = Object.fromEntries([...sectionsByKey.entries()].map(([key, value]) => [key, idOf(value)]));
+    const studentIds = Object.fromEntries(studentKeys.map((key) => [key, idOf(membershipsByKey.get(key))]));
+
+    return {
+        institution: {
+            id: idOf(institution),
+            name: institution.name,
+            type: institution.type,
+        },
+        accounts,
+        academicYearId: idOf(academicYear),
+        activeSemesterId: idOf(semester),
+        classLevelIds: Object.fromEntries([...classLevelsByKey.entries()].map(([key, value]) => [key, idOf(value)])),
+        schoolClassIds: Object.fromEntries([...schoolClassesByKey.entries()].map(([key, value]) => [key, idOf(value)])),
+        subjectIds: Object.fromEntries([...subjectsByKey.entries()].map(([key, value]) => [key, idOf(value)])),
+        sectionIds,
+        sampleStudentIds: studentIds,
+        classAssignmentIds: Object.fromEntries([...classAssignmentsByStudentKey.entries()].map(([key, value]) => [key, idOf(value)])),
+        enrollmentIds: Object.fromEntries(
+            [...enrollmentsBySectionKey.entries()].map(([sectionKey, byStudent]) => [
+                sectionKey,
+                Object.fromEntries([...byStudent.entries()].map(([studentKey, enrollment]) => [studentKey, idOf(enrollment)])),
+            ])
+        ),
+        sectionSessionIds: Object.fromEntries(
+            [...sessionsBySectionKey.entries()].map(([sectionKey, sessions]) => [sectionKey, sessions.map(idOf)])
+        ),
+        assessmentIds: Object.fromEntries([...assessmentsByKey.entries()].map(([key, value]) => [key, idOf(value)])),
+        homeworkIds: Object.fromEntries([...homeworksByKey.entries()].map(([key, value]) => [key, idOf(value)])),
+        materialIds: materials.map(idOf),
+        schoolAcademicPolicyId: idOf(schoolPolicy),
+        schoolFinalOutcomeIds: Object.fromEntries([...finalOutcomesByStudentKey.entries()].map(([key, value]) => [key, idOf(value)])),
+        responsibilityAssignmentIds: Object.fromEntries(
+            [...assignmentsByKey.entries()].map(([key, value]) => [key, idOf(value)])
+        ),
+        usefulRoutes: buildSchoolUsefulRoutes(idOf(institution), sectionIds, studentIds, {
+            academicYearId: idOf(academicYear),
+            semesterId: idOf(semester),
+            schoolClassId: idOf(schoolClassesByKey.get("grade7A")),
+        }),
+        demoNotes: {
+            promotedStudentKey: "schoolStudentA",
+            atRiskStudentKey: "schoolStudentC",
+            incompleteStudentKey: "schoolStudentD",
+            gradeEightStudentKey: "schoolStudentE",
+        },
     };
 }
 
@@ -1073,6 +2092,32 @@ function buildUsefulRoutes(institutionId, sectionIds, studentIds) {
     ];
 }
 
+function buildSchoolUsefulRoutes(institutionId, sectionIds, studentIds, context) {
+    return [
+        "/auth/login",
+        "/institutions/me",
+        `/institutions/${institutionId}/academic-years/active`,
+        `/institutions/${institutionId}/class-levels`,
+        `/institutions/${institutionId}/classes`,
+        `/institutions/${institutionId}/classes/${context.schoolClassId}/students`,
+        `/institutions/${institutionId}/sections`,
+        `/institutions/${institutionId}/sections/${sectionIds.grade7MathA}`,
+        `/institutions/${institutionId}/sections/${sectionIds.grade7MathA}/sessions`,
+        `/institutions/${institutionId}/sections/${sectionIds.grade7MathA}/attendance/analytics`,
+        `/institutions/${institutionId}/sections/${sectionIds.grade7MathA}/assessments`,
+        `/institutions/${institutionId}/sections/${sectionIds.grade7MathA}/results`,
+        `/institutions/${institutionId}/sections/${sectionIds.grade7MathA}/homeworks`,
+        `/institutions/${institutionId}/sections/${sectionIds.grade7MathA}/materials`,
+        `/institutions/${institutionId}/school-outcomes/students/${studentIds.schoolStudentA}/semesters/${context.semesterId}/report-card`,
+        `/institutions/${institutionId}/school-outcomes/students/${studentIds.schoolStudentA}/academic-years/${context.academicYearId}/report-card`,
+        `/institutions/${institutionId}/school-outcomes/classes/${context.schoolClassId}/academic-years/${context.academicYearId}/promotion-summary`,
+        `/institutions/${institutionId}/school-outcomes/academic-years/${context.academicYearId}/promotion-dashboard/summary`,
+        `/institutions/${institutionId}/school-outcomes/academic-years/${context.academicYearId}/promotion-dashboard/students`,
+        `/institutions/${institutionId}/instructors/me/school-outcomes/academic-years/${context.academicYearId}/promotion-dashboard/students`,
+        `/institutions/${institutionId}/students/me/academic-profile?academicYearId=${context.academicYearId}`,
+    ];
+}
+
 async function writeFrontendSummary(summary) {
     await fs.promises.mkdir(path.dirname(OUTPUT_FILE), { recursive: true });
     await fs.promises.writeFile(OUTPUT_FILE, `${JSON.stringify(summary, null, 2)}\n`, "utf8");
@@ -1091,9 +2136,22 @@ function printSummary(summary) {
     for (const [key, value] of Object.entries(summary.sectionIds)) {
         console.log(`- ${key}: ${value}`);
     }
+    if (summary.school?.institution?.id) {
+        console.log(`\nSchool institution: ${summary.school.institution.name} (${summary.school.institution.id})`);
+        console.log("School sections:");
+        for (const [key, value] of Object.entries(summary.school.sectionIds || {})) {
+            console.log(`- ${key}: ${value}`);
+        }
+    }
     console.log("\nUseful routes:");
     for (const route of summary.usefulRoutes.slice(0, 10)) {
         console.log(`- ${route}`);
+    }
+    if (summary.school?.usefulRoutes?.length) {
+        console.log("\nSchool useful routes:");
+        for (const route of summary.school.usefulRoutes.slice(0, 10)) {
+            console.log(`- ${route}`);
+        }
     }
 }
 
@@ -1162,6 +2220,125 @@ async function seedDemoData() {
         semester,
     });
 
+    const schoolUsersByKey = await seedUsers(SCHOOL_DEMO_USERS);
+    const schoolInstitution = await seedSchoolInstitution(schoolUsersByKey.get("schoolOwner"));
+    const { membershipsByKey: schoolMembershipsByKey } = await seedMemberships({
+        institution: schoolInstitution,
+        usersByKey: schoolUsersByKey,
+        demoUsers: SCHOOL_DEMO_USERS,
+        ownerKey: "schoolOwner",
+    });
+    const { academicYear: schoolAcademicYear, semester: schoolSemester } = await seedSchoolAcademicCalendar({
+        institution: schoolInstitution,
+        ownerUserId: schoolUsersByKey.get("schoolOwner")._id,
+    });
+    const classLevelsByKey = await seedSchoolClassLevels({
+        institution: schoolInstitution,
+        ownerUserId: schoolUsersByKey.get("schoolOwner")._id,
+    });
+    const schoolClassesByKey = await seedSchoolClasses({
+        institution: schoolInstitution,
+        ownerUserId: schoolUsersByKey.get("schoolOwner")._id,
+        classLevelsByKey,
+    });
+    const schoolSubjectsByKey = await seedSchoolSubjects({
+        institution: schoolInstitution,
+        ownerUserId: schoolUsersByKey.get("schoolOwner")._id,
+        classLevelsByKey,
+    });
+    const schoolSectionsByKey = await seedSchoolSections({
+        institution: schoolInstitution,
+        ownerUserId: schoolUsersByKey.get("schoolOwner")._id,
+        semester: schoolSemester,
+        subjectsByKey: schoolSubjectsByKey,
+        schoolClassesByKey,
+        membershipsByKey: schoolMembershipsByKey,
+    });
+    const classAssignmentsByStudentKey = await seedSchoolClassAssignments({
+        institution: schoolInstitution,
+        ownerUserId: schoolUsersByKey.get("schoolOwner")._id,
+        semester: schoolSemester,
+        schoolClassesByKey,
+        membershipsByKey: schoolMembershipsByKey,
+    });
+    const schoolEnrollmentsBySectionKey = await seedSchoolEnrollments({
+        institution: schoolInstitution,
+        ownerUserId: schoolUsersByKey.get("schoolOwner")._id,
+        sectionsByKey: schoolSectionsByKey,
+        membershipsByKey: schoolMembershipsByKey,
+    });
+    const schoolSessionsBySectionKey = await seedSchoolSessionsAndAttendance({
+        institution: schoolInstitution,
+        ownerUserId: schoolUsersByKey.get("schoolOwner")._id,
+        sectionsByKey: schoolSectionsByKey,
+        enrollmentsBySectionKey: schoolEnrollmentsBySectionKey,
+        membershipsByKey: schoolMembershipsByKey,
+    });
+    const schoolAssessmentsByKey = await seedSchoolAssessments({
+        institution: schoolInstitution,
+        ownerUserId: schoolUsersByKey.get("schoolOwner")._id,
+        sectionsByKey: schoolSectionsByKey,
+        sessionsBySectionKey: schoolSessionsBySectionKey,
+        enrollmentsBySectionKey: schoolEnrollmentsBySectionKey,
+        membershipsByKey: schoolMembershipsByKey,
+    });
+    const schoolHomeworksByKey = await seedSchoolHomeworks({
+        institution: schoolInstitution,
+        ownerUserId: schoolUsersByKey.get("schoolOwner")._id,
+        sectionsByKey: schoolSectionsByKey,
+        sessionsBySectionKey: schoolSessionsBySectionKey,
+        enrollmentsBySectionKey: schoolEnrollmentsBySectionKey,
+        membershipsByKey: schoolMembershipsByKey,
+    });
+    const schoolMaterials = await seedSchoolMaterials({
+        institution: schoolInstitution,
+        ownerUserId: schoolUsersByKey.get("schoolOwner")._id,
+        sectionsByKey: schoolSectionsByKey,
+        sessionsBySectionKey: schoolSessionsBySectionKey,
+    });
+    const schoolPolicy = await seedSchoolAcademicPolicy({
+        institution: schoolInstitution,
+        ownerUserId: schoolUsersByKey.get("schoolOwner")._id,
+        academicYear: schoolAcademicYear,
+        semester: schoolSemester,
+        classLevelsByKey,
+        subjectsByKey: schoolSubjectsByKey,
+    });
+    const schoolAssignmentsByKey = await seedSchoolResponsibilities({
+        institution: schoolInstitution,
+        usersByKey: schoolUsersByKey,
+        classLevelsByKey,
+    });
+    const finalOutcomesByStudentKey = await seedSchoolFinalOutcomes({
+        institution: schoolInstitution,
+        ownerUserId: schoolUsersByKey.get("schoolOwner")._id,
+        academicYear: schoolAcademicYear,
+        schoolClassesByKey,
+        classLevelsByKey,
+        membershipsByKey: schoolMembershipsByKey,
+        policy: schoolPolicy,
+    });
+
+    const schoolSummary = buildSchoolFrontendSummary({
+        institution: schoolInstitution,
+        academicYear: schoolAcademicYear,
+        semester: schoolSemester,
+        classLevelsByKey,
+        schoolClassesByKey,
+        subjectsByKey: schoolSubjectsByKey,
+        sectionsByKey: schoolSectionsByKey,
+        membershipsByKey: schoolMembershipsByKey,
+        classAssignmentsByStudentKey,
+        enrollmentsBySectionKey: schoolEnrollmentsBySectionKey,
+        sessionsBySectionKey: schoolSessionsBySectionKey,
+        assessmentsByKey: schoolAssessmentsByKey,
+        homeworksByKey: schoolHomeworksByKey,
+        materials: schoolMaterials,
+        schoolPolicy,
+        finalOutcomesByStudentKey,
+        assignmentsByKey: schoolAssignmentsByKey,
+    });
+
     const summary = buildFrontendSummary({
         institution,
         academicYear,
@@ -1178,6 +2355,7 @@ async function seedDemoData() {
         assignmentsByKey,
         billingProfile,
         academicPolicy,
+        schoolSummary,
     });
 
     await writeFrontendSummary(summary);
@@ -1232,6 +2410,8 @@ if (require.main === module) {
 
 module.exports = {
     DEMO_PASSWORD,
+    buildSchoolUsefulRoutes,
+    buildUsefulRoutes,
     getDatabaseNameFromUri,
     looksLikeLocalDatabaseName,
     normalizeEmail,
