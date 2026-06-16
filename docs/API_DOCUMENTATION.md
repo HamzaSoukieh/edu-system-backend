@@ -210,10 +210,59 @@ See [API_ENDPOINT_INDEX.md](API_ENDPOINT_INDEX.md) for the compact all-endpoint 
 
 | Method | Path | Purpose | Auth / middleware | Request / validation | Success | Errors / notes |
 |---|---|---|---|---|---|---|
-| GET | `/institutions/me` | Current user institution context. | `authJwt`, `requireEmailVerified` | No params/body. | `200 { user, memberships, activeInstitution, nextStep }` | Global account context; not tenant-scoped by path. |
+| GET | `/institutions/me` | Current user institution context. | `authJwt`, `requireEmailVerified` | No params/body. | `200 { user, institutions, activeInstitutionId, onboarding }` | Global account context; not tenant-scoped by path. Institution rows are enriched for frontend bootstrap. |
 | POST | `/institutions` | Create additional institution. | `authJwt`, `requireEmailVerified` | JSON `name`, `type` (`school` or `university`). | `201 { institution, membership }` | Creates active admin membership for same user. |
 | PATCH | `/institutions/:institutionId` | Update institution. | `authJwt`, `requireEmailVerified`, `institutionAccess()`, `requirePermission("institution.manage")` | Path `institutionId`; JSON patch accepted by `institutionService`. | `200 { institution }` | Tenant-scoped. TODO/VERIFY exact patchable policy fields before generated clients. |
 | POST | `/institutions/:institutionId/logo` | Upload institution logo. | Same plus `uploadInstitutionLogo` | Path `institutionId`; multipart field `logo`. | `200 { institution }` | Public file URL under `/uploads/institution-logos`; JPG/PNG/WEBP only. |
+
+#### `GET /institutions/me` frontend contract
+
+The existing `/institutions/me` endpoint is enriched in place; there is no `/v1` route and no second `/me` endpoint.
+
+Top-level response:
+
+```js
+{
+  user,
+  institutions,
+  activeInstitutionId,
+  onboarding
+}
+```
+
+Each `institutions[]` item includes:
+
+```js
+{
+  institutionId,
+  membershipId,
+  name,
+  type,
+  institutionStatus,
+  role,              // "admin" | "instructor" | "student"
+  membershipStatus,
+  joinedAt,
+  isOwner,
+  memberProfile,     // null or limited profile summary
+  permissions,       // base role permissions only
+  scopedCapabilities,
+  activeSemester,
+  activeAcademicYear
+}
+```
+
+Frontend rules:
+
+- Keep `role` as one of `admin`, `instructor`, or `student`; ownership is shown with `isOwner`, not an `"owner"` role.
+- Use `permissions` only for base institution-wide role permissions from `ROLE_PERMISSIONS`.
+- Use `scopedCapabilities` for active Head, Coordinator, and Mentor powers. Do not flatten scoped permissions into global permissions.
+- Show Head/Coordinator/Mentor labels from `scopedCapabilities[].responsibilityType`, not from `role`.
+- `memberProfile` is `null` when no profile exists; when present it is limited to `fullName`, `firstName`, `lastName`, `mobile`, and `profilePictureUrl`.
+- `activeSemester` and `activeAcademicYear` are read-only summaries and may be `null`.
+- `onboarding.nextStep` is navigation guidance only, not authorization.
+- Active non-admin memberships are usable access. Instructors, students, Heads, Coordinators, and Mentors complete onboarding with `nextStep: null`.
+- `wait_for_membership_activation` means the user has memberships but none are active.
+- `hasAdminMembership` means at least one active admin membership exists; it is informational and not required for access.
 
 ### Billing / Stripe
 
@@ -753,15 +802,75 @@ Authorization: Bearer <JWT_TOKEN>
 
 ```json
 {
-  "user": { "id": "507f1f77bcf86cd799439011", "email": "admin@example.test" },
-  "hasInstitutions": true,
-  "activeInstitution": {
-    "institutionId": "507f1f77bcf86cd799439011",
-    "name": "Example School",
-    "type": "school",
-    "role": "admin"
+  "user": {
+    "id": "507f1f77bcf86cd799439011",
+    "email": "instructor@example.test",
+    "status": "active",
+    "isEmailVerified": true
   },
-  "nextStep": "build_academic_structure"
+  "institutions": [
+    {
+      "institutionId": "507f1f77bcf86cd799439021",
+      "membershipId": "507f1f77bcf86cd799439031",
+      "name": "Example University",
+      "type": "university",
+      "institutionStatus": "active",
+      "role": "instructor",
+      "membershipStatus": "active",
+      "joinedAt": "2026-06-16T12:57:22.122Z",
+      "isOwner": false,
+      "memberProfile": {
+        "fullName": "Instructor Example",
+        "firstName": "Instructor",
+        "lastName": "Example",
+        "mobile": "+963900000001",
+        "profilePictureUrl": "/uploads/member-profiles/instructor.png"
+      },
+      "permissions": [
+        "section.read",
+        "attendance.take",
+        "attendance.excuse"
+      ],
+      "scopedCapabilities": [
+        {
+          "responsibilityType": "head",
+          "scopeType": "institution",
+          "scopeId": "507f1f77bcf86cd799439021",
+          "permissions": [
+            "academicRisk.read_scope",
+            "academicProfile.read_scope",
+            "academicStanding.read_scope",
+            "academicDecision.read_scope",
+            "academicDecision.recommend_scope"
+          ]
+        }
+      ],
+      "activeSemester": {
+        "id": "507f1f77bcf86cd799439041",
+        "academicYearId": "507f1f77bcf86cd799439051",
+        "name": "Semester 1 - 2026",
+        "startDate": "2026-03-12",
+        "endDate": "2026-09-22",
+        "status": "active"
+      },
+      "activeAcademicYear": {
+        "id": "507f1f77bcf86cd799439051",
+        "name": "2026",
+        "startDate": "2026-01-01",
+        "endDate": "2026-12-31",
+        "status": "active"
+      }
+    }
+  ],
+  "activeInstitutionId": "507f1f77bcf86cd799439021",
+  "onboarding": {
+    "isEmailVerified": true,
+    "hasInstitutions": true,
+    "hasActiveMembership": true,
+    "hasAdminMembership": false,
+    "activeInstitutionType": "university",
+    "nextStep": null
+  }
 }
 ```
 

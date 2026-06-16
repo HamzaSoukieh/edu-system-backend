@@ -19,6 +19,7 @@
   - `node --test test/responsibility-assignment-management.test.js`
   - `node --test test/academic-oversight.test.js`
   - `node --test test/academic-decision.test.js`
+  - `node --test test/institution-context.test.js`
   - `node --test test/homework.test.js`
   - `node --test test/section-material.test.js`
   - `node --test test/authorization-permission.test.js`
@@ -2023,6 +2024,37 @@
   - result: 22 passing
   - ran `node --test test/academic-decision.test.js test/academic-oversight.test.js test/authorization-permission.test.js test/responsibility-assignment-management.test.js`
   - result: 61 passing
+- 2026-06-16 Institution context enrichment:
+  - enriched existing `GET /institutions/me` without adding `/v1` or another `/me` endpoint
+  - verified top-level `user`, `institutions`, `activeInstitutionId`, and `onboarding` response fields are preserved
+  - verified institution rows now include `membershipId`, limited `memberProfile`, base role `permissions`, separate `scopedCapabilities`, `activeSemester`, and `activeAcademicYear`
+  - verified ownership is returned as `isOwner` and does not introduce an `owner` role
+  - verified base permissions come only from `ROLE_PERMISSIONS`, while scoped capability permissions come only from `RESPONSIBILITY_PERMISSIONS`
+  - verified stored `ResponsibilityAssignment.permissions` values are ignored, inactive/future/expired/cross-user/cross-tenant scoped assignments are excluded, and mentor can return `permissions: []`
+  - verified active semester/year summaries are tenant-scoped read-only fields and return `null` when missing
+  - verified related records are batch-loaded once per model instead of queried per institution
+  - ran `node --check src/services/institutionService.js`
+  - result: passed
+  - ran `node --check test/institution-context.test.js`
+  - result: passed
+  - ran `node --test test/institution-context.test.js`
+  - result: 7 passing
+  - ran `node --test test/institution-context.test.js test/authorization-permission.test.js test/responsibility-assignment-management.test.js test/academic-year.test.js`
+  - result: 55 passing
+- 2026-06-16 Institution context onboarding:
+  - fixed `GET /institutions/me` onboarding so active non-admin memberships complete onboarding with `nextStep: null`
+  - verified `wait_for_membership_activation` applies only when the user has memberships but no active membership
+  - verified `hasAdminMembership` is true only for active admin memberships and is not an access prerequisite
+  - verified active Head, Coordinator, and Mentor users keep their base instructor role and complete onboarding normally
+  - verified top-level context and enriched institution fields remain unchanged
+  - ran `node --check src/services/institutionService.js`
+  - result: passed
+  - ran `node --check test/institution-context.test.js`
+  - result: passed
+  - ran `node --test test/institution-context.test.js`
+  - result: 19 passing
+  - ran `node --test test/institution-context.test.js test/authorization-permission.test.js test/section-list-permission.test.js test/section-session-permission.test.js`
+  - result: 54 passing
 - TODO:
   - add real sample responses when helpful
   - add attendance response examples after first manual Postman pass

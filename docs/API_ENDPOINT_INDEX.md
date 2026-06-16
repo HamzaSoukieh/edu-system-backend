@@ -9,7 +9,7 @@
 | POST | `/auth/otp/verify` | OTP/email verification | Protected | Authenticated user | Verify signup OTP. |
 | POST | `/auth/otp/resend` | OTP/email verification | Protected | Authenticated user | Resend signup OTP. |
 | POST | `/stripe/webhook` | Stripe webhook | Public | Stripe signature | Receive Stripe events using raw body. |
-| GET | `/institutions/me` | Institutions | Protected | Authenticated verified user | Current user institution context. |
+| GET | `/institutions/me` | Institutions | Protected | Authenticated verified user | Enriched current user institution context for frontend bootstrap. |
 | POST | `/institutions` | Institutions | Protected | Authenticated verified user | Create additional institution. |
 | PATCH | `/institutions/:institutionId` | Institutions | Protected | institution.manage | Update institution. |
 | POST | `/institutions/:institutionId/logo` | Uploads/downloads | Protected | institution.manage | Upload institution logo. |

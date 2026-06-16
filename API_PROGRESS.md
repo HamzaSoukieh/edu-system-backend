@@ -15,6 +15,22 @@
 - `GET /institutions/me`
 - `PATCH /institutions/:institutionId`
 - `POST /institutions/:institutionId/logo`
+- Current implemented rules:
+  - `GET /institutions/me` remains the existing account-level context endpoint; no `/v1` route or second `/me` endpoint is introduced
+  - response preserves top-level `user`, `institutions`, `activeInstitutionId`, and `onboarding`
+  - each `institutions[]` item includes the authenticated user's `membershipId`, member profile summary, base role `permissions`, scoped responsibility `scopedCapabilities`, and active semester/academic-year summaries when available
+  - `role` remains the base `Membership.role` value: `admin`, `instructor`, or `student`
+  - ownership is represented only by `isOwner`, derived from `Institution.ownerUserId`; no `owner` role is added
+  - `permissions` contains only base institution-wide role permissions from `ROLE_PERMISSIONS`
+  - scoped Head/Coordinator/Mentor grants are returned separately in `scopedCapabilities` and are computed from `RESPONSIBILITY_PERMISSIONS`
+  - stored `ResponsibilityAssignment.permissions` remains ignored and is not returned
+  - member profile summary is deliberately limited to `fullName`, `firstName`, `lastName`, `mobile`, and `profilePictureUrl`
+  - active semester and active academic year are read-only summaries; the endpoint never creates or updates them
+  - related records are batch-loaded by membership/institution ids to avoid N+1 queries across multi-institution users
+  - onboarding `nextStep` is navigation guidance, not authorization
+  - active non-admin memberships are usable access; instructors, students, Heads, Coordinators, and Mentors are not asked to wait for admin access
+  - `wait_for_membership_activation` applies only when the user has memberships but none are `active`
+  - `hasAdminMembership` remains informational and means at least one active `admin` membership exists
 
 ### Billing / Institution Subscriptions
 - `POST /institutions/:institutionId/billing/checkout-session`

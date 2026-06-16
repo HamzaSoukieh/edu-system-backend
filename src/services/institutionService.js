@@ -1,7 +1,18 @@
 const Institution = require("../models/Institution");
 const Membership = require("../models/Membership");
+const MemberProfile = require("../models/MemberProfile");
+const ResponsibilityAssignment = require("../models/ResponsibilityAssignment");
+const Semester = require("../models/Semester");
+const AcademicYear = require("../models/AcademicYear");
+const {
+    ROLE_PERMISSIONS,
+    RESPONSIBILITY_PERMISSIONS,
+    isResponsibilityScopeAllowed,
+} = require("../auth/permissions");
+const { isResponsibilityAssignmentActiveNow } = require("../auth/scopedResponsibilities");
 
 const INSTITUTION_TYPES = ["school", "university"];
+const ACTIVE_CONTEXT_SORT = { startDate: -1, createdAt: -1, _id: -1 };
 
 function createError(statusCode, message) {
     const error = new Error(message);
@@ -25,8 +36,39 @@ function normalizeInstitutionType(value) {
     return normalizeString(value).toLowerCase();
 }
 
+function normalizeId(value) {
+    if (value === undefined || value === null) {
+        return null;
+    }
+
+    if (typeof value === "string") {
+        const trimmed = value.trim();
+        return trimmed || null;
+    }
+
+    if (typeof value.toString === "function") {
+        const normalized = value.toString().trim();
+        return normalized || null;
+    }
+
+    return null;
+}
+
 function isFiniteNumber(value) {
     return typeof value === "number" && Number.isFinite(value);
+}
+
+function formatDateOnly(value) {
+    if (!value) {
+        return null;
+    }
+
+    const date = value instanceof Date ? value : new Date(value);
+    if (Number.isNaN(date.getTime())) {
+        return null;
+    }
+
+    return date.toISOString().slice(0, 10);
 }
 
 function toInstitutionResponse(institution) {
@@ -42,6 +84,58 @@ function toInstitutionResponse(institution) {
     };
 }
 
+function toMemberProfileSummary(profile) {
+    if (!profile) {
+        return null;
+    }
+
+    return {
+        fullName: profile.fullName || null,
+        firstName: profile.firstName || null,
+        lastName: profile.lastName || null,
+        mobile: profile.mobile || null,
+        profilePictureUrl: profile.profilePictureUrl || null,
+    };
+}
+
+function toScopedCapability(assignment) {
+    return {
+        responsibilityType: assignment.responsibilityType,
+        scopeType: assignment.scopeType,
+        scopeId: normalizeId(assignment.scopeId),
+        permissions: [...(RESPONSIBILITY_PERMISSIONS[assignment.responsibilityType] || [])],
+    };
+}
+
+function toActiveSemesterSummary(semester) {
+    if (!semester) {
+        return null;
+    }
+
+    return {
+        id: normalizeId(semester._id),
+        academicYearId: normalizeId(semester.academicYearId),
+        name: semester.name || null,
+        startDate: formatDateOnly(semester.startDate),
+        endDate: formatDateOnly(semester.endDate),
+        status: semester.status,
+    };
+}
+
+function toActiveAcademicYearSummary(academicYear) {
+    if (!academicYear) {
+        return null;
+    }
+
+    return {
+        id: normalizeId(academicYear._id),
+        name: academicYear.name,
+        startDate: formatDateOnly(academicYear.startDate),
+        endDate: formatDateOnly(academicYear.endDate),
+        status: academicYear.status,
+    };
+}
+
 function toMembershipSummary(membership) {
     return {
         institutionId: membership.institutionId.toString(),
@@ -49,6 +143,50 @@ function toMembershipSummary(membership) {
         status: membership.status,
         joinedAt: membership.joinedAt,
     };
+}
+
+function groupByInstitutionId(records) {
+    const grouped = new Map();
+    for (const record of records) {
+        const institutionId = normalizeId(record.institutionId);
+        if (!institutionId) {
+            continue;
+        }
+
+        if (!grouped.has(institutionId)) {
+            grouped.set(institutionId, []);
+        }
+
+        grouped.get(institutionId).push(record);
+    }
+
+    return grouped;
+}
+
+function mapFirstActiveByInstitutionId(records) {
+    const mapped = new Map();
+    for (const record of records) {
+        const institutionId = normalizeId(record.institutionId);
+        if (!institutionId || mapped.has(institutionId)) {
+            continue;
+        }
+
+        mapped.set(institutionId, record);
+    }
+
+    return mapped;
+}
+
+function isSupportedActiveAssignment(assignment, now) {
+    if (!RESPONSIBILITY_PERMISSIONS[assignment.responsibilityType]) {
+        return false;
+    }
+
+    if (!isResponsibilityScopeAllowed(assignment.responsibilityType, assignment.scopeType)) {
+        return false;
+    }
+
+    return isResponsibilityAssignmentActiveNow(assignment, now);
 }
 
 function pickActiveInstitution(memberships) {
@@ -73,9 +211,9 @@ function buildOnboarding({ user, memberships, activeInstitution }) {
         nextStep = "verify_email";
     } else if (!hasInstitutions) {
         nextStep = "create_or_join_institution";
-    } else if (!hasAdminMembership) {
-        nextStep = "wait_for_admin_access";
-    } else {
+    } else if (!hasActiveMembership) {
+        nextStep = "wait_for_membership_activation";
+    } else if (hasAdminMembership) {
         nextStep = "build_academic_structure";
     }
 
@@ -120,32 +258,88 @@ async function getMyInstitutionContext(authUser) {
     }
 
     const rawMemberships = await Membership.find({ userId: authUser.id })
-        .select("institutionId role status joinedAt")
+        .select("_id institutionId role status joinedAt")
         .sort({ createdAt: 1 })
         .lean();
 
     const institutionIds = rawMemberships.map((item) => item.institutionId);
-    const institutions = await Institution.find({ _id: { $in: institutionIds } })
-        .select("_id name type status ownerUserId")
-        .lean();
+    const membershipIds = rawMemberships.map((item) => item._id);
+    const [
+        institutions,
+        profiles,
+        responsibilityAssignments,
+        activeSemesters,
+        activeAcademicYears,
+    ] = await Promise.all([
+        Institution.find({ _id: { $in: institutionIds } })
+            .select("_id name type status ownerUserId")
+            .lean(),
+        MemberProfile.find({
+            institutionId: { $in: institutionIds },
+            membershipId: { $in: membershipIds },
+        })
+            .select("membershipId institutionId fullName firstName lastName mobile profilePictureUrl")
+            .lean(),
+        ResponsibilityAssignment.find({
+            institutionId: { $in: institutionIds },
+            userId: authUser.id,
+            isActive: true,
+        })
+            .select("_id institutionId userId scopeType scopeId responsibilityType isActive startAt endAt")
+            .lean(),
+        Semester.find({
+            institutionId: { $in: institutionIds },
+            status: "active",
+        })
+            .select("_id institutionId academicYearId name startDate endDate status createdAt")
+            .sort(ACTIVE_CONTEXT_SORT)
+            .lean(),
+        AcademicYear.find({
+            institutionId: { $in: institutionIds },
+            status: "active",
+        })
+            .select("_id institutionId name startDate endDate status createdAt")
+            .sort(ACTIVE_CONTEXT_SORT)
+            .lean(),
+    ]);
 
     const institutionMap = new Map(institutions.map((item) => [item._id.toString(), item]));
+    const profileMap = new Map(
+        profiles.map((profile) => [`${normalizeId(profile.institutionId)}:${normalizeId(profile.membershipId)}`, profile])
+    );
+    const activeAssignmentsByInstitutionId = groupByInstitutionId(
+        responsibilityAssignments.filter((assignment) => isSupportedActiveAssignment(assignment, new Date()))
+    );
+    const activeSemesterMap = mapFirstActiveByInstitutionId(activeSemesters);
+    const activeAcademicYearMap = mapFirstActiveByInstitutionId(activeAcademicYears);
     const membershipItems = rawMemberships
         .map((membership) => {
-            const institution = institutionMap.get(membership.institutionId.toString());
+            const institutionId = normalizeId(membership.institutionId);
+            const membershipId = normalizeId(membership._id);
+            const institution = institutionMap.get(institutionId);
             if (!institution) {
                 return null;
             }
 
+            const profile = profileMap.get(`${institutionId}:${membershipId}`) || null;
+            const scopedCapabilities = (activeAssignmentsByInstitutionId.get(institutionId) || [])
+                .map(toScopedCapability);
+
             return {
-                institutionId: institution._id.toString(),
+                institutionId,
+                membershipId,
                 name: institution.name,
                 type: institution.type,
                 institutionStatus: institution.status,
                 role: membership.role,
                 membershipStatus: membership.status,
                 joinedAt: membership.joinedAt,
-                isOwner: institution.ownerUserId?.toString() === authUser.id,
+                isOwner: normalizeId(institution.ownerUserId) === normalizeId(authUser.id),
+                memberProfile: toMemberProfileSummary(profile),
+                permissions: [...(ROLE_PERMISSIONS[membership.role] || [])],
+                scopedCapabilities,
+                activeSemester: toActiveSemesterSummary(activeSemesterMap.get(institutionId)),
+                activeAcademicYear: toActiveAcademicYearSummary(activeAcademicYearMap.get(institutionId)),
             };
         })
         .filter(Boolean);

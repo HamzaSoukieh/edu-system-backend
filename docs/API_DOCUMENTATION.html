@@ -376,8 +376,8 @@ body{font-family:Arial,Helvetica,sans-serif;line-height:1.45;color:#111827;margi
 <td>Current user institution context.</td>
 <td><code>authJwt</code>, <code>requireEmailVerified</code></td>
 <td>No params/body.</td>
-<td><code>200 { user, memberships, activeInstitution, nextStep }</code></td>
-<td>Global account context; not tenant-scoped by path.</td>
+<td><code>200 { user, institutions, activeInstitutionId, onboarding }</code></td>
+<td>Global account context; not tenant-scoped by path. Institution rows are enriched for frontend bootstrap.</td>
 </tr>
 <tr>
 <td>POST</td>
@@ -407,6 +407,47 @@ body{font-family:Arial,Helvetica,sans-serif;line-height:1.45;color:#111827;margi
 <td>Public file URL under <code>/uploads/institution-logos</code>; JPG/PNG/WEBP only.</td>
 </tr>
 </tbody></table>
+<h4><code>GET /institutions/me</code> frontend contract</h4>
+<p>The existing <code>/institutions/me</code> endpoint is enriched in place; there is no <code>/v1</code> route and no second <code>/me</code> endpoint.</p>
+<p>Top-level response:</p>
+<pre><code class="language-js">{
+  user,
+  institutions,
+  activeInstitutionId,
+  onboarding
+}
+</code></pre>
+<p>Each <code>institutions[]</code> item includes:</p>
+<pre><code class="language-js">{
+  institutionId,
+  membershipId,
+  name,
+  type,
+  institutionStatus,
+  role,              // &quot;admin&quot; | &quot;instructor&quot; | &quot;student&quot;
+  membershipStatus,
+  joinedAt,
+  isOwner,
+  memberProfile,     // null or limited profile summary
+  permissions,       // base role permissions only
+  scopedCapabilities,
+  activeSemester,
+  activeAcademicYear
+}
+</code></pre>
+<p>Frontend rules:</p>
+<ul>
+<li>Keep <code>role</code> as one of <code>admin</code>, <code>instructor</code>, or <code>student</code>; ownership is shown with <code>isOwner</code>, not an <code>&quot;owner&quot;</code> role.</li>
+<li>Use <code>permissions</code> only for base institution-wide role permissions from <code>ROLE_PERMISSIONS</code>.</li>
+<li>Use <code>scopedCapabilities</code> for active Head, Coordinator, and Mentor powers. Do not flatten scoped permissions into global permissions.</li>
+<li>Show Head/Coordinator/Mentor labels from <code>scopedCapabilities[].responsibilityType</code>, not from <code>role</code>.</li>
+<li><code>memberProfile</code> is <code>null</code> when no profile exists; when present it is limited to <code>fullName</code>, <code>firstName</code>, <code>lastName</code>, <code>mobile</code>, and <code>profilePictureUrl</code>.</li>
+<li><code>activeSemester</code> and <code>activeAcademicYear</code> are read-only summaries and may be <code>null</code>.</li>
+<li><code>onboarding.nextStep</code> is navigation guidance only, not authorization.</li>
+<li>Active non-admin memberships are usable access. Instructors, students, Heads, Coordinators, and Mentors complete onboarding with <code>nextStep: null</code>.</li>
+<li><code>wait_for_membership_activation</code> means the user has memberships but none are active.</li>
+<li><code>hasAdminMembership</code> means at least one active admin membership exists; it is informational and not required for access.</li>
+</ul>
 <h3>Billing / Stripe</h3>
 <table>
 <thead>
@@ -1911,15 +1952,75 @@ Content-Type: application/json
 Authorization: Bearer &lt;JWT_TOKEN&gt;
 </code></pre>
 <pre><code class="language-json">{
-  &quot;user&quot;: { &quot;id&quot;: &quot;507f1f77bcf86cd799439011&quot;, &quot;email&quot;: &quot;admin@example.test&quot; },
-  &quot;hasInstitutions&quot;: true,
-  &quot;activeInstitution&quot;: {
-    &quot;institutionId&quot;: &quot;507f1f77bcf86cd799439011&quot;,
-    &quot;name&quot;: &quot;Example School&quot;,
-    &quot;type&quot;: &quot;school&quot;,
-    &quot;role&quot;: &quot;admin&quot;
+  &quot;user&quot;: {
+    &quot;id&quot;: &quot;507f1f77bcf86cd799439011&quot;,
+    &quot;email&quot;: &quot;instructor@example.test&quot;,
+    &quot;status&quot;: &quot;active&quot;,
+    &quot;isEmailVerified&quot;: true
   },
-  &quot;nextStep&quot;: &quot;build_academic_structure&quot;
+  &quot;institutions&quot;: [
+    {
+      &quot;institutionId&quot;: &quot;507f1f77bcf86cd799439021&quot;,
+      &quot;membershipId&quot;: &quot;507f1f77bcf86cd799439031&quot;,
+      &quot;name&quot;: &quot;Example University&quot;,
+      &quot;type&quot;: &quot;university&quot;,
+      &quot;institutionStatus&quot;: &quot;active&quot;,
+      &quot;role&quot;: &quot;instructor&quot;,
+      &quot;membershipStatus&quot;: &quot;active&quot;,
+      &quot;joinedAt&quot;: &quot;2026-06-16T12:57:22.122Z&quot;,
+      &quot;isOwner&quot;: false,
+      &quot;memberProfile&quot;: {
+        &quot;fullName&quot;: &quot;Instructor Example&quot;,
+        &quot;firstName&quot;: &quot;Instructor&quot;,
+        &quot;lastName&quot;: &quot;Example&quot;,
+        &quot;mobile&quot;: &quot;+963900000001&quot;,
+        &quot;profilePictureUrl&quot;: &quot;/uploads/member-profiles/instructor.png&quot;
+      },
+      &quot;permissions&quot;: [
+        &quot;section.read&quot;,
+        &quot;attendance.take&quot;,
+        &quot;attendance.excuse&quot;
+      ],
+      &quot;scopedCapabilities&quot;: [
+        {
+          &quot;responsibilityType&quot;: &quot;head&quot;,
+          &quot;scopeType&quot;: &quot;institution&quot;,
+          &quot;scopeId&quot;: &quot;507f1f77bcf86cd799439021&quot;,
+          &quot;permissions&quot;: [
+            &quot;academicRisk.read_scope&quot;,
+            &quot;academicProfile.read_scope&quot;,
+            &quot;academicStanding.read_scope&quot;,
+            &quot;academicDecision.read_scope&quot;,
+            &quot;academicDecision.recommend_scope&quot;
+          ]
+        }
+      ],
+      &quot;activeSemester&quot;: {
+        &quot;id&quot;: &quot;507f1f77bcf86cd799439041&quot;,
+        &quot;academicYearId&quot;: &quot;507f1f77bcf86cd799439051&quot;,
+        &quot;name&quot;: &quot;Semester 1 - 2026&quot;,
+        &quot;startDate&quot;: &quot;2026-03-12&quot;,
+        &quot;endDate&quot;: &quot;2026-09-22&quot;,
+        &quot;status&quot;: &quot;active&quot;
+      },
+      &quot;activeAcademicYear&quot;: {
+        &quot;id&quot;: &quot;507f1f77bcf86cd799439051&quot;,
+        &quot;name&quot;: &quot;2026&quot;,
+        &quot;startDate&quot;: &quot;2026-01-01&quot;,
+        &quot;endDate&quot;: &quot;2026-12-31&quot;,
+        &quot;status&quot;: &quot;active&quot;
+      }
+    }
+  ],
+  &quot;activeInstitutionId&quot;: &quot;507f1f77bcf86cd799439021&quot;,
+  &quot;onboarding&quot;: {
+    &quot;isEmailVerified&quot;: true,
+    &quot;hasInstitutions&quot;: true,
+    &quot;hasActiveMembership&quot;: true,
+    &quot;hasAdminMembership&quot;: false,
+    &quot;activeInstitutionType&quot;: &quot;university&quot;,
+    &quot;nextStep&quot;: null
+  }
 }
 </code></pre>
 <h3>Billing</h3>

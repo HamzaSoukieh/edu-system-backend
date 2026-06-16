@@ -498,3 +498,32 @@
   - Already-applied decisions are idempotent only when the exact Enrollment is `dropped` and linked to the same AcademicDecision; mismatches return a manual-recovery conflict without another Enrollment update, history entry, or notification.
   - Successful application sends idempotent in-app notifications to the recommending Head (`academic_decision_applied`) and the affected student (`enrollment_status_changed`) with safe navigation ids and no private evidence or review notes.
   - Existing inactive, closed, or cancelled Sections may still be used for review/application cleanup as long as the exact tenant-scoped Section record exists; no new Section status policy is introduced here.
+
+## D054 - Institution Context Is Enriched Without Versioning
+- Status: Confirmed
+- Decision: Enrich the existing `GET /institutions/me` institution rows with membership id, limited member profile summary, base role permissions, scoped capabilities, and active semester/year summaries instead of creating a versioned endpoint.
+- Reason: Frontend bootstrapping needs one current-account context call, while authorization semantics must stay explicit and tenant-safe.
+- Notes:
+  - No `/v1` route or second `/me` endpoint is introduced.
+  - `Membership.role` remains only `admin`, `instructor`, or `student`; `owner` is not a role.
+  - Ownership is represented by `isOwner`, computed from `Institution.ownerUserId` and the authenticated user id.
+  - `permissions` contains only institution-wide base role permissions from `ROLE_PERMISSIONS[membership.role]`.
+  - Scoped Head, Coordinator, and Mentor permissions are returned separately as `scopedCapabilities`; they are not flattened into global permissions.
+  - Scoped capability permissions are computed from `RESPONSIBILITY_PERMISSIONS[responsibilityType]`; stored `ResponsibilityAssignment.permissions` remains ignored.
+  - Independent responsibility assignments remain independent OR grants and are returned as separate scoped capability entries.
+  - `MemberProfile` data is intentionally limited to `fullName`, `firstName`, `lastName`, `mobile`, and `profilePictureUrl`.
+  - Active semester and active academic year are read-only summaries only.
+  - Related records are batch-loaded by membership and institution ids to avoid N+1 queries for users in multiple institutions.
+
+## D055 - Institution Context Onboarding Is Guidance, Not Authorization
+- Status: Confirmed
+- Decision: `GET /institutions/me` onboarding treats any active membership as usable access; active non-admin users complete onboarding with `nextStep = null`.
+- Reason: Instructors, students, Heads, Coordinators, and Mentors can have valid product access without becoming admins.
+- Notes:
+  - Email verification remains the first onboarding step when `user.isEmailVerified` is false.
+  - Users with no memberships still receive `create_or_join_institution`.
+  - Users with memberships but no active membership receive `wait_for_membership_activation`.
+  - Active admin memberships keep the existing `build_academic_structure` frontend guidance.
+  - `hasAdminMembership` means at least one active `Membership.role = admin`; it is informational and not an access prerequisite.
+  - Head, Coordinator, and Mentor stay scoped responsibilities over a base role, usually `instructor`; they do not become membership roles.
+  - Backend access checks continue to rely on active Membership records, base role permissions, scoped ResponsibilityAssignments, and service-level authorization, not `onboarding.nextStep`.

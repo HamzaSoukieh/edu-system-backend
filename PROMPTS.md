@@ -39,6 +39,33 @@ Delivered:
 
 Collection covers auth, section session setup, staff attendance open/QR/manual/roster/close flows, student QR/history flows, attendance analytics, and attendance policy update requests.
 
+## 2026-06-16 Institution Context Enrichment
+
+User asked to enrich the existing `GET /institutions/me` response for frontend bootstrap without creating `/v1`, a second `/me`, or an `owner` role.
+
+Key result:
+- institution rows now include `membershipId`, limited `memberProfile`, base role `permissions`, separate `scopedCapabilities`, `activeSemester`, and `activeAcademicYear`
+- top-level `user`, `institutions`, `activeInstitutionId`, and `onboarding` are preserved
+- `role` remains `admin`, `instructor`, or `student`; ownership stays `isOwner`
+- `permissions` contains only `ROLE_PERMISSIONS[membership.role]`
+- scoped Head/Coordinator/Mentor grants remain separate and use backend-computed `RESPONSIBILITY_PERMISSIONS`
+- stored `ResponsibilityAssignment.permissions` stays ignored
+- profile fields are limited to display/contact/photo summary fields
+- active semester/year are read-only summaries
+- related records are batch-loaded to avoid N+1 queries for multi-institution users
+
+## 2026-06-16 Institution Context Onboarding
+
+User reported that active non-admin users were receiving an admin-wait onboarding step even though they already had usable institution access.
+
+Key result:
+- onboarding now returns `verify_email`, `create_or_join_institution`, `wait_for_membership_activation`, `build_academic_structure`, or `null` in that order
+- active instructor and student memberships complete onboarding with `nextStep: null`
+- active Head, Coordinator, and Mentor users keep their base instructor role and also complete onboarding normally
+- `wait_for_membership_activation` applies only when no membership is active
+- `hasAdminMembership` remains informational and is not an authorization gate
+- roles, base permissions, scoped capabilities, profiles, semesters, academic years, routes, and API versioning were not changed
+
 ## 2026-05-31 Section Session Instructor Setup Permission
 
 User reported `{"message":"Permission denied"}` while testing attendance Postman setup because instructor tokens could not access section session setup APIs.
