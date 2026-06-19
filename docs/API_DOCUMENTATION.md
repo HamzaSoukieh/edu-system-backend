@@ -11,6 +11,7 @@ Mounted API surface:
 - `POST /stripe/webhook` is mounted before JSON parsing and uses `express.raw({ type: "application/json" })`.
 - `/auth` is mounted from `src/routes/authRoutes.js`.
 - `/institutions` is mounted from `src/routes/institutionRoutes.js`.
+- `/platform` is mounted from `src/routes/platformRoutes.js` as the separate provider namespace.
 - `/uploads` is static public storage for institution logos and member profile pictures only.
 
 Route files inspected:
@@ -112,6 +113,28 @@ Coordinator assignments are currently used by selected section reads, section-se
 Mentor assignments have no effective operational or academic permissions yet.
 
 Do not activate future scoped permissions such as `studentProfile.read_scope`, `attendance.excuse_manage_scope`, `academicDecision.review_scope`, `enrollment.review_scope`, or `studentDropRisk.review_scope` until service-level enforcement exists.
+
+## Provider Control Plane Phase 1
+
+Provider authority is separate from tenant membership: `User -> PlatformAdmin -> platform role -> platform permissions`. An active verified User with an active `platform_owner` can use provider routes without a tenant Membership; tenant admin membership alone grants no provider access.
+
+All provider routes use `authJwt`, `requireEmailVerified`, `resolvePlatformAdmin`, and an explicit platform permission. They do not use `institutionAccess()`.
+
+| Method | Path | Permission | Result |
+|---|---|---|---|
+| GET | `/platform/institutions` | `platform.institutions.read` | `{ items, pagination }`; page, limit, status, type, search, plan, subscriptionStatus filters. |
+| GET | `/platform/institutions/:institutionId` | `platform.institutions.read` | Provider summary; Stripe ids require `platform.billing.read`. |
+| GET | `/platform/institutions/:institutionId/billing` | `platform.billing.read` | Billing projection, canonical seats, sync state, and failed webhooks. |
+| GET | `/platform/webhook-events` | `platform.webhooks.read` | Failed summaries only; no raw payload. |
+| GET | `/platform/audit` | `platform.audit.read` | Immutable allowlisted provider audit records. |
+
+Phase 1 performs no tenant or billing-data mutation. Sensitive reads create `PlatformAuditLog` records. Stripe remains authoritative and views use local webhook-synchronized state. Replay, live reconciliation, suspension, impersonation/support access, and role management are absent. MFA remains required production hardening but is not implemented.
+
+Platform response visibility is permission-shaped. Institution list/detail always include safe institution identity and aggregate counts. `platform.billing.read` adds `billing` and `seatUsage`; `platform.webhooks.read` adds `billingSync`. The institution billing route omits `billingSync` and `failedWebhooks` unless webhook read is also granted. Billing-route query strings cannot provide `institutionId`; the route parameter is the only institution source.
+
+Platform services re-read the active PlatformAdmin and derive permissions from its stored role for defense in depth. Authorized operation failures attempt a sanitized `result=failed` audit entry with a stable error category and never store raw errors, stacks, request bodies, or secrets.
+
+Billing synchronization states are `synced`, `missing_profile`, `missing_customer_mapping`, `missing_subscription_mapping`, `unknown_plan`, `unknown_price`, `webhook_failed`, `stale`, or `unknown`. A mapped profile is `stale` when no successful correlated webhook exists within seven days. Historical webhook rows without institution correlation remain global rather than being guessed into a tenant.
 
 ## Common Headers
 

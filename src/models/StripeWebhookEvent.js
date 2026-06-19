@@ -22,6 +22,17 @@ const stripeWebhookEventSchema = new mongoose.Schema(
             required: true,
             index: true,
         },
+        institutionId: {
+            type: mongoose.Schema.Types.ObjectId,
+            ref: "Institution",
+            default: null,
+            index: true,
+        },
+        attemptCount: {
+            type: Number,
+            min: 1,
+            default: 1,
+        },
         errorMessage: {
             type: String,
             trim: true,
@@ -37,5 +48,6 @@ const stripeWebhookEventSchema = new mongoose.Schema(
 
 stripeWebhookEventSchema.index({ stripeEventId: 1, status: 1 });
 stripeWebhookEventSchema.index({ status: 1, updatedAt: 1 });
+stripeWebhookEventSchema.index({ institutionId: 1, status: 1, updatedAt: -1 });
 
 module.exports = mongoose.model("StripeWebhookEvent", stripeWebhookEventSchema);

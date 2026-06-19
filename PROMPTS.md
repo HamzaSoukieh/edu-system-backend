@@ -1014,3 +1014,25 @@ Constraints:
 - do not add public routes unless explicitly requested
 - keep changes minimal and run focused tests
 ```
+# 2026-06-19 Separate SaaS Provider Control Plane Phase 1
+
+User requested a separate, primarily read-only provider authority plane without changing tenant roles or permitting general tenant-data access.
+
+Key result:
+- added separate `PlatformAdmin`, backend platform permission catalog, provider middleware, and `PlatformAuditLog`
+- added protected `/platform` institution list/detail/billing, failed webhook, and audit endpoints
+- provider views use aggregate Membership counts, canonical billing entitlements, and local webhook-synchronized state without Stripe list fan-out
+- added safe allowlisted mappers, Stripe error redaction, audited sensitive reads, and trusted one-time owner creation
+- `Membership.role` remains `admin|instructor|student`; no tenant permission reuse, `institutionAccess()`, replay, reconciliation, suspension, impersonation, or provider data mutation was added
+- production MFA remains documented hardening and is not claimed as implemented
+# 2026-06-19 Platform Control Plane Security Hardening
+
+Harden the existing read-only provider module without rebuilding it.
+
+Key result:
+- services independently re-read active PlatformAdmin identity and use only role-catalog permissions
+- institution/billing/webhook response sections now follow their distinct platform permissions
+- fixed billing routes reject query-string institution overrides
+- authorized failures create sanitized best-effort failed audit records without masking original errors
+- route tests prove exact permission mapping and `/platform` mounting; controller tests prove plain trusted arguments and ignore tenant/client actor fields
+- no platform write routes, tenant authority reuse, or new dependencies were added

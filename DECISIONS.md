@@ -609,4 +609,23 @@
   - If prorated payment fails and Stripe keeps the subscription on Plus, the profile remains Plus and Plus limits continue to apply.
   - `customer.subscription.created` and `customer.subscription.updated` webhooks retrieve the current Stripe subscription before synchronizing to reduce stale event snapshot regressions; `customer.subscription.deleted` still applies the deletion snapshot.
   - TODO/verify: simultaneous duplicate upgrade requests rely on Stripe idempotency and current-subscription inspection; no distributed lock or new dependency is introduced.
-  - TODO/verify: real Stripe CLI/manual testing should confirm the exact frontend confirmation flow for invoice `confirmation_secret.client_secret` under the pinned Stripe API version and project account settings.
+- TODO/verify: real Stripe CLI/manual testing should confirm the exact frontend confirmation flow for invoice `confirmation_secret.client_secret` under the pinned Stripe API version and project account settings.
+
+## D060 - Separate Provider Control Plane Phase 1
+- Decision: Provider authority is `User -> PlatformAdmin -> platform role -> backend platform permissions`, separate from tenant `User -> Membership -> Institution` authority.
+- `Membership.role` remains exactly `admin`, `instructor`, or `student`; tenant permissions and `institutionAccess()` are not used by `/platform` routes.
+- Phase 1 supports only active `platform_owner` records. Missing, suspended, status-less, mismatched-user, and unknown-role records fail closed.
+- Platform permissions are computed only from `PLATFORM_ROLE_PERMISSIONS`; stored/client permissions are ignored and no public promotion API exists.
+- `/platform` is read-only except for immutable `PlatformAuditLog` writes. It exposes aggregate institution operations, billing/seat state, failed webhook summaries, and platform audit records—not tenant academic data.
+- Stripe remains billing-authoritative. Provider views use local webhook-synchronized state and do not call Stripe once per institution; `stale` and `unknown` states avoid unsupported certainty.
+- Failed webhook replay, billing reconciliation, institution/user suspension, support impersonation, and support sessions are not implemented.
+- The first owner is assigned with the trusted `platform:create-owner` script to an existing active verified user.
+- Production MFA is mandatory hardening for provider accounts but is not implemented in this phase.
+
+## D061 - Platform Control Plane Defense-In-Depth And Field Visibility
+- Decision: Every public platform service operation re-reads the active PlatformAdmin with `_id + userId + status=active`, derives permissions from the stored role through the backend catalog, and ignores caller/stored permission arrays.
+- Institution list/detail always expose safe institution identity/counts; `platform.billing.read` adds billing and seat sections, while `platform.webhooks.read` adds billing synchronization sections.
+- The billing route continues to require `platform.billing.read`; failed webhook rows and synchronization diagnostics are omitted unless the same trusted actor also has `platform.webhooks.read`.
+- Institution-fixed billing queries reject a query-string `institutionId` instead of ignoring or overriding the route institution.
+- Authorized operation failures attempt one sanitized `PlatformAuditLog` record with `result=failed` and stable `errorCode=PLATFORM_OPERATION_FAILED`. Audit-write failure never replaces the original operation error; no application logger exists to report it separately.
+- Permission middleware remains responsible for denied audits, so service authorization rejection is not duplicated as an operation failure.

@@ -1036,3 +1036,17 @@
 - Keep this file easy to update after each work session.
 - If a module is partially built, list the exact completed endpoints under `In Progress`.
 - If something is uncertain, add `TODO/verify` instead of guessing.
+# Provider Control Plane Phase 1 (2026-06-19)
+- Added protected read-only `/platform` routes using `authJwt`, `requireEmailVerified`, `resolvePlatformAdmin`, and one explicit platform permission per route.
+- Added institution list/detail/billing, failed-webhook, and platform-audit endpoints.
+- Institution lists batch-load billing profiles, grouped Membership counts, and grouped webhook state; no per-institution query loop is used.
+- Added safe provider response mappers, failed-webhook redaction, backend-derived seat entitlements, Stripe-id permission gating, and immutable provider read audits.
+- Added trusted `npm run platform:create-owner -- --email owner@example.test`; no public platform-admin creation endpoint exists.
+- `Membership.role`, tenant permission catalogs, and tenant routes are unchanged. No replay, reconciliation, suspension, impersonation, or tenant/billing mutation was added.
+# Platform Control Plane Hardening (2026-06-19)
+- Platform services now independently validate the active database PlatformAdmin and role-derived permission for every public operation.
+- Institution list/detail billing, seat, and webhook sections are omitted unless their separate trusted permissions are present.
+- Institution billing omits failed webhook rows and billing synchronization state without `platform.webhooks.read`.
+- Fixed institution billing queries reject query-string `institutionId`; the route parameter remains authoritative.
+- Authorized service failures create sanitized best-effort failed audit records while preserving the original response error.
+- Exact five-route permission mapping, `/platform` mount, controller trust boundaries, and absence of write routes are covered by focused tests.

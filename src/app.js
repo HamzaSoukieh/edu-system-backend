@@ -3,6 +3,7 @@ const path = require("path");
 const cors = require("cors");
 const authRoutes = require("./routes/authRoutes");
 const institutionRoutes = require("./routes/institutionRoutes");
+const platformRoutes = require("./routes/platformRoutes");
 const stripeWebhookController = require("./controllers/stripeWebhookController");
 
 const app = express();
@@ -39,6 +40,7 @@ app.use(express.urlencoded({ extended: true }));
 app.use("/uploads", express.static(path.join(__dirname, "..", "uploads")));
 app.use("/auth", authRoutes);
 app.use("/institutions", institutionRoutes);
+app.use("/platform", platformRoutes);
 
 app.use((req, res) => {
     return res.status(404).json({ message: "Route not found" });

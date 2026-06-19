@@ -21,6 +21,11 @@
   - `/institutions/:institutionId/...`
 
 ## Main Entities / Models
+- `PlatformAdmin`
+  - separate provider authority linked to an existing `User`; it does not require or derive authority from `Membership`
+  - Phase 1 recognizes only active `platform_owner` records and computes permissions from the backend platform catalog
+- `PlatformAuditLog`
+  - institution-optional immutable provider audit trail, separate from tenant `AuditLog`
 - `User`
   - auth only
 - `Institution`
@@ -131,6 +136,14 @@
   - notifications are addressed to `recipientUserId` and list/mark-read APIs are always scoped to the authenticated user
 
 ## Completed Modules
+- Provider Control Plane Phase 1
+  - read-only `/platform` institution, billing, failed-webhook, and platform-audit views
+  - separate `User -> PlatformAdmin -> platform role -> platform permissions` authority chain
+  - public platform services independently re-read the active PlatformAdmin by `_id + userId + status=active` and derive permissions from the backend role catalog
+  - institution list/detail sections are permission-shaped: billing/seat fields require billing read and webhook synchronization fields require webhook read
+  - authorized operation failures create sanitized best-effort `failed` provider audit records without replacing the original error
+  - local webhook-synchronized billing projections; no live Stripe fan-out on institution lists
+  - no tenant academic-data access, impersonation, suspension, reconciliation, or webhook replay
 - Auth
   - signup
   - login

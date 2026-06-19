@@ -1,0 +1,278 @@
+{
+  "info": {
+    "name": "Edu SaaS Platform Control Plane Phase 1",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+    "description": "Read-only provider control-plane checks. Before running, seed local data and assign owner@example.test with: npm run platform:create-owner -- --email owner@example.test. Run folders in order. The collection never creates a PlatformAdmin through HTTP and never mutates tenant or billing data."
+  },
+  "auth": {
+    "type": "bearer",
+    "bearer": [{ "key": "token", "value": "{{platformToken}}", "type": "string" }]
+  },
+  "item": [
+    {
+      "name": "00 Setup",
+      "item": [
+        {
+          "name": "Login Platform Owner",
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{baseUrl}}/auth/login",
+            "body": { "mode": "raw", "raw": "{\n  \"email\": \"{{platformOwnerEmail}}\",\n  \"password\": \"{{platformOwnerPassword}}\"\n}" },
+            "description": "Logs in the existing verified User. PlatformAdmin assignment is intentionally performed only by the trusted CLI."
+          },
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
+            "pm.test('platform owner login returns 200', () => pm.response.to.have.status(200));",
+            "const json = pm.response.json();",
+            "pm.expect(json.accessToken).to.be.a('string').and.not.empty;",
+            "pm.environment.set('platformToken', json.accessToken);",
+            "if (json.user?.id) pm.environment.set('platformOwnerUserId', json.user.id);"
+          ] } }]
+        },
+        {
+          "name": "Login Tenant Admin For Negative Check",
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{baseUrl}}/auth/login",
+            "body": { "mode": "raw", "raw": "{\n  \"email\": \"{{tenantAdminEmail}}\",\n  \"password\": \"{{tenantAdminPassword}}\"\n}" }
+          },
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
+            "pm.test('tenant admin login returns 200', () => pm.response.to.have.status(200));",
+            "const json = pm.response.json();",
+            "pm.expect(json.accessToken).to.be.a('string').and.not.empty;",
+            "pm.expect(json.accessToken).not.to.eql(pm.environment.get('platformToken'));",
+            "pm.expect(json.user?.email).to.eql(pm.environment.get('tenantAdminEmail'));",
+            "pm.environment.set('tenantAdminToken', json.accessToken);",
+            "if (json.user?.id) pm.environment.set('tenantAdminUserId', json.user.id);"
+          ] } }]
+        },
+        {
+          "name": "Platform Access Smoke",
+          "request": { "method": "GET", "url": "{{baseUrl}}/platform/institutions?page=1&limit=1" },
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
+            "pm.test('active PlatformAdmin resolves', () => pm.response.to.have.status(200));",
+            "const json = pm.response.json();",
+            "pm.expect(json.items).to.be.an('array');",
+            "pm.expect(json.pagination).to.be.an('object');"
+          ] } }]
+        }
+      ]
+    },
+    {
+      "name": "01 Institutions",
+      "item": [
+        {
+          "name": "List Institutions",
+          "request": { "method": "GET", "url": "{{baseUrl}}/platform/institutions?page={{page}}&limit={{limit}}" },
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
+            "pm.test('list returns 200', () => pm.response.to.have.status(200));",
+            "const json = pm.response.json();",
+            "pm.expect(json.items).to.be.an('array');",
+            "pm.expect(json.pagination).to.include.keys('page', 'limit', 'total', 'totalPages');",
+            "if (json.items.length) {",
+            "  const row = json.items[0];",
+            "  pm.expect(row).to.include.keys('institutionId', 'name', 'type', 'status', 'billing', 'seatUsage', 'counts', 'billingSync');",
+            "  pm.expect(row.billing).not.to.have.property('stripeCustomerId');",
+            "  pm.expect(JSON.stringify(row)).not.to.include('passwordHash');",
+            "}"
+          ] } }]
+        },
+        {
+          "name": "List Active Universities On Pro",
+          "request": { "method": "GET", "url": "{{baseUrl}}/platform/institutions?page=1&limit=25&status=active&type=university&plan=pro&subscriptionStatus=trialing&search=Demo" },
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
+            "pm.test('validated filters return 200', () => pm.response.to.have.status(200));",
+            "const json = pm.response.json();",
+            "json.items.forEach(row => { pm.expect(row.status).to.eql('active'); pm.expect(row.type).to.eql('university'); pm.expect(row.billing.plan).to.eql('pro'); pm.expect(row.billing.subscriptionStatus).to.eql('trialing'); });"
+          ] } }]
+        },
+        {
+          "name": "View Institution Provider Summary",
+          "request": { "method": "GET", "url": "{{baseUrl}}/platform/institutions/{{institutionId}}" },
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
+            "pm.test('institution summary returns 200', () => pm.response.to.have.status(200));",
+            "const json = pm.response.json();",
+            "pm.expect(json.institution.institutionId).to.eql(pm.environment.get('institutionId'));",
+            "pm.expect(json).to.include.keys('institution', 'billing', 'seatUsage', 'counts', 'billingSync');",
+            "pm.expect(json.billing).to.include.keys('stripeCustomerId', 'stripeSubscriptionId', 'stripePriceId');",
+            "pm.expect(JSON.stringify(json)).not.to.include('passwordHash');"
+          ] } }]
+        },
+        {
+          "name": "View Institution Billing",
+          "request": { "method": "GET", "url": "{{baseUrl}}/platform/institutions/{{institutionId}}/billing?page=1&limit=10" },
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
+            "pm.test('billing details return 200', () => pm.response.to.have.status(200));",
+            "const json = pm.response.json();",
+            "pm.expect(json.institutionId).to.eql(pm.environment.get('institutionId'));",
+            "pm.expect(json).to.include.keys('billing', 'seatUsage', 'billingSync', 'failedWebhooks');",
+            "pm.expect(json.failedWebhooks.items).to.be.an('array');",
+            "pm.expect(JSON.stringify(json)).not.to.include('rawPayload');"
+          ] } }]
+        },
+        {
+          "name": "Unknown Institution Returns 404",
+          "request": { "method": "GET", "url": "{{baseUrl}}/platform/institutions/{{unknownInstitutionId}}" },
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
+            "pm.test('unknown institution returns 404', () => pm.response.to.have.status(404));",
+            "pm.expect(pm.response.json().message).to.eql('Institution not found');"
+          ] } }]
+        }
+      ]
+    },
+    {
+      "name": "02 Failed Webhooks",
+      "item": [
+        {
+          "name": "List Failed Webhook Events",
+          "request": { "method": "GET", "url": "{{baseUrl}}/platform/webhook-events?page={{page}}&limit={{limit}}&status=failed&dateFrom={{dateFrom}}&dateTo={{dateTo}}" },
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
+            "pm.test('failed webhook list returns 200', () => pm.response.to.have.status(200));",
+            "const json = pm.response.json();",
+            "pm.expect(json.items).to.be.an('array');",
+            "json.items.forEach(row => {",
+            "  pm.expect(row.status).to.eql('failed');",
+            "  pm.expect(row).not.to.have.property('rawPayload');",
+            "  pm.expect(JSON.stringify(row)).not.to.match(/sk_(live|test)_|whsec_/i);",
+            "});",
+            "if (json.items.length) { pm.environment.set('webhookEventId', json.items[0].webhookEventId); pm.environment.set('stripeEventId', json.items[0].stripeEventId); }"
+          ] } }]
+        },
+        {
+          "name": "Filter Failed Webhooks By Institution",
+          "request": { "method": "GET", "url": "{{baseUrl}}/platform/webhook-events?page=1&limit=25&institutionId={{institutionId}}" },
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
+            "pm.test('institution webhook filter returns 200', () => pm.response.to.have.status(200));",
+            "const json = pm.response.json();",
+            "json.items.forEach(row => pm.expect(row.institutionId).to.eql(pm.environment.get('institutionId')));"
+          ] } }]
+        },
+        {
+          "name": "Filter Failed Webhook By Stripe Event ID",
+          "request": { "method": "GET", "url": "{{baseUrl}}/platform/webhook-events?page=1&limit=25&stripeEventId={{stripeEventId}}" },
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
+            "pm.test('stripe event filter returns 200', () => pm.response.to.have.status(200));",
+            "const json = pm.response.json();",
+            "const id = pm.environment.get('stripeEventId');",
+            "if (id) json.items.forEach(row => pm.expect(row.stripeEventId).to.eql(id));"
+          ] } }]
+        }
+      ]
+    },
+    {
+      "name": "03 Platform Audit",
+      "item": [
+        {
+          "name": "List Platform Audit Logs",
+          "request": { "method": "GET", "url": "{{baseUrl}}/platform/audit?page={{page}}&limit={{limit}}" },
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
+            "pm.test('audit list returns 200', () => pm.response.to.have.status(200));",
+            "const json = pm.response.json();",
+            "pm.expect(json.items).to.be.an('array');",
+            "if (json.items.length) {",
+            "  const row = json.items[0];",
+            "  pm.expect(row).to.include.keys('platformAuditLogId', 'actorPlatformAdminId', 'actorUserId', 'action', 'targetType', 'result', 'createdAt');",
+            "  pm.environment.set('platformAuditLogId', row.platformAuditLogId);",
+            "  pm.environment.set('platformAdminId', row.actorPlatformAdminId);",
+            "  pm.expect(JSON.stringify(row.metadata || {})).not.to.match(/password|token|secret/i);",
+            "}"
+          ] } }]
+        },
+        {
+          "name": "Filter Audit By Institution And Result",
+          "request": { "method": "GET", "url": "{{baseUrl}}/platform/audit?page=1&limit=25&institutionId={{institutionId}}&result=success&dateFrom={{dateFrom}}&dateTo={{dateTo}}" },
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
+            "pm.test('audit filters return 200', () => pm.response.to.have.status(200));",
+            "const json = pm.response.json();",
+            "json.items.forEach(row => { pm.expect(row.institutionId).to.eql(pm.environment.get('institutionId')); pm.expect(row.result).to.eql('success'); });"
+          ] } }]
+        },
+        {
+          "name": "Filter Audit By Action",
+          "request": { "method": "GET", "url": "{{baseUrl}}/platform/audit?page=1&limit=25&action=platform.institutions.view&targetType=institution&targetId={{institutionId}}" },
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
+            "pm.test('audit action filter returns 200', () => pm.response.to.have.status(200));",
+            "const json = pm.response.json();",
+            "json.items.forEach(row => pm.expect(row.action).to.eql('platform.institutions.view'));"
+          ] } }]
+        }
+      ]
+    },
+    {
+      "name": "04 Security And Validation",
+      "item": [
+        {
+          "name": "Tenant Admin Alone Is Denied",
+          "request": {
+            "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{tenantAdminToken}}", "type": "string" }] },
+            "method": "GET",
+            "url": "{{baseUrl}}/platform/institutions"
+          },
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
+            "pm.test('tenant admin without PlatformAdmin gets 403', () => pm.response.to.have.status(403));",
+            "pm.expect(pm.response.json().message).to.eql('Platform access denied');"
+          ] } }]
+        },
+        {
+          "name": "Missing Token Is Denied",
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "GET",
+            "url": "{{baseUrl}}/platform/institutions"
+          },
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
+            "pm.test('missing token gets 401', () => pm.response.to.have.status(401));"
+          ] } }]
+        },
+        {
+          "name": "Invalid Pagination Is Rejected",
+          "request": { "method": "GET", "url": "{{baseUrl}}/platform/institutions?page=0&limit=101" },
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
+            "pm.test('invalid pagination gets 400', () => pm.response.to.have.status(400));"
+          ] } }]
+        },
+        {
+          "name": "Arbitrary Sort Is Rejected",
+          "request": { "method": "GET", "url": "{{baseUrl}}/platform/institutions?sort=passwordHash" },
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
+            "pm.test('unsafe query field gets 400', () => pm.response.to.have.status(400));",
+            "pm.expect(pm.response.json().message).to.include('Unexpected query field');"
+          ] } }]
+        },
+        {
+          "name": "Processed Webhook Status Is Rejected",
+          "request": { "method": "GET", "url": "{{baseUrl}}/platform/webhook-events?status=processed" },
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
+            "pm.test('processed webhook request gets 400', () => pm.response.to.have.status(400));"
+          ] } }]
+        },
+        {
+          "name": "Provider Institution Write Route Does Not Exist",
+          "request": {
+            "method": "PATCH",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{baseUrl}}/platform/institutions/{{institutionId}}",
+            "body": { "mode": "raw", "raw": "{\n  \"status\": \"archived\"\n}" }
+          },
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
+            "pm.test('provider write route is absent', () => pm.response.to.have.status(404));",
+            "pm.expect(pm.response.json().message).to.eql('Route not found');"
+          ] } }]
+        },
+        {
+          "name": "Audit Mutation Route Does Not Exist",
+          "request": {
+            "method": "DELETE",
+            "url": "{{baseUrl}}/platform/audit/{{platformAuditLogId}}"
+          },
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
+            "pm.test('audit deletion route is absent', () => pm.response.to.have.status(404));"
+          ] } }]
+        }
+      ]
+    }
+  ]
+}

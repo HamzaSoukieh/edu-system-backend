@@ -946,26 +946,42 @@ async function handleStripeWebhookEvent(event) {
     const object = event.data?.object || {};
 
     if (event.type === "checkout.session.completed") {
-        await handleCheckoutSessionCompleted(object);
-        return;
+        return handleCheckoutSessionCompleted(object);
     }
 
     if (
         event.type === "customer.subscription.created" ||
         event.type === "customer.subscription.updated"
     ) {
-        await retrieveAndUpdateCurrentSubscriptionForWebhook(object);
-        return;
+        return retrieveAndUpdateCurrentSubscriptionForWebhook(object);
     }
 
     if (event.type === "customer.subscription.deleted") {
-        await updateBillingProfileFromSubscription(object);
-        return;
+        return updateBillingProfileFromSubscription(object);
     }
 
     if (event.type === "invoice.paid" || event.type === "invoice.payment_failed") {
-        await handleInvoiceEvent(object);
+        return handleInvoiceEvent(object);
     }
+
+    return null;
+}
+
+async function resolveInstitutionIdForFailedWebhook(event) {
+    const object = event?.data?.object || {};
+    if (event?.type === "checkout.session.completed") {
+        return resolveInstitutionIdForCheckoutSession(object);
+    }
+    if (event?.type?.startsWith("customer.subscription.")) {
+        return resolveInstitutionIdForSubscription(object);
+    }
+    if (event?.type === "invoice.paid" || event?.type === "invoice.payment_failed") {
+        const subscriptionId =
+            normalizeStripeSubscriptionId(object.subscription) ||
+            normalizeStripeSubscriptionId(object.parent?.subscription_details?.subscription);
+        return subscriptionId ? findInstitutionIdByStripeSubscriptionId(subscriptionId) : null;
+    }
+    return null;
 }
 
 async function processStripeWebhookEvent(event) {
@@ -982,7 +998,8 @@ async function processStripeWebhookEvent(event) {
     }
 
     try {
-        await handleStripeWebhookEvent(event);
+        const billingProfile = await handleStripeWebhookEvent(event);
+        const institutionId = normalizeNestedId(billingProfile?.institutionId);
         await StripeWebhookEvent.findOneAndUpdate(
             { stripeEventId: event.id },
             {
@@ -991,11 +1008,18 @@ async function processStripeWebhookEvent(event) {
                     status: "processed",
                     processedAt: new Date(),
                     errorMessage: null,
+                    ...(institutionId ? { institutionId } : {}),
                 },
             },
             { returnDocument: "after", runValidators: true }
         );
     } catch (error) {
+        let institutionId = null;
+        try {
+            institutionId = normalizeId(await resolveInstitutionIdForFailedWebhook(event));
+        } catch (_resolutionError) {
+            // Conflicting or unavailable mappings remain unattributed instead of being guessed.
+        }
         await StripeWebhookEvent.findOneAndUpdate(
             { stripeEventId: event.id },
             {
@@ -1004,6 +1028,7 @@ async function processStripeWebhookEvent(event) {
                     status: "failed",
                     processedAt: null,
                     errorMessage: normalizeErrorMessage(error),
+                    ...(institutionId ? { institutionId } : {}),
                 },
             },
             { returnDocument: "after", runValidators: true }
@@ -1027,6 +1052,7 @@ async function claimStripeWebhookEvent(event) {
             status: "processing",
             processedAt: null,
             errorMessage: null,
+            attemptCount: 1,
         });
         return {
             claimed: true,
@@ -1052,6 +1078,7 @@ async function claimStripeWebhookEvent(event) {
                     processedAt: null,
                     errorMessage: null,
                 },
+                $inc: { attemptCount: 1 },
             },
             { returnDocument: "after", runValidators: true }
         ).lean();

@@ -6,7 +6,8 @@
     "start": "node src/server.js",
     "dev": "nodemon src/server.js",
     "seed:dev": "node scripts/seed-dev.js",
-    "seed:dev:reset": "node scripts/seed-dev.js --reset"
+    "seed:dev:reset": "node scripts/seed-dev.js --reset",
+    "platform:create-owner": "node scripts/create-platform-owner.js"
   },
   "keywords": [],
   "author": "",

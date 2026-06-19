@@ -2263,3 +2263,19 @@
   - result: 46 passing
   - ran `node --test test/billing.test.js test/billing-seat-limits.test.js test/member-billing-limits.test.js test/billing-upgrade.test.js`
   - result: 136 passing
+# 2026-06-19 Provider Control Plane Phase 1
+- Added `test/platform-control-plane.test.js` for fail-closed platform resolution, catalog isolation, no-Membership access, validation/mapping, batched summaries, Stripe-id gating, webhook redaction, audit writes, GET-only route composition, and owner CLI behavior.
+- Focused provider result: 22 tests passed, 0 failed.
+- Billing/authorization regression result: 164 tests passed, 0 failed.
+- Full repository result: 653 tests passed, 0 failed, 0 skipped, 0 todo (`node --test`).
+- TODO/verify: run the owner CLI against a non-production development database with the intended verified owner email.
+- TODO/verify: production provider access requires MFA hardening; MFA is not implemented here.
+- TODO/verify: webhook rows created before `institutionId` correlation was added remain global/unattributed unless separately backfilled; provider code does not guess tenant ownership.
+# 2026-06-19 Platform Control Plane Hardening
+- Expanded `test/platform-control-plane.test.js` from 22 top-level tests to 33 top-level tests / 63 total tests.
+- Added service actor re-read tests, role-catalog visibility tests, strict fixed-institution query tests, exact route permission/mount tests, five controller boundary tests, and five failed-operation audit tests.
+- Focused result: 63 passed, 0 failed.
+- Focused platform + tenant-authorization regression result: 72 passed, 0 failed.
+- Full repository result after hardening: 694 passed, 0 failed, 0 skipped, 0 todo.
+- Failed-audit policy: preserve the original operation error; best-effort failed-audit write errors are swallowed because the repository has no shared application logger.
+- 2026-06-20 Docker smoke fix: corrected the platform Membership aggregation `$project` to avoid mixing exclusion and inclusion projection forms, which real MongoDB rejects even though mocked unit aggregations do not execute the pipeline. Focused platform result remained 63 passed, 0 failed.

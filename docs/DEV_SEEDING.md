@@ -1,5 +1,15 @@
 # Local Dev Seeding
 
+## Create the first platform owner
+
+Use an existing active, email-verified User:
+
+```bash
+npm run platform:create-owner -- --email owner@example.test
+```
+
+The trusted script normalizes email, refuses ineligible users and duplicates, and creates only an active `platform_owner`. It prints no credentials and does not run on server startup. This authority is separate from tenant Membership seeding.
+
 This repo includes a local-only seed script for realistic frontend testing through the backend API.
 
 The seed script does not create a frontend database. The frontend must call backend API endpoints and must never connect directly to MongoDB.

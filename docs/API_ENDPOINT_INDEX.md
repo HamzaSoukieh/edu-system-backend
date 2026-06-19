@@ -9,6 +9,11 @@
 | POST | `/auth/otp/verify` | OTP/email verification | Protected | Authenticated user | Verify signup OTP. |
 | POST | `/auth/otp/resend` | OTP/email verification | Protected | Authenticated user | Resend signup OTP. |
 | POST | `/stripe/webhook` | Stripe webhook | Public | Stripe signature | Receive Stripe events using raw body. |
+| GET | `/platform/institutions` | Provider control plane | Protected platform admin | platform.institutions.read | List safe aggregate institution operations. |
+| GET | `/platform/institutions/:institutionId` | Provider control plane | Protected platform admin | platform.institutions.read | Read one provider-level institution summary. |
+| GET | `/platform/institutions/:institutionId/billing` | Provider control plane | Protected platform admin | platform.billing.read | Read local billing, seats, sync state, and failed webhooks. |
+| GET | `/platform/webhook-events` | Provider control plane | Protected platform admin | platform.webhooks.read | List failed Stripe webhook summaries only. |
+| GET | `/platform/audit` | Provider control plane | Protected platform admin | platform.audit.read | List immutable platform audit records. |
 | GET | `/institutions/me` | Institutions | Protected | Authenticated verified user | Enriched current user institution context for frontend bootstrap. |
 | POST | `/institutions` | Institutions | Protected | Authenticated verified user | Create additional institution. |
 | PATCH | `/institutions/:institutionId` | Institutions | Protected | institution.manage | Update institution. |
