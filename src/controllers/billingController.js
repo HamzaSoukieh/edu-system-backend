@@ -22,6 +22,7 @@ async function createCheckoutSession(req, res) {
             institutionId: req.params.institutionId || req.tenantId,
             actorUserId: req.user?.id || req.user?._id || null,
             actorMembership: req.membership || null,
+            payload: req.body || {},
         });
 
         return res.status(201).json(result);
@@ -46,7 +47,23 @@ async function getBillingStatus(req, res) {
     }
 }
 
+async function upgradeToPro(req, res) {
+    try {
+        const result = await billingService.upgradeSubscriptionToPro({
+            institutionId: req.params.institutionId || req.tenantId,
+            actorUserId: req.user?.id || req.user?._id || null,
+            actorMembership: req.membership || null,
+        });
+
+        return res.status(200).json(result);
+    } catch (error) {
+        const statusCode = resolveStatusCode(error);
+        return res.status(statusCode).json({ message: resolveMessage(error, statusCode) });
+    }
+}
+
 module.exports = {
     createCheckoutSession,
     getBillingStatus,
+    upgradeToPro,
 };

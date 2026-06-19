@@ -1,5 +1,10 @@
 # Prompts
 
+## 2026-06-19 Stripe Billing Postman Fixture Repair
+
+Repair the local Stripe Billing Postman flow without weakening duplicate-subscription or upgrade eligibility checks. Use deterministic seeded credentials, create a fresh unpaid billing sandbox for checkout, and make the collection verify active Plus webhook state before requesting Plus-to-Pro upgrade.
+
+
 ## New Chat Starter Prompt
 ```text
 You are working inside my existing backend repo.
@@ -27,6 +32,52 @@ Rules:
 Task:
 [PASTE TASK HERE]
 ```
+
+## 2026-06-18 Billing Seat Enforcement MemberService Tests
+
+User asked to verify whether the Plus/Pro billing limits were actually applied to project member write paths, especially Plus blocking more than 300 active students and 30 active staff.
+
+Key result:
+- added focused `memberService` tests for direct active member creation, activation/reactivation through status changes, active role transitions, deactivation, profile-only updates, and tenant-scoped seat counts
+- verified Plus allows the 300th active student and blocks the 301st
+- verified Plus blocks active staff creation at 30 active admin/instructor memberships
+- verified billing limit failures happen before member/user/profile/email write side effects on blocked creates
+- verified no Pro-only routes, middleware, or feature restrictions were added
+- command run: `node --test test/billing.test.js test/billing-seat-limits.test.js test/member-billing-limits.test.js`
+- result: 65 passing
+
+## 2026-06-18 Billing Plus-To-Pro Upgrade
+
+User asked to add a safe immediate Stripe Billing upgrade from Plus to Pro without adding downgrades, Customer Portal, duplicate subscriptions, or Checkout Session reuse.
+
+Key result:
+- added `POST /institutions/:institutionId/billing/upgrade-to-pro`
+- only active local Plus profiles with valid Stripe customer/subscription ids and active subscription status can request the upgrade
+- Stripe subscription customer/subscription/metadata/mapping conflicts fail closed
+- Stripe update replaces the existing Plus subscription item with the trusted Pro Price using immediate invoice proration and `pending_if_incomplete`
+- the endpoint never creates a new Stripe Customer, Checkout Session, or second Subscription
+- local billing profile and entitlements remain Plus until verified Stripe webhook synchronization maps the Pro Price
+- failed prorated payment keeps the institution on Plus
+- no downgrade path or Pro-only feature gate was added
+- command run: `node --test test/billing.test.js test/billing-seat-limits.test.js test/member-billing-limits.test.js test/billing-upgrade.test.js`
+- result: 107 passing
+
+## 2026-06-18 Billing Plus-To-Pro Upgrade Hardening
+
+User asked to harden the existing Plus-to-Pro upgrade without adding new billing features.
+
+Key result:
+- pinned Stripe API version to `2026-05-27.dahlia` for installed `stripe@22.2.0`
+- update expansion now uses only `latest_invoice.confirmation_secret`
+- upgrade now validates live Stripe subscription status `active`, automatic collection, no subscription schedule, one item, and quantity `1`
+- local Plus billing profile must have the configured Plus Price before Stripe update is attempted
+- response classification no longer treats a client secret alone as action required
+- pending `requires_action` returns `payment_action_required`; pending `requires_payment_method` returns `payment_failed`; unresolved pending update returns `payment_incomplete`; no pending update returns `processing`
+- idempotency key includes a trusted Stripe state marker such as latest invoice id
+- raw Stripe update errors are normalized to `Stripe subscription upgrade failed`
+- subscription created/updated webhooks retrieve current Stripe state before syncing, preventing stale Plus snapshots from reverting current Pro state
+- deletion webhooks still apply the deletion snapshot
+- no downgrade, Customer Portal, Checkout Session, new subscription, or Pro-only route was added
 
 ## 2026-05-31 Attendance Postman Pack
 
@@ -65,6 +116,94 @@ Key result:
 - `wait_for_membership_activation` applies only when no membership is active
 - `hasAdminMembership` remains informational and is not an authorization gate
 - roles, base permissions, scoped capabilities, profiles, semesters, academic years, routes, and API versioning were not changed
+
+## 2026-06-16 Member Self Profile Endpoint
+
+User asked to add a same-version self endpoint for authenticated users to read their own raw membership/profile in one institution without requiring `membership.manage`.
+
+Key result:
+- added `GET /institutions/:institutionId/members/me`
+- route uses `authJwt`, `requireEmailVerified`, and `institutionAccess()`
+- route does not require `membership.manage`
+- service uses trusted `req.membership` context through the controller and never trusts a client-supplied membership id
+- Membership is re-read by `_id + institutionId + userId + status=active`
+- MemberProfile is read by `institutionId + membershipId`
+- missing profile returns `profile: null`
+- existing admin detail route `/members/:membershipId` remains protected by `membership.manage`
+- `/members/me` is registered before `/members/:membershipId`
+
+## 2026-06-17 Member Self Profile Postman
+
+User asked for Postman support to test the new member self profile endpoint.
+
+Key result:
+- added `postman/member-self-profile.postman_collection.json`
+- added `postman/member-self-profile.postman_environment.json`
+- environment is prefilled with the institution and membership ids from the user's sample responses
+- credentials and tokens are left blank/secret and must be filled locally
+- collection covers admin/instructor login, `/institutions/me`, `/members/me`, route-order regression, unauthenticated rejection, and the existing admin member-detail permission boundary
+- collection now also covers `GET /institutions/:institutionId/academic-years/active` for admin, instructor, optional student, and no-auth checks
+
+## 2026-06-17 Active Academic Year Discovery
+
+User asked to make the current academic year discoverable by all active institution members without creating `/v1`.
+
+Key result:
+- kept `activeAcademicYear` in `GET /institutions/me` as the frontend bootstrap/discovery source
+- relaxed only `GET /institutions/:institutionId/academic-years/active` to active institution member access
+- active academic-year route uses `authJwt`, `requireEmailVerified`, and `institutionAccess()` without `institution.manage`
+- create/list/get-by-id/update/archive academic-year routes remain protected by `institution.manage`
+- `activeAcademicYear: null` remains valid in `/institutions/me`
+- the dedicated active academic-year endpoint keeps its existing `404 Active academic year not found` behavior
+- active year is not inferred from active semester
+
+## 2026-06-17 Stripe Billing Plus/Pro Plans
+
+User asked to upgrade Stripe Billing Phase 1 from one Basic monthly plan to two six-month plans: Plus and Pro.
+
+Key result:
+- added centralized immutable billing plan catalog for `plus` and `pro`
+- checkout accepts only `{ "plan": "plus" }` or `{ "plan": "pro" }`
+- Stripe Price IDs are resolved only from `STRIPE_PRICE_PLUS_6_MONTH` / `STRIPE_PRICE_PRO_6_MONTH`
+- webhook synchronization resolves stored plan from the actual subscription item Price ID
+- billing status includes normalized safe entitlements
+- Plus and Pro have identical application feature access in V1
+- the only V1 differences are Stripe price and active student/staff Membership limits
+- active students are active student Memberships; active staff are active admin/instructor Memberships
+- hard limits are enforced on member create, activation/reactivation, and role category increases
+- initial owner Membership creation remains possible before subscription
+- seeded demo institutions get fake local Pro billing profiles with no real Stripe secrets or IDs
+- TODO/verify: simultaneous activations can race without transactions; old Basic migration and production upgrade/downgrade/proration behavior remain deferred
+
+## 2026-06-18 Billing Profile Model Hardening
+
+User asked to harden only the `InstitutionBillingProfile` model for the Plus/Pro six-month billing design.
+
+Key result:
+- optional Stripe customer/subscription/price/product ids normalize to a trimmed string or `null`
+- `plan` supports `plus`, `pro`, or `null`
+- `billingInterval` supports `six_month` or `null`
+- supported nullable subscription statuses include `paused`
+- old/unknown Stripe prices may keep `plan` and `billingInterval` null
+- authoritative student/staff limits remain outside the model in billing policy/config
+- kept one profile per institution plus partial unique indexes for non-null Stripe customer/subscription ids
+- removed redundant institution compound billing-profile indexes
+
+## 2026-06-18 Billing Service Hardening
+
+User asked to fix confirmed Plus/Pro billing service bugs without rebuilding billing or adding features.
+
+Key result:
+- billing owner/admin authorization now requires actor membership user, institution, and `status=active` to match exactly
+- missing actor membership status fails closed
+- duplicate checkout blocking now uses subscription status only: `active`, `trialing`, and `past_due`
+- Stripe Price config rejects placeholders, malformed values, and duplicate Plus/Pro Price IDs before Checkout calls Stripe
+- webhook plan resolution returns no plan when configured plan prices are ambiguous
+- invalid internal seat categories throw instead of bypassing enforcement
+- subscription and checkout-completed webhooks reconcile metadata/customer/subscription institution candidates and fail safely on conflicts
+- unknown Stripe prices still store no Plus/Pro plan and grant no paid access
+- checkout creation alone does not grant paid entitlements before webhook synchronization
+- Plus and Pro application feature access remains identical
 
 ## 2026-05-31 Section Session Instructor Setup Permission
 

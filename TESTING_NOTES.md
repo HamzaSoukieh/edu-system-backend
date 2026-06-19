@@ -1,5 +1,19 @@
 # Testing Notes
 
+## 2026-06-19 Stripe Billing Postman Fixture Repair
+
+- Replaced blank/unknown local billing collection passwords with the deterministic `seed-dev` accounts.
+- Added a collection setup request that creates a fresh unpaid billing sandbox institution and stores its `institutionId`.
+- Kept the seeded Demo University Pro/trialing profile unchanged; its duplicate-checkout rejection is intentional.
+- Added an explicit active-Plus verification request before Plus-to-Pro upgrade.
+- Live local verification passed for owner, instructor, and student login plus fresh Plus and Pro Checkout Session creation.
+- Upgrade still requires completed Plus Checkout plus verified webhook synchronization; merely creating a Checkout Session is not sufficient.
+- Follow-up live diagnosis found completed paid Checkout Sessions with local null billing state because no Stripe CLI listener was running.
+- The affected test customer had both active Plus and Pro test subscriptions after both checkout paths were completed; the duplicate test Pro subscription was canceled, active Plus was preserved, and current Plus state was replayed through the signed webhook endpoint.
+- Verified repaired API state: Plus, active, six_month, paid access true, 300 active students, and 30 active staff.
+- The local Stripe listener now forwards to the host backend through `host.docker.internal:5000`.
+
+
 ## General Testing Approach
 - There is currently no automated test script in `package.json`.
 - For now, testing is mainly manual through Postman or similar API clients.
@@ -22,6 +36,8 @@
   - `node --test test/institution-context.test.js`
   - `node --test test/homework.test.js`
   - `node --test test/section-material.test.js`
+  - `node --test test/billing.test.js`
+  - `node --test test/billing-seat-limits.test.js`
   - `node --test test/authorization-permission.test.js`
   - `node --test test/section-list-permission.test.js`
   - `node --test test/university-academic-policy-foundation.test.js test/school-academic-policy.test.js`
@@ -1589,7 +1605,7 @@
   - installed the official `stripe` npm package; no other production dependency was added
   - local Stripe test env vars:
     - `STRIPE_SECRET_KEY=sk_test_...`
-    - `STRIPE_PRICE_BASIC_MONTHLY=price_1TetMH3lPsyty9Ic5cBRcXvJ`
+    - historical Phase 1 used a single Basic monthly Stripe Price; current local billing uses `STRIPE_PRICE_PLUS_6_MONTH=price_replace_me` and `STRIPE_PRICE_PRO_6_MONTH=price_replace_me`
     - `STRIPE_WEBHOOK_SECRET=whsec_...`
     - `BILLING_SUCCESS_URL=http://localhost:3000/billing/success?session_id={CHECKOUT_SESSION_ID}`
     - `BILLING_CANCEL_URL=http://localhost:3000/billing/cancel`
@@ -2055,6 +2071,195 @@
   - result: 19 passing
   - ran `node --test test/institution-context.test.js test/authorization-permission.test.js test/section-list-permission.test.js test/section-session-permission.test.js`
   - result: 54 passing
+- 2026-06-16 Member self profile:
+  - added `GET /institutions/:institutionId/members/me` as a self-only active-membership profile read
+  - verified the route does not require `membership.manage` and is registered before `/members/:membershipId`
+  - verified admin, instructor, student, and instructor users with Head/Coordinator/Mentor-style responsibility context can read their own member/profile
+  - verified the service uses trusted actor membership context and re-reads Membership by `_id + institutionId + userId + status=active`
+  - verified MemberProfile reads use `institutionId + membershipId`
+  - verified missing profiles return `profile: null`
+  - verified the existing admin member detail route remains protected by `membership.manage`
+  - ran `node --check src/services/memberService.js`
+  - result: passed
+  - ran `node --check src/controllers/memberController.js`
+  - result: passed
+  - ran `node --check src/routes/institutionRoutes.js`
+  - result: passed
+  - ran `node --check test/member-self-profile.test.js`
+  - result: passed
+  - ran `node --test test/member-self-profile.test.js`
+  - result: 14 passing
+  - ran `node --test test/member-self-profile.test.js test/institution-context.test.js test/authorization-permission.test.js`
+  - result: 42 passing
+  - added `postman/member-self-profile.postman_collection.json` and `postman/member-self-profile.postman_environment.json`
+  - updated the same Postman pack with active academic-year discovery checks for admin, instructor, optional student, and no-auth cases
+  - the active academic-year Postman checks use `academicYearInstitutionId` / `activeAcademicYearId` for a strict 200 tenant, and accept `200` or `404` for tenants that may not currently have an active year
+  - ran `node -e "JSON.parse(require('fs').readFileSync('postman/member-self-profile.postman_collection.json','utf8')); JSON.parse(require('fs').readFileSync('postman/member-self-profile.postman_environment.json','utf8')); console.log('postman json ok')"`
+  - result: `postman json ok`
+- 2026-06-17 Active academic year active-member read:
+  - relaxed only `GET /institutions/:institutionId/academic-years/active` from `institution.manage` to active institution member access through `institutionAccess()`
+  - kept `GET /institutions/me` as the frontend bootstrap source for nullable `activeAcademicYear`
+  - verified active admin, instructor, and student memberships can pass the active academic-year route's institution access gate
+  - verified no membership, inactive membership, and cross-tenant membership are blocked by `institutionAccess()`
+  - verified create, get-by-id, update, and archive academic-year routes still carry `institution.manage`
+  - verified the dedicated active resolver still returns `404 Active academic year not found` when no active year exists
 - TODO:
   - add real sample responses when helpful
   - add attendance response examples after first manual Postman pass
+
+- 2026-06-17 Stripe Billing Plus/Pro six-month plans:
+  - replaced the old single Basic monthly checkout contract with `plan: "plus"` / `plan: "pro"`
+  - verified missing/invalid plans, raw Stripe Price ID fields, and client-controlled amount/limit fields are rejected before Stripe calls
+  - verified Plus maps to `STRIPE_PRICE_PLUS_6_MONTH` and Pro maps to `STRIPE_PRICE_PRO_6_MONTH`
+  - verified missing/invalid plan price env configuration fails safely without exposing secrets
+  - verified active/trialing/past_due duplicate subscription profiles still block checkout
+  - verified webhooks resolve plan from the actual subscription item Price ID, not metadata
+  - verified Plus/Pro/unknown Price ID mapping, item period dates, top-level period fallback, Unix Date conversion, string/expanded product shapes, and missing subscription items
+  - verified webhook idempotency, stale processing recovery, failed retry behavior, and tenant-scoped profile updates remain intact
+  - verified normalized entitlements for Plus, Pro, denied statuses, null/unknown plan, and billing-status response
+  - verified active student seats count only active student Membership rows; active staff seats count only active admin/instructor Membership rows
+  - verified Plus and Pro student/staff limits, no-paid-access blocking, role/status transition categories, deactivation allowance, and tenant-scoped counts
+  - verified ResponsibilityAssignment, MemberProfile, and Enrollment are not counted as seats
+  - verified no Pro-only route middleware or feature restriction was added
+  - ran `node --check src/services/billingPlanConfig.js`
+  - result: passed
+  - ran `node --check src/services/billingEntitlementService.js`
+  - result: passed
+  - ran `node --check src/services/billingService.js`
+  - result: passed
+  - ran `node --check src/services/memberService.js`
+  - result: passed
+  - ran `node --check src/controllers/billingController.js`
+  - result: passed
+  - ran `node --check src/controllers/memberController.js`
+  - result: passed
+  - ran `node --check test/billing.test.js`
+  - result: passed
+  - ran `node --check test/billing-seat-limits.test.js`
+  - result: passed
+  - ran `node --test test/billing.test.js test/billing-seat-limits.test.js`
+  - result: 36 passing
+  - ran `node --test test/billing.test.js test/billing-seat-limits.test.js test/member-self-profile.test.js test/seed-dev-helpers.test.js test/institution-context.test.js test/authorization-permission.test.js`
+  - result: 83 passing
+  - ran `node -e "const fs=require('fs'); for (const f of ['postman/stripe-billing.postman_collection.json']) { JSON.parse(fs.readFileSync(f,'utf8')); console.log(f + ' OK'); }"`
+  - result: `postman/stripe-billing.postman_collection.json OK`
+  - TODO/verify: simultaneous member activations can race because V1 does not add MongoDB transactions or replica-set requirements
+  - TODO/verify: old Basic monthly profiles remain unmigrated and should be reconciled explicitly before production cutover
+  - TODO/verify: unknown Stripe Price IDs intentionally grant no paid access until mapped/reconciled
+  - TODO/verify: production upgrade/downgrade, prorations, and Customer Portal behavior remain deferred
+
+- 2026-06-18 Billing profile model hardening:
+  - verified `InstitutionBillingProfile` accepts `plan` values `plus`, `pro`, and `null`, while rejecting unsupported non-null plans
+  - verified `billingInterval` accepts `six_month` and `null`, while rejecting `monthly` and `yearly`
+  - verified supported nullable Stripe subscription statuses, including `paused`
+  - verified optional Stripe customer/subscription/price/product ids trim non-empty values and normalize empty or whitespace-only values to `null`
+  - verified one profile per institution, partial unique indexes for non-null Stripe customer/subscription ids, and removal of redundant institution compound indexes
+  - documented that old/unknown Stripe prices may keep `plan` and `billingInterval` null, and that authoritative limits stay outside the model
+  - ran `node --check src/services/billingConstants.js`
+  - result: passed
+  - ran `node --check src/services/billingPlanConfig.js`
+  - result: passed
+  - ran `node --check src/models/InstitutionBillingProfile.js`
+  - result: passed
+  - ran `node --check test/billing.test.js`
+  - result: passed
+  - ran `node --test test/billing.test.js`
+  - result: 25 passing
+  - ran `node --test test/billing-seat-limits.test.js`
+  - result: 11 passing
+  - TODO/verify: old Basic monthly profile migration remains deferred; profiles with old/unknown prices should be reconciled explicitly before production cutover
+
+- 2026-06-18 Billing service hardening:
+  - verified billing owner/admin authorization fails closed for missing/inactive actor membership status, user mismatch, institution mismatch, and owner access without matching active membership
+  - verified populated actor `userId` and `institutionId` shapes still authorize correctly when they match the actor and route institution
+  - verified invalid billing seat categories throw instead of bypassing enforcement
+  - verified configured Stripe Price IDs reject missing values, `price_replace_me`, malformed values, and duplicate Plus/Pro values without exposing real configured ids
+  - verified checkout duplicate guard blocks `active`, `trialing`, and `past_due` status even when `stripeSubscriptionId` is null, while `canceled` and `unpaid` do not trigger that guard
+  - verified subscription webhook reconciliation accepts metadata-only, subscription mapping-only, customer mapping-only, and matching candidate mappings
+  - verified metadata/subscription/customer candidate conflicts fail with `Stripe billing identity conflict` and do not update tenant billing profiles
+  - verified checkout completion reconciliation detects metadata/client-reference, customer mapping, and subscription mapping conflicts before retrieving or updating subscription data
+  - verified no-candidate and missing-institution webhook cases return without tenant billing updates
+  - verified duplicated configured plan prices do not guess Plus or Pro during webhook plan resolution
+  - verified checkout creation alone stores only checkout-start state and returns unpaid entitlements until webhook synchronization
+  - ran `node --check src/services/billingPlanConfig.js`
+  - result: passed
+  - ran `node --check src/services/billingEntitlementService.js`
+  - result: passed
+  - ran `node --check src/services/billingService.js`
+  - result: passed
+  - ran `node --check test/billing.test.js`
+  - result: passed
+  - ran `node --check test/billing-seat-limits.test.js`
+  - result: passed
+  - ran `node --test test/billing.test.js test/billing-seat-limits.test.js`
+  - result: 58 passing
+  - TODO/verify: simultaneous member activations remain non-atomic without MongoDB transactions/replica-set support
+
+- 2026-06-18 Billing member write-path hardening:
+  - added focused `memberService` tests that exercise the actual write APIs rather than only the billing helper
+  - verified Plus allows the final active student seat and blocks the next direct active student membership create
+  - verified Plus blocks direct active student and staff creation at plan limits before user/member/profile/email write side effects
+  - verified activation/reactivation through `updateMemberStatus` checks destination student/staff capacity
+  - verified deactivation and profile-only updates remain allowed while an institution is already over limit
+  - verified active student-to-instructor and active instructor-to-student role changes check only the destination category and do not write when full
+  - verified billing profile reads and active membership counts stay scoped by `institutionId`
+  - expanded invalid internal billing category tests for `teacher`, `member`, `admin`, empty, and missing categories
+  - ran `node --check test/member-billing-limits.test.js`
+  - result: passed
+  - ran `node --check test/billing-seat-limits.test.js`
+  - result: passed
+  - ran `node --test test/billing.test.js test/billing-seat-limits.test.js test/member-billing-limits.test.js`
+  - result: 65 passing
+  - TODO/verify: current member service has no pending invitation acceptance or bulk member creation flow; apply the same centralized transition guard if those flows are added later
+  - TODO/verify: simultaneous member activations remain non-atomic without MongoDB transactions/replica-set support
+
+- 2026-06-18 Billing Plus-to-Pro upgrade:
+  - added `POST /institutions/:institutionId/billing/upgrade-to-pro`
+  - verified active admin and active owner can request Plus-to-Pro upgrade
+  - verified student, normal instructor, inactive admin, missing membership status, actor user mismatch, and cross-tenant membership are denied before Stripe is called
+  - verified missing profile, already-Pro profile, missing Stripe customer/subscription ids, unsupported statuses including `trialing`/`past_due`/`unpaid`/`incomplete`/`canceled`, and unknown local plan are rejected
+  - verified invalid Plus/Pro Stripe Price configuration, placeholders, and duplicate configured prices are rejected before subscription retrieval/update
+  - verified Stripe subscription customer/subscription/metadata/mapping conflicts fail closed without billing profile updates
+  - verified unexpected Stripe Price, already-Pro Stripe Price, no subscription item, and ambiguous subscription items are rejected before update
+  - verified successful upgrade calls `subscriptions.update` with the existing subscription id, existing subscription item id, trusted Pro Price, `proration_behavior=always_invoice`, `payment_behavior=pending_if_incomplete`, response expansion for confirmation data, and a server idempotency key
+  - verified the upgrade path does not create a Stripe Customer, Checkout Session, or second Subscription
+  - verified returned client confirmation secret is safe response data and does not grant Pro early
+  - verified the local billing profile remains Plus until a verified `customer.subscription.updated` webhook synchronizes the trusted Pro Price
+  - verified `invoice.payment_failed` with the subscription still on Plus does not grant Pro limits
+  - verified route/controller wiring uses the existing billing middleware pattern and passes plain trusted values to the service
+  - ran `node --check src/services/billingService.js`
+  - result: passed
+  - ran `node --check src/controllers/billingController.js`
+  - result: passed
+  - ran `node --check src/routes/institutionRoutes.js`
+  - result: passed
+  - ran `node --check test/billing-upgrade.test.js`
+  - result: passed
+  - ran `node --test test/billing-upgrade.test.js`
+  - result: 42 passing
+  - ran `node --test test/billing.test.js test/billing-seat-limits.test.js test/member-billing-limits.test.js test/billing-upgrade.test.js`
+  - result: 107 passing
+  - TODO/verify: real Stripe CLI/manual testing should verify the frontend Stripe.js confirmation flow for invoice `confirmation_secret.client_secret`
+  - TODO/verify: duplicate simultaneous upgrade requests rely on Stripe idempotency/current-subscription inspection; no distributed lock is added
+
+- 2026-06-18 Billing Plus-to-Pro upgrade hardening:
+  - pinned Stripe client initialization to API version `2026-05-27.dahlia` from installed `stripe@22.2.0`
+  - verified the upgrade update expands only `latest_invoice.confirmation_secret`
+  - added failing-first regressions for local stored Price mismatch, live Stripe status mismatch, unsupported collection method, scheduled subscriptions, invalid subscription item quantity, pending Pro update string Price shape, raw Stripe update failures, response classification, idempotency state markers, and stale subscription webhook snapshots
+  - observed the focused pre-fix run fail with 28 failed subtests in `test/billing-upgrade.test.js`, matching the missing hardening behavior
+  - verified local Plus profile must have `stripePriceId` equal to the configured Plus Price before Stripe is called
+  - verified live Stripe subscription must be `active`, `collection_method=charge_automatically`, unscheduled, and exactly one item with `quantity=1`
+  - verified no pending update plus invoice client secret returns `processing`; pending `requires_action` returns `payment_action_required`; pending `requires_payment_method` returns `payment_failed`; unresolved pending state returns `payment_incomplete`
+  - verified Stripe update errors normalize to `502 Stripe subscription upgrade failed` and do not mutate local billing state
+  - verified idempotency keys are stable for the same latest-invoice state and change when the trusted latest invoice marker changes
+  - verified `customer.subscription.created` / `customer.subscription.updated` retrieve current Stripe state before syncing, while `customer.subscription.deleted` still applies the deletion snapshot
+  - ran `node --check src/services/billingService.js`
+  - result: passed
+  - ran `node --check test/billing-upgrade.test.js`
+  - result: passed
+  - ran `node --test test/billing-upgrade.test.js`
+  - result: 71 passing
+  - ran `node --test test/billing.test.js`
+  - result: 46 passing
+  - ran `node --test test/billing.test.js test/billing-seat-limits.test.js test/member-billing-limits.test.js test/billing-upgrade.test.js`
+  - result: 136 passing

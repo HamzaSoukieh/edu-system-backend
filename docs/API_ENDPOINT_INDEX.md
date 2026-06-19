@@ -1,4 +1,4 @@
-# API Endpoint Index
+﻿# API Endpoint Index
 
 | Method | Path | Module | Auth | Permission | Description |
 |---|---|---|---|---|---|
@@ -14,7 +14,8 @@
 | PATCH | `/institutions/:institutionId` | Institutions | Protected | institution.manage | Update institution. |
 | POST | `/institutions/:institutionId/logo` | Uploads/downloads | Protected | institution.manage | Upload institution logo. |
 | POST | `/institutions/:institutionId/billing/checkout-session` | Billing/Stripe | Protected | Owner/admin service check | Create Stripe Checkout Session. |
-| GET | `/institutions/:institutionId/billing/status` | Billing/Stripe | Protected | Institution access | Read local billing status. |
+| POST | `/institutions/:institutionId/billing/upgrade-to-pro` | Billing/Stripe | Protected | Owner/admin service check | Immediate prorated Plus -> Pro upgrade on the existing Stripe subscription. |
+| GET | `/institutions/:institutionId/billing/status` | Billing/Stripe | Protected | Owner/admin service check | Read local billing status. |
 | POST | `/institutions/:institutionId/responsibility-assignments` | Responsibility assignments | Protected | Owner/admin service check | Create scoped Head/Coordinator/Mentor assignment for an active instructor. |
 | GET | `/institutions/:institutionId/responsibility-assignments` | Responsibility assignments | Protected | Owner/admin service check | List tenant-scoped responsibility assignments with safe filters. |
 | GET | `/institutions/:institutionId/responsibility-assignments/:assignmentId` | Responsibility assignments | Protected | Owner/admin service check | Get one tenant-scoped responsibility assignment. |
@@ -37,7 +38,7 @@
 | PATCH | `/institutions/:institutionId/notifications/:notificationId/read` | Notifications | Protected | Own active institution membership | Mark current user's notification read. |
 | POST | `/institutions/:institutionId/academic-years` | Academic Years | Protected | institution.manage | Create academic year. |
 | GET | `/institutions/:institutionId/academic-years` | Academic Years | Protected | institution.manage | List academic years. |
-| GET | `/institutions/:institutionId/academic-years/active` | Academic Years | Protected | institution.manage | Get active academic year. |
+| GET | `/institutions/:institutionId/academic-years/active` | Academic Years | Protected | Active institution membership | Get active academic year. |
 | GET | `/institutions/:institutionId/academic-years/:academicYearId` | Academic Years | Protected | institution.manage | Get academic year. |
 | PATCH | `/institutions/:institutionId/academic-years/:academicYearId` | Academic Years | Protected | institution.manage | Update academic year. |
 | POST | `/institutions/:institutionId/academic-years/:academicYearId/archive` | Academic Years | Protected | institution.manage | Archive academic year. |
@@ -91,6 +92,7 @@
 | DELETE | `/institutions/:institutionId/subjects/:subjectId` | Subjects | Protected | subject.manage | Delete subject. |
 | POST | `/institutions/:institutionId/members` | Memberships/users | Protected | membership.manage | Create member. |
 | GET | `/institutions/:institutionId/members` | Memberships/users | Protected | membership.manage | List members. |
+| GET | `/institutions/:institutionId/members/me` | Memberships/users | Protected | Active institution membership | Get authenticated member/profile. |
 | GET | `/institutions/:institutionId/members/:membershipId` | Memberships/users | Protected | membership.manage | Get member. |
 | PATCH | `/institutions/:institutionId/members/:membershipId` | Memberships/users | Protected | membership.manage | Update member. |
 | PATCH | `/institutions/:institutionId/members/:membershipId/status` | Memberships/users | Protected | membership.manage | Update member status. |

@@ -951,16 +951,22 @@ async function seedResponsibilities({ institution, usersByKey, departmentsByKey,
 }
 
 async function seedBillingProfile({ institution }) {
+    const suffix = idOf(institution).slice(-8) || normalizeNameKey(institution.name).replace(/[^a-z0-9]+/g, "_");
+
     return upsertOne(
         InstitutionBillingProfile,
         {
             institutionId: institution._id,
         },
         {
-            stripeCustomerId: "cus_demo_local",
-            stripeSubscriptionId: "sub_demo_local",
-            stripePriceId: "price_demo_local",
+            stripeCustomerId: `cus_demo_local_${suffix}`,
+            stripeSubscriptionId: `sub_demo_local_${suffix}`,
+            stripePriceId: "price_demo_local_pro_6_month",
+            plan: "pro",
+            billingInterval: "six_month",
+            stripeProductId: "prod_demo_local_pro",
             status: "trialing",
+            currentPeriodStart: new Date("2026-04-01T00:00:00.000Z"),
             currentPeriodEnd: new Date("2026-10-01T00:00:00.000Z"),
             cancelAtPeriodEnd: false,
             trialEnd: new Date("2026-09-15T00:00:00.000Z"),
@@ -1776,8 +1782,7 @@ async function resetSeededData() {
         });
         await InstitutionBillingProfile.deleteMany({
             institutionId,
-            stripeCustomerId: "cus_demo_local",
-            stripeSubscriptionId: "sub_demo_local",
+            stripePriceId: "price_demo_local_pro_6_month",
         });
         await MemberProfile.deleteMany({ institutionId, membershipId: { $in: membershipIds } });
         await Membership.deleteMany({ institutionId, _id: { $in: membershipIds } });
@@ -1896,6 +1901,10 @@ async function resetSeededData() {
             institutionId,
             nameNormalized: "demo school academic year 2025-2026",
         });
+        await InstitutionBillingProfile.deleteMany({
+            institutionId,
+            stripePriceId: "price_demo_local_pro_6_month",
+        });
         await MemberProfile.deleteMany({ institutionId, membershipId: { $in: membershipIds } });
         await Membership.deleteMany({ institutionId, _id: { $in: membershipIds } });
 
@@ -2012,6 +2021,7 @@ function buildSchoolFrontendSummary({
     schoolPolicy,
     finalOutcomesByStudentKey,
     assignmentsByKey,
+    billingProfile,
 }) {
     const accounts = SCHOOL_DEMO_USERS.map((user) => ({
         email: user.email,
@@ -2055,6 +2065,7 @@ function buildSchoolFrontendSummary({
         responsibilityAssignmentIds: Object.fromEntries(
             [...assignmentsByKey.entries()].map(([key, value]) => [key, idOf(value)])
         ),
+        billingProfileId: idOf(billingProfile),
         usefulRoutes: buildSchoolUsefulRoutes(idOf(institution), sectionIds, studentIds, {
             academicYearId: idOf(academicYear),
             semesterId: idOf(semester),
@@ -2318,6 +2329,7 @@ async function seedDemoData() {
         membershipsByKey: schoolMembershipsByKey,
         policy: schoolPolicy,
     });
+    const schoolBillingProfile = await seedBillingProfile({ institution: schoolInstitution });
 
     const schoolSummary = buildSchoolFrontendSummary({
         institution: schoolInstitution,
@@ -2337,6 +2349,7 @@ async function seedDemoData() {
         schoolPolicy,
         finalOutcomesByStudentKey,
         assignmentsByKey: schoolAssignmentsByKey,
+        billingProfile: schoolBillingProfile,
     });
 
     const summary = buildFrontendSummary({

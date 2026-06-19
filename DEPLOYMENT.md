@@ -38,7 +38,8 @@ EMAIL_FROM=your-email@gmail.com
 
 STRIPE_SECRET_KEY=sk_test_or_live_xxx
 STRIPE_WEBHOOK_SECRET=whsec_xxx
-STRIPE_PRICE_BASIC_MONTHLY=price_xxx
+STRIPE_PRICE_PLUS_6_MONTH=price_replace_me
+STRIPE_PRICE_PRO_6_MONTH=price_replace_me
 
 BILLING_SUCCESS_URL=https://frontend-domain.com/billing/success?session_id={CHECKOUT_SESSION_ID}
 BILLING_CANCEL_URL=https://frontend-domain.com/billing/cancel

@@ -3,6 +3,7 @@ const assert = require("node:assert/strict");
 
 const AcademicYear = require("../src/models/AcademicYear");
 const Institution = require("../src/models/Institution");
+const Membership = require("../src/models/Membership");
 const Semester = require("../src/models/Semester");
 const SchoolAcademicPolicy = require("../src/models/SchoolAcademicPolicy");
 const ClassLevel = require("../src/models/ClassLevel");
@@ -22,6 +23,7 @@ const otherSemesterId = "507f1f77bcf86cd799439032";
 const classLevelId = "507f1f77bcf86cd799439041";
 const subjectId = "507f1f77bcf86cd799439051";
 const actorUserId = "507f1f77bcf86cd799439061";
+const membershipId = "507f1f77bcf86cd799439091";
 
 function createQuery(result) {
     return {
@@ -81,6 +83,17 @@ function buildAcademicYear(overrides = {}) {
         archivedAt: null,
         createdAt: new Date("2026-05-17T00:00:00.000Z"),
         updatedAt: new Date("2026-05-17T00:00:00.000Z"),
+        ...overrides,
+    };
+}
+
+function buildMembership(overrides = {}) {
+    return {
+        _id: membershipId,
+        userId: actorUserId,
+        institutionId,
+        role: "instructor",
+        status: "active",
         ...overrides,
     };
 }
@@ -186,6 +199,20 @@ function createResponse() {
             return this;
         },
     };
+}
+
+async function runMiddleware(middleware, req) {
+    const res = createResponse();
+    let nextCalled = false;
+
+    await middleware(req, res, (error) => {
+        if (error) {
+            throw error;
+        }
+        nextCalled = true;
+    });
+
+    return { res, nextCalled };
 }
 
 test("AcademicYear model validates dates and exposes expected indexes", async () => {
@@ -864,10 +891,94 @@ test("AcademicYear controllers and routes return expected envelopes and guard sh
     );
     assert.deepEqual(
         activeRoute.stack.map((layer) => layer.handle.name || "<anonymous>"),
-        ["authJwt", "requireEmailVerified", "<anonymous>", "<anonymous>", "getActiveAcademicYear"]
+        ["authJwt", "requireEmailVerified", "<anonymous>", "getActiveAcademicYear"]
     );
     assert.deepEqual(
         archiveRoute.stack.map((layer) => layer.handle.name || "<anonymous>"),
         ["authJwt", "requireEmailVerified", "<anonymous>", "<anonymous>", "archiveAcademicYear"]
     );
+    assert.equal(activeRoute.stack.some((layer) => layer.handle.requiredPermission === "institution.manage"), false);
+    for (const route of [createRoute, getRoute, updateRoute, archiveRoute]) {
+        assert.equal(route.stack.some((layer) => layer.handle.requiredPermission === "institution.manage"), true);
+    }
+});
+
+test("active academic year route is readable by active members and still tenant-gated", async (t) => {
+    const findRoute = (path, method) =>
+        institutionRoutes.stack
+            .filter((layer) => layer.route)
+            .map((layer) => layer.route)
+            .find((route) => route.path === path && route.methods[method]);
+    const activeRoute = findRoute("/:institutionId/academic-years/active", "get");
+    const institutionAccessMiddleware = activeRoute.stack[2].handle;
+
+    for (const role of ["admin", "instructor", "student"]) {
+        await t.test(`active ${role}`, async (t) => {
+            t.mock.method(Membership, "findOne", (query) => {
+                assert.deepEqual(query, {
+                    userId: actorUserId,
+                    institutionId,
+                    status: "active",
+                });
+                return createQuery(buildMembership({ role }));
+            });
+
+            const { res, nextCalled } = await runMiddleware(institutionAccessMiddleware, {
+                user: { id: actorUserId },
+                params: { institutionId },
+            });
+
+            assert.equal(nextCalled, true);
+            assert.equal(res.statusCode, null);
+        });
+    }
+
+    await t.test("no membership", async (t) => {
+        t.mock.method(Membership, "findOne", () => createQuery(null));
+
+        const { res, nextCalled } = await runMiddleware(institutionAccessMiddleware, {
+            user: { id: actorUserId },
+            params: { institutionId },
+        });
+
+        assert.equal(nextCalled, false);
+        assert.equal(res.statusCode, 403);
+        assert.deepEqual(res.body, { message: "Institution access denied" });
+    });
+
+    await t.test("inactive membership", async (t) => {
+        t.mock.method(Membership, "findOne", (query) => {
+            assert.equal(query.status, "active");
+            return createQuery(null);
+        });
+
+        const { res, nextCalled } = await runMiddleware(institutionAccessMiddleware, {
+            user: { id: actorUserId },
+            params: { institutionId },
+        });
+
+        assert.equal(nextCalled, false);
+        assert.equal(res.statusCode, 403);
+        assert.deepEqual(res.body, { message: "Institution access denied" });
+    });
+
+    await t.test("cross tenant membership", async (t) => {
+        t.mock.method(Membership, "findOne", (query) => {
+            assert.deepEqual(query, {
+                userId: actorUserId,
+                institutionId: otherInstitutionId,
+                status: "active",
+            });
+            return createQuery(null);
+        });
+
+        const { res, nextCalled } = await runMiddleware(institutionAccessMiddleware, {
+            user: { id: actorUserId },
+            params: { institutionId: otherInstitutionId },
+        });
+
+        assert.equal(nextCalled, false);
+        assert.equal(res.statusCode, 403);
+        assert.deepEqual(res.body, { message: "Institution access denied" });
+    });
 });

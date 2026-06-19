@@ -1,0 +1,536 @@
+{
+  "info": {
+    "_postman_id": "7ed0b5ad-member-self-profile",
+    "name": "Edu SaaS Member Self Profile API",
+    "description": "Manual checks for GET /institutions/:institutionId/members/me and active academic-year discovery. Confirms active users can read their own Membership + full safe MemberProfile without membership.manage, and active institution members can read GET /institutions/:institutionId/academic-years/active without institution.manage.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "event": [
+    {
+      "listen": "test",
+      "script": {
+        "type": "text/javascript",
+        "exec": [
+          "function parseJson() {",
+          "  try { return pm.response.json(); } catch (error) { return null; }",
+          "}",
+          "",
+          "const expectedStatus = pm.variables.get('expectedStatus');",
+          "if (expectedStatus) {",
+          "  const expected = String(expectedStatus).split(',').map((item) => Number(item.trim())).filter(Boolean);",
+          "  pm.test(`status is ${expectedStatus}`, function () {",
+          "    pm.expect(expected).to.include(pm.response.code);",
+          "  });",
+          "}",
+          "",
+          "const json = parseJson();",
+          "if (pm.response.code >= 400) {",
+          "  pm.test('error has safe message', function () {",
+          "    pm.expect(json && json.message).to.be.ok;",
+          "  });",
+          "}"
+        ]
+      }
+    }
+  ],
+  "item": [
+    {
+      "name": "00 Auth",
+      "item": [
+        {
+          "name": "Login Admin",
+          "variable": [
+            { "key": "expectedStatus", "value": "200" }
+          ],
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{adminEmail}}\",\n  \"password\": \"{{adminPassword}}\"\n}"
+            },
+            "url": "{{baseUrl}}/auth/login",
+            "description": "Fill adminEmail/adminPassword in your local Postman environment. Saves adminToken and adminUserId."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const json = pm.response.json();",
+                  "if (json.accessToken) pm.environment.set('adminToken', json.accessToken);",
+                  "if (json.user?.id) pm.environment.set('adminUserId', json.user.id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Login Student",
+          "variable": [
+            { "key": "expectedStatus", "value": "200" }
+          ],
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{studentEmail}}\",\n  \"password\": \"{{studentPassword}}\"\n}"
+            },
+            "url": "{{baseUrl}}/auth/login",
+            "description": "Optional. Fill studentEmail/studentPassword for an active student if you want to test active academic-year access with a student token. Saves studentToken and studentUserId."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const json = pm.response.json();",
+                  "if (json.accessToken) pm.environment.set('studentToken', json.accessToken);",
+                  "if (json.user?.id) pm.environment.set('studentUserId', json.user.id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Login Instructor / Head",
+          "variable": [
+            { "key": "expectedStatus", "value": "200" }
+          ],
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{instructorEmail}}\",\n  \"password\": \"{{instructorPassword}}\"\n}"
+            },
+            "url": "{{baseUrl}}/auth/login",
+            "description": "Fill instructorEmail/instructorPassword for an active instructor or Head-style user. Saves instructorToken and instructorUserId."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const json = pm.response.json();",
+                  "if (json.accessToken) pm.environment.set('instructorToken', json.accessToken);",
+                  "if (json.user?.id) pm.environment.set('instructorUserId', json.user.id);"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "01 Context Helpers",
+      "item": [
+        {
+          "name": "Admin - GET /institutions/me",
+          "variable": [
+            { "key": "expectedStatus", "value": "200" }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                { "key": "token", "value": "{{adminToken}}", "type": "string" }
+              ]
+            },
+            "method": "GET",
+            "url": "{{baseUrl}}/institutions/me",
+            "description": "Verifies the enriched context. Saves activeInstitutionId from the response if present."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const json = pm.response.json();",
+                  "pm.test('context shape exists', function () {",
+                  "  pm.expect(json).to.have.property('user');",
+                  "  pm.expect(json).to.have.property('institutions');",
+                  "  pm.expect(json).to.have.property('activeInstitutionId');",
+                  "  pm.expect(json).to.have.property('onboarding');",
+                  "});",
+                  "if (json.activeInstitutionId) pm.environment.set('activeInstitutionId', json.activeInstitutionId);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Instructor - GET /institutions/me",
+          "variable": [
+            { "key": "expectedStatus", "value": "200" }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                { "key": "token", "value": "{{instructorToken}}", "type": "string" }
+              ]
+            },
+            "method": "GET",
+            "url": "{{baseUrl}}/institutions/me",
+            "description": "Verifies active non-admin onboarding and saves this user's membership id for comparison."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const json = pm.response.json();",
+                  "pm.test('active non-admin onboarding is complete', function () {",
+                  "  pm.expect(json.onboarding?.hasActiveMembership).to.equal(true);",
+                  "  pm.expect(json.onboarding?.nextStep).to.equal(null);",
+                  "});",
+                  "const institutionId = pm.environment.get('universityInstitutionId');",
+                  "const item = (json.institutions || []).find((institution) => institution.institutionId === institutionId) || json.institutions?.[0];",
+                  "if (item?.institutionId) pm.environment.set('activeInstitutionId', item.institutionId);",
+                  "if (item?.membershipId) pm.environment.set('selfMembershipId', item.membershipId);",
+                  "if (item?.role) pm.environment.set('selfRole', item.role);"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "02 Self Member Profile",
+      "item": [
+        {
+          "name": "Instructor - GET /members/me",
+          "variable": [
+            { "key": "expectedStatus", "value": "200" }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                { "key": "token", "value": "{{instructorToken}}", "type": "string" }
+              ]
+            },
+            "method": "GET",
+            "url": "{{baseUrl}}/institutions/{{universityInstitutionId}}/members/me",
+            "description": "Primary test for the new endpoint. An active instructor/Head user should get own membership + profile without membership.manage."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const json = pm.response.json();",
+                  "pm.test('member envelope exists', function () {",
+                  "  pm.expect(json).to.have.property('member');",
+                  "});",
+                  "pm.test('returns own instructor membership', function () {",
+                  "  pm.expect(json.member.id).to.equal(pm.environment.get('instructorMembershipId'));",
+                  "  pm.expect(json.member.userId).to.equal(pm.environment.get('instructorUserId'));",
+                  "  pm.expect(json.member.institutionId).to.equal(pm.environment.get('universityInstitutionId'));",
+                  "  pm.expect(['admin', 'instructor', 'student']).to.include(json.member.role);",
+                  "});",
+                  "pm.test('does not expose auth secrets or metadata', function () {",
+                  "  pm.expect(json.member).to.not.have.property('passwordHash');",
+                  "  pm.expect(json.member).to.not.have.property('otp');",
+                  "  if (json.member.profile) {",
+                  "    pm.expect(json.member.profile).to.not.have.property('fullNameNormalized');",
+                  "    pm.expect(json.member.profile).to.not.have.property('createdAt');",
+                  "    pm.expect(json.member.profile).to.not.have.property('updatedAt');",
+                  "  }",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Admin - GET /members/me",
+          "variable": [
+            { "key": "expectedStatus", "value": "200" }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                { "key": "token", "value": "{{adminToken}}", "type": "string" }
+              ]
+            },
+            "method": "GET",
+            "url": "{{baseUrl}}/institutions/{{universityInstitutionId}}/members/me",
+            "description": "Admin should also be able to read their own member/profile through active membership access."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const json = pm.response.json();",
+                  "pm.test('returns own admin membership', function () {",
+                  "  pm.expect(json.member.id).to.equal(pm.environment.get('adminMembershipId'));",
+                  "  pm.expect(json.member.userId).to.equal(pm.environment.get('adminUserId'));",
+                  "  pm.expect(json.member.role).to.equal('admin');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Admin - GET /members/me in second school tenant",
+          "variable": [
+            { "key": "expectedStatus", "value": "200" }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                { "key": "token", "value": "{{adminToken}}", "type": "string" }
+              ]
+            },
+            "method": "GET",
+            "url": "{{baseUrl}}/institutions/{{schoolInstitutionId}}/members/me",
+            "description": "Same login, different institution. Should return that institution's admin membership, proving tenant-specific self profile lookup."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const json = pm.response.json();",
+                  "pm.test('returns own membership for selected school tenant', function () {",
+                  "  pm.expect(json.member.id).to.equal(pm.environment.get('schoolAdminMembershipId'));",
+                  "  pm.expect(json.member.institutionId).to.equal(pm.environment.get('schoolInstitutionId'));",
+                  "});"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "03 Active Academic Year",
+      "item": [
+        {
+          "name": "Admin - GET active academic year in known active tenant",
+          "variable": [
+            { "key": "expectedStatus", "value": "200" }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                { "key": "token", "value": "{{adminToken}}", "type": "string" }
+              ]
+            },
+            "method": "GET",
+            "url": "{{baseUrl}}/institutions/{{academicYearInstitutionId}}/academic-years/active",
+            "description": "Strict success check. academicYearInstitutionId should point to an institution with an active academic year. The sample environment defaults to the Postman school tenant from your current data."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const json = pm.response.json();",
+                  "pm.test('active academic year envelope exists', function () {",
+                  "  pm.expect(json).to.have.property('academicYear');",
+                  "  pm.expect(json.academicYear.status).to.equal('active');",
+                  "});",
+                  "if (json.academicYear?.id) pm.environment.set('activeAcademicYearId', json.academicYear.id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Admin - GET active academic year in university tenant",
+          "variable": [
+            { "key": "expectedStatus", "value": "200,404" }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                { "key": "token", "value": "{{adminToken}}", "type": "string" }
+              ]
+            },
+            "method": "GET",
+            "url": "{{baseUrl}}/institutions/{{universityInstitutionId}}/academic-years/active",
+            "description": "Accepts 200 or 404 because this tenant may not currently have an active AcademicYear. It should not return 403 for an active admin member."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('admin is not permission-blocked', function () {",
+                  "  pm.expect(pm.response.code).to.not.equal(403);",
+                  "});",
+                  "const json = pm.response.json();",
+                  "if (json.academicYear?.id) pm.environment.set('universityActiveAcademicYearId', json.academicYear.id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Instructor - GET active academic year without institution.manage",
+          "variable": [
+            { "key": "expectedStatus", "value": "200,404" }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                { "key": "token", "value": "{{instructorToken}}", "type": "string" }
+              ]
+            },
+            "method": "GET",
+            "url": "{{baseUrl}}/institutions/{{universityInstitutionId}}/academic-years/active",
+            "description": "Main permission-boundary check. Active instructor/Head users should reach the read-only active resolver without institution.manage. 404 is valid when no active AcademicYear exists."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('instructor is not permission-blocked', function () {",
+                  "  pm.expect(pm.response.code).to.not.equal(403);",
+                  "});",
+                  "const json = pm.response.json();",
+                  "if (pm.response.code === 200) {",
+                  "  pm.expect(json.academicYear.status).to.equal('active');",
+                  "  if (json.academicYear?.id) pm.environment.set('universityActiveAcademicYearId', json.academicYear.id);",
+                  "} else {",
+                  "  pm.expect(json.message).to.equal('Active academic year not found');",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Student - GET active academic year without institution.manage",
+          "variable": [
+            { "key": "expectedStatus", "value": "200,404" }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                { "key": "token", "value": "{{studentToken}}", "type": "string" }
+              ]
+            },
+            "method": "GET",
+            "url": "{{baseUrl}}/institutions/{{studentInstitutionId}}/academic-years/active",
+            "description": "Optional student check. Fill student credentials and studentInstitutionId with an institution where the student has active membership. 404 is valid when no active AcademicYear exists."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('student is not permission-blocked', function () {",
+                  "  pm.expect(pm.response.code).to.not.equal(403);",
+                  "});",
+                  "if (pm.response.code === 200) {",
+                  "  const json = pm.response.json();",
+                  "  pm.expect(json.academicYear.status).to.equal('active');",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "No Auth - GET active academic year is rejected",
+          "variable": [
+            { "key": "expectedStatus", "value": "401" }
+          ],
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "GET",
+            "url": "{{baseUrl}}/institutions/{{academicYearInstitutionId}}/academic-years/active",
+            "description": "Unauthenticated access should be rejected by authJwt."
+          }
+        }
+      ]
+    },
+    {
+      "name": "04 Authorization Boundaries",
+      "item": [
+        {
+          "name": "Instructor - Admin member detail remains forbidden",
+          "variable": [
+            { "key": "expectedStatus", "value": "403" }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                { "key": "token", "value": "{{instructorToken}}", "type": "string" }
+              ]
+            },
+            "method": "GET",
+            "url": "{{baseUrl}}/institutions/{{universityInstitutionId}}/members/{{adminMembershipId}}",
+            "description": "Existing admin member-detail endpoint should still require membership.manage."
+          }
+        },
+        {
+          "name": "Instructor - Literal me route is not treated as membershipId",
+          "variable": [
+            { "key": "expectedStatus", "value": "200" }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                { "key": "token", "value": "{{instructorToken}}", "type": "string" }
+              ]
+            },
+            "method": "GET",
+            "url": "{{baseUrl}}/institutions/{{universityInstitutionId}}/members/me",
+            "description": "Regression guard for route order: /members/me must resolve before /members/:membershipId."
+          }
+        },
+        {
+          "name": "No Auth - GET /members/me is rejected",
+          "variable": [
+            { "key": "expectedStatus", "value": "401" }
+          ],
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "GET",
+            "url": "{{baseUrl}}/institutions/{{universityInstitutionId}}/members/me",
+            "description": "Unauthenticated access should be rejected by authJwt."
+          }
+        }
+      ]
+    }
+  ]
+}

@@ -1,15 +1,18 @@
 const mongoose = require("mongoose");
+const {
+    BILLING_INTERVALS,
+    BILLING_PLANS,
+    SUBSCRIPTION_STATUSES,
+} = require("../services/billingConstants");
 
-const SUBSCRIPTION_STATUSES = [
-    "incomplete",
-    "trialing",
-    "active",
-    "past_due",
-    "canceled",
-    "unpaid",
-    "incomplete_expired",
-    "paused",
-];
+function normalizeNullableString(value) {
+    if (value === undefined || value === null) {
+        return null;
+    }
+
+    const normalized = String(value).trim();
+    return normalized || null;
+}
 
 const institutionBillingProfileSchema = new mongoose.Schema(
     {
@@ -18,28 +21,45 @@ const institutionBillingProfileSchema = new mongoose.Schema(
             ref: "Institution",
             required: true,
             unique: true,
-            index: true,
         },
         stripeCustomerId: {
             type: String,
-            trim: true,
+            set: normalizeNullableString,
             default: null,
         },
         stripeSubscriptionId: {
             type: String,
-            trim: true,
+            set: normalizeNullableString,
             default: null,
         },
         stripePriceId: {
             type: String,
-            trim: true,
+            set: normalizeNullableString,
+            default: null,
+        },
+        plan: {
+            type: String,
+            enum: BILLING_PLANS,
+            default: null,
+        },
+        billingInterval: {
+            type: String,
+            enum: BILLING_INTERVALS,
+            default: null,
+        },
+        stripeProductId: {
+            type: String,
+            set: normalizeNullableString,
             default: null,
         },
         status: {
             type: String,
             enum: SUBSCRIPTION_STATUSES,
             default: null,
-            index: true,
+        },
+        currentPeriodStart: {
+            type: Date,
+            default: null,
         },
         currentPeriodEnd: {
             type: Date,
@@ -57,8 +77,6 @@ const institutionBillingProfileSchema = new mongoose.Schema(
     { timestamps: true }
 );
 
-institutionBillingProfileSchema.index({ institutionId: 1, status: 1 });
-institutionBillingProfileSchema.index({ institutionId: 1, stripeSubscriptionId: 1 });
 institutionBillingProfileSchema.index(
     { stripeCustomerId: 1 },
     { unique: true, partialFilterExpression: { stripeCustomerId: { $type: "string" } } }

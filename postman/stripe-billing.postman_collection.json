@@ -2,14 +2,14 @@
   "info": {
     "name": "Edu SaaS Stripe Billing APIs",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
-    "description": "Local Stripe Phase 1 billing checks for login, institution context, checkout session creation, billing status, and webhook-driven subscription updates."
+    "description": "Local Stripe Billing checks for Plus/Pro checkout and the narrow immediate Plus-to-Pro upgrade flow. Run 00 Auth in order: the final setup request creates a fresh unpaid billing sandbox institution and stores its institutionId. For upgrade testing, create a Plus Checkout Session, open checkoutUrl, complete Stripe Checkout while the Stripe CLI forwards webhooks, confirm billing status is plus + active, then call upgrade. The seeded Demo University remains Pro/trialing for general local development and must not be used for new checkout tests."
   },
   "item": [
     {
       "name": "00 Auth",
       "item": [
         {
-          "name": "Login Admin",
+          "name": "Login Admin Or Owner",
           "request": {
             "method": "POST",
             "header": [
@@ -30,7 +30,7 @@
               "script": {
                 "type": "text/javascript",
                 "exec": [
-                  "pm.test('login returns 200', function () {",
+                  "pm.test('admin login returns 200', function () {",
                   "  pm.response.to.have.status(200);",
                   "});",
                   "",
@@ -38,9 +38,88 @@
                   "try { json = pm.response.json(); } catch (error) {}",
                   "if (json.accessToken) {",
                   "  pm.environment.set('accessToken', json.accessToken);",
+                  "  pm.environment.set('adminToken', json.accessToken);",
                   "}",
                   "if (json.user?.id) {",
                   "  pm.environment.set('adminUserId', json.user.id);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Login Instructor For Negative Upgrade Check",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/auth/login",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{instructorEmail}}\",\n  \"password\": \"{{instructorPassword}}\"\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('seeded instructor login returns 200', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "let json = {};",
+                  "try { json = pm.response.json(); } catch (error) {}",
+                  "if (json.accessToken) {",
+                  "  pm.environment.set('instructorToken', json.accessToken);",
+                  "}",
+                  "if (json.user?.id) {",
+                  "  pm.environment.set('instructorUserId', json.user.id);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Login Student For Negative Upgrade Check",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/auth/login",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{studentEmail}}\",\n  \"password\": \"{{studentPassword}}\"\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('seeded student login returns 200', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "let json = {};",
+                  "try { json = pm.response.json(); } catch (error) {}",
+                  "if (json.accessToken) {",
+                  "  pm.environment.set('studentToken', json.accessToken);",
+                  "}",
+                  "if (json.user?.id) {",
+                  "  pm.environment.set('studentUserId', json.user.id);",
                   "}"
                 ]
               }
@@ -71,23 +150,87 @@
                   "",
                   "let json = {};",
                   "try { json = pm.response.json(); } catch (error) {}",
-                  "const institutionId = json.activeInstitutionId || json.institutions?.[0]?.institutionId;",
-                  "if (institutionId) {",
-                  "  pm.environment.set('institutionId', institutionId);",
+                  "const activeInstitutionId = json.activeInstitutionId || json.institutions?.[0]?.institutionId;",
+                  "if (activeInstitutionId) {",
+                  "  pm.environment.set('institutionId', activeInstitutionId);",
                   "}",
-                  "const institutionName = json.institutions?.find((item) => item.institutionId === institutionId)?.name || json.institutions?.[0]?.name;",
-                  "if (institutionName) {",
-                  "  pm.environment.set('institutionName', institutionName);",
+                  "const institutionRow = json.institutions?.find((item) => item.institutionId === activeInstitutionId) || json.institutions?.[0];",
+                  "if (institutionRow?.name) {",
+                  "  pm.environment.set('institutionName', institutionRow.name);",
+                  "}",
+                  "if (institutionRow?.membershipId) {",
+                  "  pm.environment.set('adminMembershipId', institutionRow.membershipId);",
                   "}"
                 ]
               }
             }
           ]
+        },
+        {
+          "name": "Create Fresh Billing Sandbox Institution",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.environment.set('billingSandboxName', `Billing Sandbox ${Date.now()}`);"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('fresh billing sandbox is created', function () {",
+                  "  pm.response.to.have.status(201);",
+                  "});",
+                  "",
+                  "let json = {};",
+                  "try { json = pm.response.json(); } catch (error) {}",
+                  "if (json.institution?.id) {",
+                  "  pm.environment.set('institutionId', json.institution.id);",
+                  "  pm.environment.set('institutionName', json.institution.name || pm.environment.get('billingSandboxName'));",
+                  "}",
+                  "pm.environment.set('billingPlan', '');",
+                  "pm.environment.set('billingStatus', 'none');",
+                  "pm.environment.set('stripeCustomerId', '');",
+                  "pm.environment.set('stripeSubscriptionId', '');",
+                  "pm.environment.set('stripePriceId', '');",
+                  "pm.environment.set('stripeProductId', '');",
+                  "pm.environment.set('checkoutSessionId', '');",
+                  "pm.environment.set('checkoutUrl', '');",
+                  "pm.environment.set('upgradeStatus', '');",
+                  "pm.environment.set('upgradeClientSecret', '');"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/institutions",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"{{billingSandboxName}}\",\n  \"type\": \"university\"\n}"
+            },
+            "description": "Creates a fresh unpaid tenant for checkout testing. This avoids the intentionally Pro/trialing seeded Demo University."
+          }
         }
       ]
     },
     {
-      "name": "01 Billing",
+      "name": "01 Billing Status",
       "item": [
         {
           "name": "Get Billing Status",
@@ -115,20 +258,35 @@
                   "try { json = pm.response.json(); } catch (error) {}",
                   "const profile = json.billingProfile;",
                   "if (profile) {",
-                  "  pm.environment.set('billingStatus', profile.status || 'none');",
+                  "  pm.environment.set('billingProfileId', profile.id || profile._id || pm.environment.get('billingProfileId') || '');",
+                  "  pm.environment.set('billingPlan', profile.plan || '');",
+                  "  pm.environment.set('billingInterval', profile.billingInterval || '');",
+                  "  pm.environment.set('billingStatus', profile.status || '');",
                   "  pm.environment.set('stripeCustomerId', profile.stripeCustomerId || '');",
                   "  pm.environment.set('stripeSubscriptionId', profile.stripeSubscriptionId || '');",
                   "  pm.environment.set('stripePriceId', profile.stripePriceId || '');",
+                  "  pm.environment.set('stripeProductId', profile.stripeProductId || '');",
                   "} else {",
+                  "  pm.environment.set('billingPlan', '');",
                   "  pm.environment.set('billingStatus', 'none');",
+                  "}",
+                  "if (json.entitlements) {",
+                  "  pm.environment.set('hasPaidAccess', String(json.entitlements.hasPaidAccess));",
+                  "  pm.environment.set('maxActiveStudents', String(json.entitlements.maxActiveStudents));",
+                  "  pm.environment.set('maxActiveStaff', String(json.entitlements.maxActiveStaff));",
                   "}"
                 ]
               }
             }
           ]
-        },
+        }
+      ]
+    },
+    {
+      "name": "02 Checkout",
+      "item": [
         {
-          "name": "Create Checkout Session",
+          "name": "Create Plus Checkout Session",
           "request": {
             "method": "POST",
             "header": [
@@ -144,7 +302,7 @@
             "url": "{{baseUrl}}/institutions/{{institutionId}}/billing/checkout-session",
             "body": {
               "mode": "raw",
-              "raw": "{}"
+              "raw": "{\n  \"plan\": \"plus\"\n}"
             }
           },
           "event": [
@@ -153,7 +311,7 @@
               "script": {
                 "type": "text/javascript",
                 "exec": [
-                  "pm.test('checkout session is created', function () {",
+                  "pm.test('fresh billing sandbox creates Plus checkout', function () {",
                   "  pm.response.to.have.status(201);",
                   "});",
                   "",
@@ -178,7 +336,153 @@
           ]
         },
         {
-          "name": "Get Billing Status After Checkout/Webhooks",
+          "name": "Alternative: Create Pro Checkout Session On A Fresh Sandbox",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/institutions/{{institutionId}}/billing/checkout-session",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"plan\": \"pro\"\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('fresh billing sandbox creates Pro checkout', function () {",
+                  "  pm.response.to.have.status(201);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "description": "Alternative direct-Pro path. Create another fresh sandbox first; do not run this after completing the Plus subscription used by the upgrade flow."
+        },
+        {
+          "name": "Reject Raw Stripe Price ID",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/institutions/{{institutionId}}/billing/checkout-session",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"plan\": \"plus\",\n  \"priceId\": \"price_attack\"\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('raw priceId is rejected', function () {",
+                  "  pm.response.to.have.status(400);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "03 Upgrade Plus To Pro",
+      "item": [
+        {
+          "name": "Verify Plus Is Active Before Upgrade",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
+            ],
+            "url": "{{baseUrl}}/institutions/{{institutionId}}/billing/status",
+            "description": "Run only after completing the Plus Checkout and receiving Stripe webhooks. Upgrade requires local and live Stripe state to be active Plus."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('billing status is ready for Plus to Pro upgrade', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "  const json = pm.response.json();",
+                  "  pm.expect(json.billingProfile?.plan).to.eql('plus');",
+                  "  pm.expect(json.billingProfile?.status).to.eql('active');",
+                  "  pm.expect(json.entitlements?.maxActiveStudents).to.eql(300);",
+                  "  pm.expect(json.entitlements?.maxActiveStaff).to.eql(30);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Upgrade To Pro",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
+            ],
+            "url": "{{baseUrl}}/institutions/{{institutionId}}/billing/upgrade-to-pro"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('eligible active Plus subscription starts upgrade', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "let json = {};",
+                  "try { json = pm.response.json(); } catch (error) {}",
+                  "if (pm.response.code === 200) {",
+                  "  pm.test('upgrade response shape is safe', function () {",
+                  "    pm.expect(json.upgrade.fromPlan).to.eql('plus');",
+                  "    pm.expect(json.upgrade.toPlan).to.eql('pro');",
+                  "    pm.expect(['processing', 'payment_action_required', 'payment_failed', 'payment_incomplete']).to.include(json.upgrade.status);",
+                  "  });",
+                  "  pm.environment.set('upgradeStatus', json.upgrade.status);",
+                  "  if (json.upgrade.clientSecret) {",
+                  "    pm.environment.set('upgradeClientSecret', json.upgrade.clientSecret);",
+                  "  }",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Billing Status Immediately After Upgrade Request",
           "request": {
             "method": "GET",
             "header": [
@@ -201,12 +505,108 @@
                   "",
                   "let json = {};",
                   "try { json = pm.response.json(); } catch (error) {}",
-                  "const profile = json.billingProfile;",
-                  "if (profile) {",
-                  "  pm.environment.set('billingStatus', profile.status || 'none');",
-                  "  pm.environment.set('stripeSubscriptionId', profile.stripeSubscriptionId || '');",
-                  "  pm.environment.set('stripePriceId', profile.stripePriceId || '');",
+                  "if (json.billingProfile?.plan) {",
+                  "  pm.environment.set('billingPlan', json.billingProfile.plan);",
+                  "}",
+                  "if (json.entitlements) {",
+                  "  pm.environment.set('maxActiveStudents', String(json.entitlements.maxActiveStudents));",
+                  "  pm.environment.set('maxActiveStaff', String(json.entitlements.maxActiveStaff));",
+                  "}",
+                  "console.log('Current billing plan after upgrade request:', json.billingProfile?.plan || null);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Billing Status After Stripe Webhook Sync",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
+            ],
+            "url": "{{baseUrl}}/institutions/{{institutionId}}/billing/status"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('billing status returns 200', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "let json = {};",
+                  "try { json = pm.response.json(); } catch (error) {}",
+                  "if (json.billingProfile?.plan === 'pro') {",
+                  "  pm.test('Pro webhook sync grants Pro limits', function () {",
+                  "    pm.expect(json.entitlements.maxActiveStudents).to.eql(1000);",
+                  "    pm.expect(json.entitlements.maxActiveStaff).to.eql(100);",
+                  "  });",
+                  "} else {",
+                  "  console.log('Webhook has not synced Pro yet; current plan:', json.billingProfile?.plan || null);",
                   "}"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "04 Authorization Negatives",
+      "item": [
+        {
+          "name": "Upgrade To Pro As Instructor Is Denied",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{instructorToken}}"
+              }
+            ],
+            "url": "{{baseUrl}}/institutions/{{institutionId}}/billing/upgrade-to-pro"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('instructor is denied when token is available', function () {",
+                  "  pm.expect([401, 403]).to.include(pm.response.code);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Upgrade To Pro As Student Is Denied",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{studentToken}}"
+              }
+            ],
+            "url": "{{baseUrl}}/institutions/{{institutionId}}/billing/upgrade-to-pro"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('student is denied when token is available', function () {",
+                  "  pm.expect([401, 403]).to.include(pm.response.code);",
+                  "});"
                 ]
               }
             }

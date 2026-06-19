@@ -17,6 +17,22 @@ function resolveMessage(error, statusCode) {
     return error.message || "Request failed";
 }
 
+function buildErrorBody(error, statusCode) {
+    const body = {
+        message: resolveMessage(error, statusCode),
+    };
+
+    if (statusCode < 500 && error?.code) {
+        body.code = error.code;
+    }
+
+    if (statusCode < 500 && error?.details && typeof error.details === "object") {
+        body.details = error.details;
+    }
+
+    return body;
+}
+
 function createPayloadError(message) {
     const error = new Error(message);
     error.statusCode = 400;
@@ -116,7 +132,7 @@ async function createMember(req, res) {
     } catch (error) {
         removeUploadedFile(req.file?.path);
         const statusCode = resolveStatusCode(error);
-        return res.status(statusCode).json({ message: resolveMessage(error, statusCode) });
+        return res.status(statusCode).json(buildErrorBody(error, statusCode));
     }
 }
 
@@ -131,7 +147,7 @@ async function listMembers(req, res) {
         return res.status(200).json(result);
     } catch (error) {
         const statusCode = resolveStatusCode(error);
-        return res.status(statusCode).json({ message: resolveMessage(error, statusCode) });
+        return res.status(statusCode).json(buildErrorBody(error, statusCode));
     }
 }
 
@@ -147,7 +163,23 @@ async function getMemberById(req, res) {
         return res.status(200).json(result);
     } catch (error) {
         const statusCode = resolveStatusCode(error);
-        return res.status(statusCode).json({ message: resolveMessage(error, statusCode) });
+        return res.status(statusCode).json(buildErrorBody(error, statusCode));
+    }
+}
+
+async function getMyMemberProfile(req, res) {
+    try {
+        const institutionId = req.tenantId || req.params.institutionId;
+        const result = await memberService.getMyMemberProfile({
+            institutionId,
+            actorUser: req.user,
+            actorMembership: req.membership,
+        });
+
+        return res.status(200).json(result);
+    } catch (error) {
+        const statusCode = resolveStatusCode(error);
+        return res.status(statusCode).json(buildErrorBody(error, statusCode));
     }
 }
 
@@ -166,7 +198,7 @@ async function updateMember(req, res) {
     } catch (error) {
         removeUploadedFile(req.file?.path);
         const statusCode = resolveStatusCode(error);
-        return res.status(statusCode).json({ message: resolveMessage(error, statusCode) });
+        return res.status(statusCode).json(buildErrorBody(error, statusCode));
     }
 }
 
@@ -183,7 +215,7 @@ async function updateMemberStatus(req, res) {
         return res.status(200).json(result);
     } catch (error) {
         const statusCode = resolveStatusCode(error);
-        return res.status(statusCode).json({ message: resolveMessage(error, statusCode) });
+        return res.status(statusCode).json(buildErrorBody(error, statusCode));
     }
 }
 
@@ -191,6 +223,7 @@ module.exports = {
     createMember,
     listMembers,
     getMemberById,
+    getMyMemberProfile,
     updateMember,
     updateMemberStatus,
 };

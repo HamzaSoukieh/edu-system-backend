@@ -1,7 +1,5 @@
-﻿<!doctype html><html><head><meta charset="utf-8"><title>Edu SaaS Backend API Documentation</title><style>
-body{font-family:Arial,Helvetica,sans-serif;line-height:1.45;color:#111827;margin:32px;max-width:1200px}h1{font-size:30px}h2{margin-top:32px;border-bottom:1px solid #d1d5db;padding-bottom:6px}h3{margin-top:24px}table{border-collapse:collapse;width:100%;font-size:11px;margin:14px 0;table-layout:auto}th,td{border:1px solid #d1d5db;padding:6px;vertical-align:top;word-break:break-word}th{background:#f3f4f6}code{background:#f3f4f6;padding:1px 3px;border-radius:3px}pre{background:#f8fafc;color:#111827;border:1px solid #cbd5e1;padding:12px;border-radius:6px;overflow:auto;font-size:12px}pre code{background:transparent;color:#111827;padding:0}a{color:#1d4ed8}@media print{body{margin:16px;max-width:none}table{font-size:8px}pre{white-space:pre-wrap;background:#ffffff;color:#111827;border:1px solid #9ca3af}pre code{color:#111827}h2,h3{break-after:avoid}}
-</style></head><body><h1>Edu SaaS Backend API Documentation</h1>
-<p>Generated from the repository code on 2026-06-16. This documentation covers only endpoints mounted in <code>src/app.js</code>, <code>src/routes/authRoutes.js</code>, and <code>src/routes/institutionRoutes.js</code>. When exact behavior is broad or product-dependent, it is marked TODO/VERIFY instead of guessed.</p>
+﻿<!doctype html><html><head><meta charset="utf-8"><title>Edu SaaS Backend API Documentation</title><style>body{font-family:Arial,Helvetica,sans-serif;line-height:1.45;color:#111827;margin:32px;max-width:1200px}h1{font-size:30px}h2{margin-top:32px;border-bottom:1px solid #d1d5db;padding-bottom:6px}h3{margin-top:24px}table{border-collapse:collapse;width:100%;font-size:11px;margin:14px 0;table-layout:auto}th,td{border:1px solid #d1d5db;padding:6px;vertical-align:top;word-break:break-word}th{background:#f3f4f6}code{background:#f3f4f6;padding:1px 3px;border-radius:3px}pre{background:#f8fafc;color:#111827;border:1px solid #cbd5e1;padding:12px;border-radius:6px;overflow:auto;font-size:12px}pre code{background:transparent;color:#111827;padding:0}a{color:#1d4ed8}@media print{body{margin:16px;max-width:none}table{font-size:8px}pre{white-space:pre-wrap;background:#ffffff;color:#111827;border:1px solid #9ca3af}pre code{color:#111827}h2,h3{break-after:avoid}}</style></head><body><h1>Edu SaaS Backend API Documentation</h1>
+<p>Generated from the repository code on 2026-06-18. This documentation covers only endpoints mounted in <code>src/app.js</code>, <code>src/routes/authRoutes.js</code>, and <code>src/routes/institutionRoutes.js</code>. When exact behavior is broad or product-dependent, it is marked TODO/VERIFY instead of guessed.</p>
 <h2>Overview</h2>
 <p>This is a Node.js + Express + Mongoose multi-tenant Edu SaaS backend for school and university institutions.</p>
 <p>Mounted API surface:</p>
@@ -282,7 +280,7 @@ body{font-family:Arial,Helvetica,sans-serif;line-height:1.45;color:#111827;margi
 <li><code>JWT_SECRET</code>, <code>JWT_EXPIRES_IN</code>, <code>BCRYPT_SALT_ROUNDS</code></li>
 <li><code>OTP_EXPIRES_MINUTES</code>, <code>OTP_MAX_ATTEMPTS</code></li>
 <li><code>GMAIL_USER</code>, <code>GMAIL_APP_PASSWORD</code>, <code>EMAIL_FROM</code></li>
-<li><code>STRIPE_SECRET_KEY</code>, <code>STRIPE_PRICE_BASIC_MONTHLY</code>, <code>STRIPE_WEBHOOK_SECRET</code>, <code>BILLING_SUCCESS_URL</code>, <code>BILLING_CANCEL_URL</code></li>
+<li><code>STRIPE_SECRET_KEY</code>, <code>STRIPE_PRICE_PLUS_6_MONTH</code>, <code>STRIPE_PRICE_PRO_6_MONTH</code>, <code>STRIPE_WEBHOOK_SECRET</code>, <code>BILLING_SUCCESS_URL</code>, <code>BILLING_CANCEL_URL</code></li>
 <li><code>MAX_LOGO_SIZE_MB</code>, <code>MAX_PROFILE_PICTURE_SIZE_MB</code>, <code>MAX_HOMEWORK_SUBMISSION_SIZE_MB</code>, <code>MAX_SECTION_MATERIAL_SIZE_MB</code></li>
 <li><code>ATTENDANCE_QR_DATE_OVERRIDE</code> for non-production local attendance QR testing only</li>
 </ul>
@@ -443,6 +441,7 @@ body{font-family:Arial,Helvetica,sans-serif;line-height:1.45;color:#111827;margi
 <li>Show Head/Coordinator/Mentor labels from <code>scopedCapabilities[].responsibilityType</code>, not from <code>role</code>.</li>
 <li><code>memberProfile</code> is <code>null</code> when no profile exists; when present it is limited to <code>fullName</code>, <code>firstName</code>, <code>lastName</code>, <code>mobile</code>, and <code>profilePictureUrl</code>.</li>
 <li><code>activeSemester</code> and <code>activeAcademicYear</code> are read-only summaries and may be <code>null</code>.</li>
+<li>Use <code>activeAcademicYear</code> from <code>/institutions/me</code> for initial multi-institution bootstrap; use <code>GET /institutions/:institutionId/academic-years/active</code> to refresh the selected institution&#39;s current year.</li>
 <li><code>onboarding.nextStep</code> is navigation guidance only, not authorization.</li>
 <li>Active non-admin memberships are usable access. Instructors, students, Heads, Coordinators, and Mentors complete onboarding with <code>nextStep: null</code>.</li>
 <li><code>wait_for_membership_activation</code> means the user has memberships but none are active.</li>
@@ -466,18 +465,27 @@ body{font-family:Arial,Helvetica,sans-serif;line-height:1.45;color:#111827;margi
 <td><code>/institutions/:institutionId/billing/checkout-session</code></td>
 <td>Create Stripe-hosted subscription Checkout Session.</td>
 <td><code>institutionAccess()</code>; service requires owner or active admin.</td>
-<td>No body.</td>
-<td><code>201 { checkoutSession: { id, url } }</code></td>
-<td>Uses <code>STRIPE_PRICE_BASIC_MONTHLY</code>; rejects duplicate active/trialing/past_due subscriptions with subscription id.</td>
+<td><code>{ plan: &quot;plus&quot; }</code> or <code>{ plan: &quot;pro&quot; }</code> only.</td>
+<td><code>201 { checkoutSession: { id, url }, billingProfile, entitlements }</code></td>
+<td>Resolves Stripe Price IDs from server-side Plus/Pro env vars; rejects duplicate active/trialing/past_due subscriptions with subscription id.</td>
+</tr>
+<tr>
+<td>POST</td>
+<td><code>/institutions/:institutionId/billing/upgrade-to-pro</code></td>
+<td>Immediately upgrade an existing Plus subscription to Pro.</td>
+<td><code>institutionAccess()</code>; service requires active owner or active admin.</td>
+<td>No trusted body fields.</td>
+<td><code>200 { upgrade: { fromPlan, toPlan, status, clientSecret? } }</code></td>
+<td>Only Plus -&gt; Pro is supported. Uses the existing Stripe subscription item, immediate proration, <code>payment_behavior=pending_if_incomplete</code>, and waits for verified webhook sync before granting Pro limits.</td>
 </tr>
 <tr>
 <td>GET</td>
 <td><code>/institutions/:institutionId/billing/status</code></td>
 <td>Read local billing profile.</td>
-<td><code>institutionAccess()</code></td>
+<td><code>institutionAccess()</code>; service requires owner or active admin.</td>
 <td>No body.</td>
-<td><code>200 { billingProfile }</code></td>
-<td>Returns local Stripe ids/status projection only; no card/payment method data.</td>
+<td><code>200 { billingProfile, entitlements }</code></td>
+<td>Returns local Stripe ids/status projection plus safe normalized entitlements; no card/payment method data.</td>
 </tr>
 <tr>
 <td>POST</td>
@@ -489,6 +497,31 @@ body{font-family:Arial,Helvetica,sans-serif;line-height:1.45;color:#111827;margi
 <td>Must remain before <code>express.json()</code>; verifies with <code>STRIPE_WEBHOOK_SECRET</code>; idempotent via <code>StripeWebhookEvent</code>.</td>
 </tr>
 </tbody></table>
+<p>Billing plan rules:</p>
+<ul>
+<li><code>plus</code> and <code>pro</code> are six-month plans with the same application features.</li>
+<li>Plus uses <code>STRIPE_PRICE_PLUS_6_MONTH</code>, allows 300 active student memberships, and allows 30 active staff memberships.</li>
+<li>Pro uses <code>STRIPE_PRICE_PRO_6_MONTH</code>, allows 1000 active student memberships, and allows 100 active staff memberships.</li>
+<li>The backend plan catalog is authoritative. Clients never send Stripe Price IDs, Stripe Customer IDs, Stripe Subscription IDs, billing limits, paid status, or proration settings.</li>
+<li>Active student seats are active <code>Membership</code> records with <code>role: &quot;student&quot;</code>.</li>
+<li>Active staff seats are active <code>Membership</code> records with <code>role</code> in <code>[&quot;admin&quot;, &quot;instructor&quot;]</code>; owner admin memberships count as staff.</li>
+<li><code>MemberProfile</code>, <code>Enrollment</code>, and <code>ResponsibilityAssignment</code> records do not consume seats.</li>
+<li>Paid access is granted only for known Plus/Pro plans with subscription status <code>active</code>, <code>trialing</code>, or <code>past_due</code>. <code>past_due</code> remains a temporary grace-period decision.</li>
+<li>Unknown or old Stripe prices keep <code>plan: null</code> / <code>billingInterval: null</code> and grant no paid access.</li>
+</ul>
+<p>Plus -&gt; Pro upgrade rules:</p>
+<ul>
+<li>The upgrade endpoint does not create a Checkout Session, Customer, or second subscription.</li>
+<li>The service validates local tenant billing state first: local plan must be <code>plus</code>, local subscription status must be <code>active</code>, local stored Stripe Price must match the configured Plus Price, and tenant Stripe Customer/Subscription IDs must exist.</li>
+<li>The service retrieves the live Stripe subscription and requires live status <code>active</code>, <code>collection_method: &quot;charge_automatically&quot;</code>, no subscription schedule, one subscription item, quantity <code>1</code>, and the configured Plus Price.</li>
+<li>The Stripe client is pinned to API version <code>2026-05-27.dahlia</code>. The update expands <code>latest_invoice.confirmation_secret</code>.</li>
+<li>Stripe update parameters are <code>items: [{ id: existingSubscriptionItemId, price: trustedProPriceId }]</code>, <code>proration_behavior: &quot;always_invoice&quot;</code>, and <code>payment_behavior: &quot;pending_if_incomplete&quot;</code>.</li>
+<li>A safe server-generated idempotency key includes institution id, subscription id, current latest-invoice marker, current Plus Price, and target Pro Price.</li>
+<li>The upgrade response is <code>processing</code> when Stripe has no pending update, <code>payment_action_required</code> only when trusted payment state requires action and a safe client secret exists, <code>payment_failed</code> for declined/missing-payment-method style pending updates, and <code>payment_incomplete</code> for other pending updates.</li>
+<li>Calling the upgrade endpoint never directly changes local <code>plan</code>, <code>stripePriceId</code>, subscription status, period dates, or seat limits.</li>
+<li>Pro limits become available only after a verified Stripe webhook synchronizes a trusted Pro Price from Stripe.</li>
+<li><code>customer.subscription.created</code> and <code>customer.subscription.updated</code> webhooks retrieve the current Stripe subscription before updating the local billing profile, reducing stale-event regressions. <code>customer.subscription.deleted</code> applies the deletion snapshot.</li>
+</ul>
 <h3>Responsibility Assignments</h3>
 <p>Owner/admin management for scoped Head, Coordinator, and Mentor assignments. These routes use <code>authJwt</code>, <code>requireEmailVerified</code>, and <code>institutionAccess()</code>; the service performs the owner/admin check. A scoped Head/Coordinator/Mentor assignment alone cannot manage responsibility assignments.</p>
 <table>
@@ -927,28 +960,28 @@ body{font-family:Arial,Helvetica,sans-serif;line-height:1.45;color:#111827;margi
 <td><code>/institutions/:institutionId/academic-years/active</code></td>
 <td>No body.</td>
 <td><code>200 { academicYear }</code></td>
-<td><code>404 Active academic year not found</code> if none.</td>
+<td>Active institution membership; <code>404 Active academic year not found</code> if none.</td>
 </tr>
 <tr>
 <td>GET</td>
 <td><code>/institutions/:institutionId/academic-years/:academicYearId</code></td>
 <td>Path <code>academicYearId</code>.</td>
 <td><code>200 { academicYear }</code></td>
-<td>Tenant-scoped.</td>
+<td><code>institution.manage</code>; tenant-scoped.</td>
 </tr>
 <tr>
 <td>PATCH</td>
 <td><code>/institutions/:institutionId/academic-years/:academicYearId</code></td>
 <td>JSON patch <code>name</code>, dates, <code>status</code>.</td>
 <td><code>200 { academicYear }</code></td>
-<td>Archived years cannot be updated/activated.</td>
+<td><code>institution.manage</code>; archived years cannot be updated/activated.</td>
 </tr>
 <tr>
 <td>POST</td>
 <td><code>/institutions/:institutionId/academic-years/:academicYearId/archive</code></td>
 <td>No body.</td>
 <td><code>200 { academicYear }</code></td>
-<td>Status-only archive.</td>
+<td><code>institution.manage</code>; status-only archive.</td>
 </tr>
 </tbody></table>
 <h3>Departments</h3>
@@ -1179,6 +1212,13 @@ body{font-family:Arial,Helvetica,sans-serif;line-height:1.45;color:#111827;margi
 </tr>
 <tr>
 <td>GET</td>
+<td><code>/institutions/:institutionId/members/me</code></td>
+<td>No body.</td>
+<td><code>200 { member }</code></td>
+<td>Self-only full member/profile read. Requires active institution membership, not <code>membership.manage</code>; missing <code>MemberProfile</code> returns <code>profile: null</code>.</td>
+</tr>
+<tr>
+<td>GET</td>
 <td><code>/institutions/:institutionId/members/:membershipId</code></td>
 <td>Path <code>membershipId</code>.</td>
 <td><code>200 { member }</code></td>
@@ -1199,6 +1239,7 @@ body{font-family:Arial,Helvetica,sans-serif;line-height:1.45;color:#111827;margi
 <td>Does not change role.</td>
 </tr>
 </tbody></table>
+<p><code>GET /institutions/:institutionId/members/me</code> uses the authenticated active membership from <code>institutionAccess()</code> and re-reads it by <code>_id + institutionId + userId + status=active</code>. It never accepts a client-supplied membership id. <code>MemberProfile</code> is loaded by <code>institutionId + membershipId</code>, and the route is registered before <code>/members/:membershipId</code> so the literal <code>me</code> is not treated as a membership id. The existing admin detail route remains protected by <code>membership.manage</code>.</p>
 <h3>Sections</h3>
 <p>Section list/detail uses route-level <code>section.read</code> plus service-level role-aware scoping.</p>
 <table>
@@ -2026,14 +2067,94 @@ Authorization: Bearer &lt;JWT_TOKEN&gt;
 <h3>Billing</h3>
 <pre><code class="language-http">POST /institutions/507f1f77bcf86cd799439011/billing/checkout-session
 Authorization: Bearer &lt;JWT_TOKEN&gt;
+Content-Type: application/json
+
+{ &quot;plan&quot;: &quot;plus&quot; }
 </code></pre>
 <pre><code class="language-json">{
   &quot;checkoutSession&quot;: {
     &quot;id&quot;: &quot;cs_test_placeholder&quot;,
     &quot;url&quot;: &quot;https://checkout.stripe.com/c/pay/cs_test_placeholder&quot;
+  },
+  &quot;billingProfile&quot;: {
+    &quot;institutionId&quot;: &quot;507f1f77bcf86cd799439011&quot;,
+    &quot;stripeCustomerId&quot;: &quot;cus_test_placeholder&quot;,
+    &quot;stripeSubscriptionId&quot;: null,
+    &quot;stripePriceId&quot;: &quot;price_test_placeholder&quot;,
+    &quot;plan&quot;: null,
+    &quot;billingInterval&quot;: null,
+    &quot;status&quot;: null,
+    &quot;cancelAtPeriodEnd&quot;: false,
+    &quot;trialEnd&quot;: null
+  },
+  &quot;entitlements&quot;: {
+    &quot;plan&quot;: null,
+    &quot;billingInterval&quot;: null,
+    &quot;subscriptionStatus&quot;: null,
+    &quot;hasPaidAccess&quot;: false,
+    &quot;maxActiveStudents&quot;: 0,
+    &quot;maxActiveStaff&quot;: 0,
+    &quot;currentPeriodStart&quot;: null,
+    &quot;currentPeriodEnd&quot;: null,
+    &quot;cancelAtPeriodEnd&quot;: false,
+    &quot;trialEnd&quot;: null
   }
 }
 </code></pre>
+<pre><code class="language-http">GET /institutions/507f1f77bcf86cd799439011/billing/status
+Authorization: Bearer &lt;JWT_TOKEN&gt;
+</code></pre>
+<pre><code class="language-json">{
+  &quot;billingProfile&quot;: {
+    &quot;institutionId&quot;: &quot;507f1f77bcf86cd799439011&quot;,
+    &quot;stripeCustomerId&quot;: &quot;cus_test_placeholder&quot;,
+    &quot;stripeSubscriptionId&quot;: &quot;sub_test_placeholder&quot;,
+    &quot;stripePriceId&quot;: &quot;price_plus_6_month_placeholder&quot;,
+    &quot;plan&quot;: &quot;plus&quot;,
+    &quot;billingInterval&quot;: &quot;six_month&quot;,
+    &quot;stripeProductId&quot;: &quot;prod_test_placeholder&quot;,
+    &quot;status&quot;: &quot;active&quot;,
+    &quot;currentPeriodStart&quot;: &quot;2026-01-01T00:00:00.000Z&quot;,
+    &quot;currentPeriodEnd&quot;: &quot;2026-07-01T00:00:00.000Z&quot;,
+    &quot;cancelAtPeriodEnd&quot;: false,
+    &quot;trialEnd&quot;: null
+  },
+  &quot;entitlements&quot;: {
+    &quot;plan&quot;: &quot;plus&quot;,
+    &quot;billingInterval&quot;: &quot;six_month&quot;,
+    &quot;subscriptionStatus&quot;: &quot;active&quot;,
+    &quot;hasPaidAccess&quot;: true,
+    &quot;maxActiveStudents&quot;: 300,
+    &quot;maxActiveStaff&quot;: 30,
+    &quot;currentPeriodStart&quot;: &quot;2026-01-01T00:00:00.000Z&quot;,
+    &quot;currentPeriodEnd&quot;: &quot;2026-07-01T00:00:00.000Z&quot;,
+    &quot;cancelAtPeriodEnd&quot;: false,
+    &quot;trialEnd&quot;: null
+  }
+}
+</code></pre>
+<pre><code class="language-http">POST /institutions/507f1f77bcf86cd799439011/billing/upgrade-to-pro
+Authorization: Bearer &lt;JWT_TOKEN&gt;
+</code></pre>
+<pre><code class="language-json">{
+  &quot;upgrade&quot;: {
+    &quot;fromPlan&quot;: &quot;plus&quot;,
+    &quot;toPlan&quot;: &quot;pro&quot;,
+    &quot;status&quot;: &quot;processing&quot;
+  }
+}
+</code></pre>
+<p>If Stripe requires customer action for the prorated invoice, the response may include only the safe Stripe.js client secret:</p>
+<pre><code class="language-json">{
+  &quot;upgrade&quot;: {
+    &quot;fromPlan&quot;: &quot;plus&quot;,
+    &quot;toPlan&quot;: &quot;pro&quot;,
+    &quot;status&quot;: &quot;payment_action_required&quot;,
+    &quot;clientSecret&quot;: &quot;pi_client_secret_placeholder&quot;
+  }
+}
+</code></pre>
+<p>The local billing profile remains Plus until a verified Stripe webhook confirms the subscription now uses the trusted Pro Price.</p>
 <h3>Responsibility Assignments</h3>
 <pre><code class="language-http">POST /institutions/507f1f77bcf86cd799439011/responsibility-assignments
 Authorization: Bearer &lt;JWT_TOKEN&gt;

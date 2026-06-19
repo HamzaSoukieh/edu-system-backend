@@ -8,6 +8,16 @@ const app = require("../src/app");
 const stripeWebhookController = require("../src/controllers/stripeWebhookController");
 const institutionRoutes = require("../src/routes/institutionRoutes");
 const billingService = require("../src/services/billingService");
+const {
+    SUBSCRIPTION_STATUSES,
+} = require("../src/services/billingConstants");
+const {
+    resolveBillingPlanByStripePriceId,
+    validateConfiguredBillingPrices,
+} = require("../src/services/billingPlanConfig");
+const {
+    getInstitutionBillingEntitlements,
+} = require("../src/services/billingEntitlementService");
 
 const institutionId = "507f1f77bcf86cd799439011";
 const otherInstitutionId = "507f1f77bcf86cd799439012";
@@ -99,8 +109,12 @@ function buildBillingProfile(overrides = {}) {
         institutionId,
         stripeCustomerId: "cus_existing",
         stripeSubscriptionId: "sub_existing",
-        stripePriceId: "price_existing",
+        stripePriceId: "price_plus_6_month",
+        plan: "plus",
+        billingInterval: "six_month",
+        stripeProductId: "prod_plus",
         status: "active",
+        currentPeriodStart: new Date("2026-01-01T00:00:00.000Z"),
         currentPeriodEnd: new Date("2026-07-01T00:00:00.000Z"),
         cancelAtPeriodEnd: false,
         trialEnd: null,
@@ -117,6 +131,22 @@ function buildMembership(overrides = {}) {
         userId: ownerUserId,
         role: "admin",
         status: "active",
+        ...overrides,
+    };
+}
+
+function buildStripeSubscription(overrides = {}) {
+    return {
+        id: "sub_existing",
+        customer: "cus_existing",
+        status: "active",
+        current_period_end: 1782864000,
+        cancel_at_period_end: false,
+        trial_end: null,
+        metadata: { institutionId },
+        items: {
+            data: [{ price: { id: "price_plus_6_month", product: "prod_plus" } }],
+        },
         ...overrides,
     };
 }
@@ -139,14 +169,16 @@ function createResponse() {
 function withBillingEnv(t) {
     const originalEnv = {
         STRIPE_SECRET_KEY: process.env.STRIPE_SECRET_KEY,
-        STRIPE_PRICE_BASIC_MONTHLY: process.env.STRIPE_PRICE_BASIC_MONTHLY,
+        STRIPE_PRICE_PLUS_6_MONTH: process.env.STRIPE_PRICE_PLUS_6_MONTH,
+        STRIPE_PRICE_PRO_6_MONTH: process.env.STRIPE_PRICE_PRO_6_MONTH,
         STRIPE_WEBHOOK_SECRET: process.env.STRIPE_WEBHOOK_SECRET,
         BILLING_SUCCESS_URL: process.env.BILLING_SUCCESS_URL,
         BILLING_CANCEL_URL: process.env.BILLING_CANCEL_URL,
     };
 
     process.env.STRIPE_SECRET_KEY = "sk_test_mock";
-    process.env.STRIPE_PRICE_BASIC_MONTHLY = "price_1TetMH3lPsyty9Ic5cBRcXvJ";
+    process.env.STRIPE_PRICE_PLUS_6_MONTH = "price_plus_6_month";
+    process.env.STRIPE_PRICE_PRO_6_MONTH = "price_pro_6_month";
     process.env.STRIPE_WEBHOOK_SECRET = "whsec_mock";
     process.env.BILLING_SUCCESS_URL = "https://app.example.test/billing/success";
     process.env.BILLING_CANCEL_URL = "https://app.example.test/billing/cancel";
@@ -174,6 +206,14 @@ function mockBillingDependencies(t, dataset = {}) {
         ...dataset,
     };
 
+    const getBillingProfiles = () => {
+        if (Array.isArray(data.billingProfiles)) {
+            return data.billingProfiles;
+        }
+
+        return data.billingProfile ? [data.billingProfile] : [];
+    };
+
     t.mock.method(Institution, "findOne", (query) => {
         data.queryLog.push({ model: "Institution", method: "findOne", query });
         return createQuery(matchesId(data.institution?._id, query._id) ? data.institution : null);
@@ -181,23 +221,24 @@ function mockBillingDependencies(t, dataset = {}) {
     t.mock.method(InstitutionBillingProfile, "findOne", (query) => {
         data.queryLog.push({ model: "InstitutionBillingProfile", method: "findOne", query });
         if (query.stripeSubscriptionId !== undefined) {
+            const profile = getBillingProfiles().find(
+                (item) => item.stripeSubscriptionId === query.stripeSubscriptionId
+            );
             return createQuery(
-                data.billingProfile && data.billingProfile.stripeSubscriptionId === query.stripeSubscriptionId
-                    ? data.billingProfile
-                    : null
+                profile || null
             );
         }
         if (query.stripeCustomerId !== undefined) {
+            const profile = getBillingProfiles().find(
+                (item) => item.stripeCustomerId === query.stripeCustomerId
+            );
             return createQuery(
-                data.billingProfile && data.billingProfile.stripeCustomerId === query.stripeCustomerId
-                    ? data.billingProfile
-                    : null
+                profile || null
             );
         }
+        const profile = getBillingProfiles().find((item) => matchesId(item.institutionId, query.institutionId));
         return createQuery(
-            data.billingProfile && matchesId(data.billingProfile.institutionId, query.institutionId)
-                ? data.billingProfile
-                : null
+            profile || null
         );
     });
     t.mock.method(InstitutionBillingProfile, "findOneAndUpdate", (filter, update) => {
@@ -213,7 +254,11 @@ function mockBillingDependencies(t, dataset = {}) {
             stripeSubscriptionId:
                 update.$set?.stripeSubscriptionId ?? data.billingProfile?.stripeSubscriptionId ?? null,
             stripePriceId: update.$set?.stripePriceId ?? data.billingProfile?.stripePriceId ?? null,
+            plan: update.$set?.plan ?? data.billingProfile?.plan ?? null,
+            billingInterval: update.$set?.billingInterval ?? data.billingProfile?.billingInterval ?? null,
+            stripeProductId: update.$set?.stripeProductId ?? data.billingProfile?.stripeProductId ?? null,
             status: update.$set?.status ?? data.billingProfile?.status ?? null,
+            currentPeriodStart: update.$set?.currentPeriodStart ?? data.billingProfile?.currentPeriodStart ?? null,
             currentPeriodEnd: update.$set?.currentPeriodEnd ?? data.billingProfile?.currentPeriodEnd ?? null,
             cancelAtPeriodEnd: update.$set?.cancelAtPeriodEnd ?? data.billingProfile?.cancelAtPeriodEnd ?? false,
             trialEnd: update.$set?.trialEnd ?? data.billingProfile?.trialEnd ?? null,
@@ -260,6 +305,23 @@ function mockBillingDependencies(t, dataset = {}) {
     return data;
 }
 
+function setCurrentStripeSubscriptionForWebhook(subscriptionOrResolver) {
+    const calls = [];
+    billingService.setStripeClientForTests({
+        subscriptions: {
+            retrieve: async (subscriptionId) => {
+                calls.push(subscriptionId);
+                if (typeof subscriptionOrResolver === "function") {
+                    return subscriptionOrResolver(subscriptionId);
+                }
+
+                return subscriptionOrResolver;
+            },
+        },
+    });
+    return calls;
+}
+
 function buildStripeMock(overrides = {}) {
     const calls = {
         customersCreate: [],
@@ -293,12 +355,19 @@ function buildStripeMock(overrides = {}) {
                     id: subscriptionId,
                     customer: "cus_new",
                     status: "active",
+                    current_period_start: 1767225600,
                     current_period_end: 1782864000,
                     cancel_at_period_end: false,
                     trial_end: null,
                     metadata: { institutionId },
                     items: {
-                        data: [{ price: { id: "price_1TetMH3lPsyty9Ic5cBRcXvJ" } }],
+                        data: [
+                            {
+                                current_period_start: 1767225600,
+                                current_period_end: 1782864000,
+                                price: { id: "price_plus_6_month", product: "prod_plus" },
+                            },
+                        ],
                     },
                 };
             },
@@ -315,19 +384,69 @@ function buildStripeMock(overrides = {}) {
     return { client, calls };
 }
 
-test("billing models validate subscription status and expose tenant indexes", async () => {
-    const profile = new InstitutionBillingProfile({
-        institutionId,
-        stripeCustomerId: "cus_123",
-        status: "active",
-    });
-    await assert.doesNotReject(() => profile.validate());
+test("billing profile model validates nullable Plus/Pro fields and normalizes Stripe ids", async () => {
+    for (const plan of ["plus", "pro", null]) {
+        const profile = new InstitutionBillingProfile({ institutionId, plan });
+        await assert.doesNotReject(() => profile.validate());
+        assert.equal(profile.plan, plan);
+    }
 
-    const invalidProfile = new InstitutionBillingProfile({
+    const invalidPlanProfile = new InstitutionBillingProfile({
+        institutionId,
+        plan: "basic",
+    });
+    await assert.rejects(() => invalidPlanProfile.validate(), /`basic` is not a valid enum value/);
+
+    for (const billingInterval of ["six_month", null]) {
+        const profile = new InstitutionBillingProfile({ institutionId, billingInterval });
+        await assert.doesNotReject(() => profile.validate());
+        assert.equal(profile.billingInterval, billingInterval);
+    }
+
+    for (const billingInterval of ["monthly", "yearly"]) {
+        const profile = new InstitutionBillingProfile({ institutionId, billingInterval });
+        await assert.rejects(() => profile.validate(), new RegExp(`\`${billingInterval}\` is not a valid enum value`));
+    }
+
+    for (const status of [...SUBSCRIPTION_STATUSES, null]) {
+        const profile = new InstitutionBillingProfile({ institutionId, status });
+        await assert.doesNotReject(() => profile.validate());
+        assert.equal(profile.status, status);
+    }
+
+    const invalidStatusProfile = new InstitutionBillingProfile({
         institutionId,
         status: "not_a_status",
     });
-    await assert.rejects(() => invalidProfile.validate(), /`not_a_status` is not a valid enum value/);
+    await assert.rejects(() => invalidStatusProfile.validate(), /`not_a_status` is not a valid enum value/);
+
+    const trimmedProfile = new InstitutionBillingProfile({
+        institutionId,
+        stripeCustomerId: "  cus_test_example  ",
+        stripeSubscriptionId: "  sub_test_example  ",
+        stripePriceId: "  price_test_example  ",
+        stripeProductId: "  prod_test_example  ",
+    });
+    await assert.doesNotReject(() => trimmedProfile.validate());
+    assert.equal(trimmedProfile.stripeCustomerId, "cus_test_example");
+    assert.equal(trimmedProfile.stripeSubscriptionId, "sub_test_example");
+    assert.equal(trimmedProfile.stripePriceId, "price_test_example");
+    assert.equal(trimmedProfile.stripeProductId, "prod_test_example");
+
+    for (const value of ["", "   "]) {
+        const profile = new InstitutionBillingProfile({
+            institutionId,
+            stripeCustomerId: value,
+            stripeSubscriptionId: value,
+            stripePriceId: value,
+            stripeProductId: value,
+        });
+        await assert.doesNotReject(() => profile.validate());
+        assert.equal(profile.stripeCustomerId, null);
+        assert.equal(profile.stripeSubscriptionId, null);
+        assert.equal(profile.stripePriceId, null);
+        assert.equal(profile.stripeProductId, null);
+    }
 
     const event = new StripeWebhookEvent({
         stripeEventId: "evt_123",
@@ -352,9 +471,11 @@ test("billing models validate subscription status and expose tenant indexes", as
 
     const profileIndexesWithOptions = InstitutionBillingProfile.schema.indexes();
     const profileIndexes = profileIndexesWithOptions.map(([fields]) => fields);
-    assert.ok(profileIndexes.some((fields) => fields.institutionId === 1));
-    assert.ok(profileIndexes.some((fields) => fields.institutionId === 1 && fields.status === 1));
-    assert.ok(profileIndexes.some((fields) => fields.institutionId === 1 && fields.stripeSubscriptionId === 1));
+    assert.ok(
+        profileIndexesWithOptions.some(
+            ([fields, options]) => fields.institutionId === 1 && options.unique === true
+        )
+    );
     assert.ok(
         profileIndexesWithOptions.some(
             ([fields, options]) =>
@@ -370,6 +491,11 @@ test("billing models validate subscription status and expose tenant indexes", as
                 options.unique === true &&
                 options.partialFilterExpression?.stripeSubscriptionId?.$type === "string"
         )
+    );
+    assert.equal(profileIndexes.some((fields) => fields.institutionId === 1 && fields.status === 1), false);
+    assert.equal(
+        profileIndexes.some((fields) => fields.institutionId === 1 && fields.stripeSubscriptionId === 1),
+        false
     );
 
     const eventIndexes = StripeWebhookEvent.schema.indexes().map(([fields]) => fields);
@@ -387,19 +513,36 @@ test("checkout session creates Stripe customer and tenant-scoped billing profile
         institutionId,
         actorUserId: ownerUserId,
         actorMembership: buildMembership(),
+        payload: { plan: "plus" },
     });
 
     assert.equal(result.checkoutSession.url, "https://checkout.stripe.test/session");
     assert.equal(result.billingProfile.stripeCustomerId, "cus_new");
+    assert.equal(result.billingProfile.status, null);
+    assert.equal(result.billingProfile.stripeSubscriptionId, null);
+    assert.equal(result.billingProfile.currentPeriodStart, null);
+    assert.equal(result.billingProfile.currentPeriodEnd, null);
+    assert.deepEqual(result.entitlements, {
+        plan: null,
+        billingInterval: null,
+        subscriptionStatus: null,
+        hasPaidAccess: false,
+        maxActiveStudents: 0,
+        maxActiveStaff: 0,
+        currentPeriodStart: null,
+        currentPeriodEnd: null,
+        cancelAtPeriodEnd: false,
+        trialEnd: null,
+    });
     assert.equal(calls.customersCreate.length, 1);
     assert.deepEqual(calls.customersCreate[0].metadata, { institutionId });
     assert.equal(calls.customersCreate[0].options.idempotencyKey, `customer:create:${institutionId}`);
     assert.equal(calls.checkoutSessionsCreate.length, 1);
     assert.equal(calls.checkoutSessionsCreate[0].mode, "subscription");
     assert.equal(calls.checkoutSessionsCreate[0].customer, "cus_new");
-    assert.equal(calls.checkoutSessionsCreate[0].line_items[0].price, "price_1TetMH3lPsyty9Ic5cBRcXvJ");
-    assert.deepEqual(calls.checkoutSessionsCreate[0].metadata, { institutionId });
-    assert.deepEqual(calls.checkoutSessionsCreate[0].subscription_data.metadata, { institutionId });
+    assert.equal(calls.checkoutSessionsCreate[0].line_items[0].price, "price_plus_6_month");
+    assert.deepEqual(calls.checkoutSessionsCreate[0].metadata, { institutionId, plan: "plus" });
+    assert.deepEqual(calls.checkoutSessionsCreate[0].subscription_data.metadata, { institutionId, plan: "plus" });
 
     const profileUpdate = data.queryLog.find((entry) => entry.model === "InstitutionBillingProfile" && entry.method === "findOneAndUpdate");
     assert.equal(normalizeId(profileUpdate.query.institutionId), institutionId);
@@ -421,11 +564,82 @@ test("checkout session reuses existing Stripe customer", async (t) => {
         institutionId,
         actorUserId: ownerUserId,
         actorMembership: buildMembership(),
+        payload: { plan: "pro" },
     });
 
     assert.equal(result.billingProfile.stripeCustomerId, "cus_existing");
     assert.equal(calls.customersCreate.length, 0);
     assert.equal(calls.checkoutSessionsCreate[0].customer, "cus_existing");
+    assert.equal(calls.checkoutSessionsCreate[0].line_items[0].price, "price_pro_6_month");
+});
+
+test("checkout session rejects missing, invalid, and unsafe plan payloads", async (t) => {
+    withBillingEnv(t);
+    mockBillingDependencies(t);
+    const { client, calls } = buildStripeMock();
+    billingService.setStripeClientForTests(client);
+
+    const cases = [
+        { payload: {}, message: "plan is required" },
+        { payload: { plan: "enterprise" }, message: "plan must be one of: plus, pro" },
+        { payload: { plan: "plus", priceId: "price_attack" }, message: "Unexpected field: priceId" },
+        { payload: { plan: "plus", stripePriceId: "price_attack" }, message: "Unexpected field: stripePriceId" },
+        { payload: { plan: "plus", productId: "prod_attack" }, message: "Unexpected field: productId" },
+        { payload: { plan: "plus", amount: 1 }, message: "Unexpected field: amount" },
+        { payload: { plan: "plus", maxActiveStudents: 999999 }, message: "Unexpected field: maxActiveStudents" },
+        { payload: { plan: "plus", maxActiveStaff: 999999 }, message: "Unexpected field: maxActiveStaff" },
+    ];
+
+    for (const item of cases) {
+        await assert.rejects(
+            () =>
+                billingService.createCheckoutSession({
+                    institutionId,
+                    actorUserId: ownerUserId,
+                    actorMembership: buildMembership(),
+                    payload: item.payload,
+                }),
+            { statusCode: 400, message: item.message }
+        );
+    }
+
+    assert.equal(calls.customersCreate.length, 0);
+    assert.equal(calls.checkoutSessionsCreate.length, 0);
+});
+
+test("checkout session fails safely when selected plan price configuration is missing", async (t) => {
+    withBillingEnv(t);
+    mockBillingDependencies(t);
+    const { client, calls } = buildStripeMock();
+    billingService.setStripeClientForTests(client);
+
+    delete process.env.STRIPE_PRICE_PLUS_6_MONTH;
+    await assert.rejects(
+        () =>
+            billingService.createCheckoutSession({
+                institutionId,
+                actorUserId: ownerUserId,
+                actorMembership: buildMembership(),
+                payload: { plan: "plus" },
+            }),
+        { statusCode: 500, message: "Billing plan price is not configured" }
+    );
+
+    process.env.STRIPE_PRICE_PLUS_6_MONTH = "price_plus_6_month";
+    process.env.STRIPE_PRICE_PRO_6_MONTH = "not_a_price";
+    await assert.rejects(
+        () =>
+            billingService.createCheckoutSession({
+                institutionId,
+                actorUserId: ownerUserId,
+                actorMembership: buildMembership(),
+                payload: { plan: "pro" },
+            }),
+        { statusCode: 500, message: "Billing plan price is not configured" }
+    );
+
+    assert.equal(calls.customersCreate.length, 0);
+    assert.equal(calls.checkoutSessionsCreate.length, 0);
 });
 
 for (const status of ["active", "trialing", "past_due"]) {
@@ -447,12 +661,42 @@ for (const status of ["active", "trialing", "past_due"]) {
                     institutionId,
                     actorUserId: ownerUserId,
                     actorMembership: buildMembership(),
+                    payload: { plan: "plus" },
                 }),
             (error) => {
                 assert.equal(error.statusCode, 409);
                 assert.equal(error.message, "Institution already has an active subscription");
                 return true;
             }
+        );
+
+        assert.equal(calls.customersCreate.length, 0);
+        assert.equal(calls.checkoutSessionsCreate.length, 0);
+    });
+}
+
+for (const status of ["active", "trialing", "past_due"]) {
+    test(`checkout session rejects institution with ${status} status even without subscription id`, async (t) => {
+        withBillingEnv(t);
+        mockBillingDependencies(t, {
+            billingProfile: buildBillingProfile({
+                stripeCustomerId: "cus_existing",
+                stripeSubscriptionId: null,
+                status,
+            }),
+        });
+        const { client, calls } = buildStripeMock();
+        billingService.setStripeClientForTests(client);
+
+        await assert.rejects(
+            () =>
+                billingService.createCheckoutSession({
+                    institutionId,
+                    actorUserId: ownerUserId,
+                    actorMembership: buildMembership(),
+                    payload: { plan: "plus" },
+                }),
+            { statusCode: 409, message: "Institution already has an active subscription" }
         );
 
         assert.equal(calls.customersCreate.length, 0);
@@ -476,12 +720,37 @@ test("checkout session allows canceled subscription profile to start a new sessi
         institutionId,
         actorUserId: ownerUserId,
         actorMembership: buildMembership(),
+        payload: { plan: "plus" },
     });
 
     assert.equal(result.checkoutSession.url, "https://checkout.stripe.test/session");
     assert.equal(calls.customersCreate.length, 0);
     assert.equal(calls.checkoutSessionsCreate.length, 1);
     assert.equal(calls.checkoutSessionsCreate[0].customer, "cus_existing");
+});
+
+test("checkout duplicate guard does not block unpaid subscription profile", async (t) => {
+    withBillingEnv(t);
+    mockBillingDependencies(t, {
+        billingProfile: buildBillingProfile({
+            stripeCustomerId: "cus_existing",
+            stripeSubscriptionId: "sub_unpaid",
+            status: "unpaid",
+        }),
+    });
+    const { client, calls } = buildStripeMock();
+    billingService.setStripeClientForTests(client);
+
+    await assert.doesNotReject(() =>
+        billingService.createCheckoutSession({
+            institutionId,
+            actorUserId: ownerUserId,
+            actorMembership: buildMembership(),
+            payload: { plan: "plus" },
+        })
+    );
+
+    assert.equal(calls.checkoutSessionsCreate.length, 1);
 });
 
 test("unauthorized membership cannot create checkout session", async (t) => {
@@ -500,6 +769,7 @@ test("unauthorized membership cannot create checkout session", async (t) => {
                     userId: "507f1f77bcf86cd799439099",
                     role: "student",
                 }),
+                payload: { plan: "plus" },
             }),
         (error) => {
             assert.equal(error.statusCode, 403);
@@ -510,6 +780,102 @@ test("unauthorized membership cannot create checkout session", async (t) => {
 
     assert.equal(calls.customersCreate.length, 0);
     assert.equal(calls.checkoutSessionsCreate.length, 0);
+});
+
+test("billing authorization validates active actor membership ownership fail closed", async (t) => {
+    withBillingEnv(t);
+    mockBillingDependencies(t);
+    const { client, calls } = buildStripeMock();
+    billingService.setStripeClientForTests(client);
+
+    const allowedCases = [
+        buildMembership(),
+        buildMembership({ userId: { _id: ownerUserId } }),
+        buildMembership({ institutionId: { _id: institutionId } }),
+    ];
+
+    for (const actorMembership of allowedCases) {
+        await assert.doesNotReject(() =>
+            billingService.createCheckoutSession({
+                institutionId,
+                actorUserId: ownerUserId,
+                actorMembership,
+                payload: { plan: "plus" },
+            })
+        );
+    }
+
+    const deniedCases = [
+        buildMembership({ status: undefined }),
+        buildMembership({ status: "suspended" }),
+        buildMembership({ userId: "507f1f77bcf86cd799439099" }),
+        buildMembership({ institutionId: otherInstitutionId }),
+        buildMembership({ userId: "507f1f77bcf86cd799439099", role: "admin" }),
+        buildMembership({ status: undefined, role: "admin" }),
+    ];
+
+    for (const actorMembership of deniedCases) {
+        await assert.rejects(
+            () =>
+                billingService.createCheckoutSession({
+                    institutionId,
+                    actorUserId: ownerUserId,
+                    actorMembership,
+                    payload: { plan: "plus" },
+                }),
+            { statusCode: 403, message: "Institution access denied" }
+        );
+    }
+
+    assert.equal(calls.checkoutSessionsCreate.length, allowedCases.length);
+});
+
+test("billing price configuration validates placeholders, malformed ids, and duplicate plan prices safely", (t) => {
+    withBillingEnv(t);
+
+    assert.deepEqual(validateConfiguredBillingPrices(), {
+        plus: "price_plus_6_month",
+        pro: "price_pro_6_month",
+    });
+
+    delete process.env.STRIPE_PRICE_PLUS_6_MONTH;
+    assert.throws(() => validateConfiguredBillingPrices(), {
+        statusCode: 500,
+        message: "Billing plan price is not configured",
+    });
+
+    process.env.STRIPE_PRICE_PLUS_6_MONTH = "price_plus_6_month";
+    delete process.env.STRIPE_PRICE_PRO_6_MONTH;
+    assert.throws(() => validateConfiguredBillingPrices(), {
+        statusCode: 500,
+        message: "Billing plan price is not configured",
+    });
+
+    process.env.STRIPE_PRICE_PRO_6_MONTH = "price_replace_me";
+    assert.throws(() => validateConfiguredBillingPrices(), {
+        statusCode: 500,
+        message: "Billing plan price is not configured",
+    });
+
+    process.env.STRIPE_PRICE_PRO_6_MONTH = "not_a_price";
+    assert.throws(() => validateConfiguredBillingPrices(), {
+        statusCode: 500,
+        message: "Billing plan price is not configured",
+    });
+
+    process.env.STRIPE_PRICE_PLUS_6_MONTH = "price_actualsecretplus";
+    process.env.STRIPE_PRICE_PRO_6_MONTH = "price_actualsecretplus";
+    assert.throws(
+        () => validateConfiguredBillingPrices(),
+        (error) => {
+            assert.equal(error.statusCode, 500);
+            assert.equal(error.message, "Billing plan price is not configured");
+            assert.equal(error.message.includes("price_actualsecretplus"), false);
+            return true;
+        }
+    );
+
+    assert.equal(resolveBillingPlanByStripePriceId("price_actualsecretplus"), null);
 });
 
 test("billing status is tenant scoped", async (t) => {
@@ -525,6 +891,18 @@ test("billing status is tenant scoped", async (t) => {
     });
 
     assert.equal(result.billingProfile.status, "active");
+    assert.deepEqual(result.entitlements, {
+        plan: "plus",
+        billingInterval: "six_month",
+        subscriptionStatus: "active",
+        hasPaidAccess: true,
+        maxActiveStudents: 300,
+        maxActiveStaff: 30,
+        currentPeriodStart: new Date("2026-01-01T00:00:00.000Z"),
+        currentPeriodEnd: new Date("2026-07-01T00:00:00.000Z"),
+        cancelAtPeriodEnd: false,
+        trialEnd: null,
+    });
     const profileRead = data.queryLog.find((entry) => entry.model === "InstitutionBillingProfile" && entry.method === "findOne");
     assert.equal(normalizeId(profileRead.query.institutionId), institutionId);
 
@@ -541,6 +919,41 @@ test("billing status is tenant scoped", async (t) => {
             return true;
         }
     );
+});
+
+test("billing entitlements normalize paid statuses and plan limits", () => {
+    const cases = [
+        { status: "active", plan: "plus", hasPaidAccess: true, students: 300, staff: 30 },
+        { status: "trialing", plan: "plus", hasPaidAccess: true, students: 300, staff: 30 },
+        { status: "past_due", plan: "plus", hasPaidAccess: true, students: 300, staff: 30 },
+        { status: "active", plan: "pro", hasPaidAccess: true, students: 1000, staff: 100 },
+        { status: "trialing", plan: "pro", hasPaidAccess: true, students: 1000, staff: 100 },
+        { status: "past_due", plan: "pro", hasPaidAccess: true, students: 1000, staff: 100 },
+        { status: "canceled", plan: "plus", hasPaidAccess: false, students: 0, staff: 0 },
+        { status: "unpaid", plan: "plus", hasPaidAccess: false, students: 0, staff: 0 },
+        { status: "incomplete", plan: "plus", hasPaidAccess: false, students: 0, staff: 0 },
+        { status: "incomplete_expired", plan: "plus", hasPaidAccess: false, students: 0, staff: 0 },
+        { status: "paused", plan: "plus", hasPaidAccess: false, students: 0, staff: 0 },
+        { status: "active", plan: null, hasPaidAccess: false, students: 0, staff: 0 },
+        { status: "active", plan: "basic", hasPaidAccess: false, students: 0, staff: 0 },
+    ];
+
+    for (const item of cases) {
+        const entitlements = getInstitutionBillingEntitlements({
+            status: item.status,
+            plan: item.plan,
+            currentPeriodStart: new Date("2026-01-01T00:00:00.000Z"),
+            currentPeriodEnd: new Date("2026-07-01T00:00:00.000Z"),
+            cancelAtPeriodEnd: true,
+            trialEnd: new Date("2026-02-01T00:00:00.000Z"),
+        });
+
+        assert.equal(entitlements.hasPaidAccess, item.hasPaidAccess);
+        assert.equal(entitlements.maxActiveStudents, item.students);
+        assert.equal(entitlements.maxActiveStaff, item.staff);
+        assert.equal(entitlements.subscriptionStatus, item.status);
+        assert.equal(entitlements.cancelAtPeriodEnd, true);
+    }
 });
 
 test("stripe webhook signature construction delegates to Stripe SDK", (t) => {
@@ -637,7 +1050,7 @@ test("stripe webhook fresh processing event is treated as duplicate", async (t) 
                 trial_end: null,
                 metadata: { institutionId },
                 items: {
-                    data: [{ price: { id: "price_1TetMH3lPsyty9Ic5cBRcXvJ" } }],
+                    data: [{ price: { id: "price_plus_6_month", product: "prod_plus" } }],
                 },
             },
         },
@@ -669,23 +1082,17 @@ test("stripe webhook stale processing event is reclaimed and retried", async (t)
             createdAt: staleWebhookUpdatedAt,
         },
     });
+    const currentSubscription = buildStripeSubscription({
+        id: "sub_stale",
+        customer: "cus_stale",
+    });
+    setCurrentStripeSubscriptionForWebhook(currentSubscription);
 
     const result = await billingService.processStripeWebhookEvent({
         id: "evt_processing_stale",
         type: "customer.subscription.updated",
         data: {
-            object: {
-                id: "sub_stale",
-                customer: "cus_stale",
-                status: "active",
-                current_period_end: 1782864000,
-                cancel_at_period_end: false,
-                trial_end: null,
-                metadata: { institutionId },
-                items: {
-                    data: [{ price: { id: "price_1TetMH3lPsyty9Ic5cBRcXvJ" } }],
-                },
-            },
+            object: currentSubscription,
         },
     });
 
@@ -713,23 +1120,29 @@ test("stripe webhook stale processing event is reclaimed and retried", async (t)
 test("subscription webhook updates tenant billing profile and records event", async (t) => {
     withBillingEnv(t);
     const data = mockBillingDependencies(t);
+    const currentSubscription = buildStripeSubscription({
+        id: "sub_123",
+        customer: "cus_123",
+        status: "past_due",
+        cancel_at_period_end: true,
+        trial_end: 1780272000,
+        items: {
+            data: [
+                {
+                    current_period_start: 1767225600,
+                    current_period_end: 1782864000,
+                    price: { id: "price_plus_6_month", product: "prod_plus" },
+                },
+            ],
+        },
+    });
+    setCurrentStripeSubscriptionForWebhook(currentSubscription);
 
     const result = await billingService.processStripeWebhookEvent({
         id: "evt_subscription_updated",
         type: "customer.subscription.updated",
         data: {
-            object: {
-                id: "sub_123",
-                customer: "cus_123",
-                status: "past_due",
-                current_period_end: 1782864000,
-                cancel_at_period_end: true,
-                trial_end: 1780272000,
-                metadata: { institutionId },
-                items: {
-                    data: [{ price: { id: "price_1TetMH3lPsyty9Ic5cBRcXvJ" } }],
-                },
-            },
+            object: currentSubscription,
         },
     });
 
@@ -739,8 +1152,12 @@ test("subscription webhook updates tenant billing profile and records event", as
     assert.equal(normalizeId(profileUpdate.query.institutionId), institutionId);
     assert.equal(profileUpdate.update.$set.stripeSubscriptionId, "sub_123");
     assert.equal(profileUpdate.update.$set.status, "past_due");
-    assert.equal(profileUpdate.update.$set.stripePriceId, "price_1TetMH3lPsyty9Ic5cBRcXvJ");
+    assert.equal(profileUpdate.update.$set.stripePriceId, "price_plus_6_month");
+    assert.equal(profileUpdate.update.$set.stripeProductId, "prod_plus");
+    assert.equal(profileUpdate.update.$set.plan, "plus");
+    assert.equal(profileUpdate.update.$set.billingInterval, "six_month");
     assert.equal(profileUpdate.update.$set.cancelAtPeriodEnd, true);
+    assert.equal(profileUpdate.update.$set.currentPeriodStart.toISOString(), "2026-01-01T00:00:00.000Z");
     assert.equal(profileUpdate.update.$set.currentPeriodEnd.toISOString(), "2026-07-01T00:00:00.000Z");
 
     const eventCreate = data.queryLog.find((entry) => entry.model === "StripeWebhookEvent" && entry.method === "create");
@@ -754,27 +1171,315 @@ test("subscription webhook updates tenant billing profile and records event", as
     assert.equal(eventProcessed.query.stripeEventId, "evt_subscription_updated");
 });
 
+test("subscription webhook maps Pro price and expanded product object", async (t) => {
+    withBillingEnv(t);
+    const data = mockBillingDependencies(t);
+    const currentSubscription = buildStripeSubscription({
+        id: "sub_pro",
+        customer: { id: "cus_pro" },
+        status: "trialing",
+        items: {
+            data: [
+                {
+                    current_period_start: 1767225600,
+                    current_period_end: 1782864000,
+                    price: { id: "price_pro_6_month", product: { id: "prod_pro" } },
+                },
+            ],
+        },
+    });
+    setCurrentStripeSubscriptionForWebhook(currentSubscription);
+
+    await billingService.processStripeWebhookEvent({
+        id: "evt_subscription_pro",
+        type: "customer.subscription.updated",
+        data: {
+            object: currentSubscription,
+        },
+    });
+
+    const profileUpdate = data.queryLog.find(
+        (entry) => entry.model === "InstitutionBillingProfile" && entry.method === "findOneAndUpdate"
+    );
+    assert.equal(profileUpdate.update.$set.stripeCustomerId, "cus_pro");
+    assert.equal(profileUpdate.update.$set.plan, "pro");
+    assert.equal(profileUpdate.update.$set.billingInterval, "six_month");
+    assert.equal(profileUpdate.update.$set.stripeProductId, "prod_pro");
+});
+
+test("subscription webhook stores unknown price without granting paid access", async (t) => {
+    withBillingEnv(t);
+    const data = mockBillingDependencies(t);
+    const currentSubscription = buildStripeSubscription({
+        id: "sub_unknown",
+        customer: "cus_unknown",
+        current_period_start: 1767225600,
+        current_period_end: 1782864000,
+        items: {
+            data: [{ price: { id: "price_unknown", product: "prod_unknown" } }],
+        },
+    });
+    setCurrentStripeSubscriptionForWebhook(currentSubscription);
+
+    await billingService.processStripeWebhookEvent({
+        id: "evt_subscription_unknown_price",
+        type: "customer.subscription.updated",
+        data: {
+            object: currentSubscription,
+        },
+    });
+
+    const profileUpdate = data.queryLog.find(
+        (entry) => entry.model === "InstitutionBillingProfile" && entry.method === "findOneAndUpdate"
+    );
+    assert.equal(profileUpdate.update.$set.stripePriceId, "price_unknown");
+    assert.equal(profileUpdate.update.$set.stripeProductId, "prod_unknown");
+    assert.equal(profileUpdate.update.$set.plan, null);
+    assert.equal(profileUpdate.update.$set.billingInterval, null);
+
+    const entitlements = getInstitutionBillingEntitlements({
+        status: "active",
+        plan: profileUpdate.update.$set.plan,
+    });
+    assert.equal(entitlements.hasPaidAccess, false);
+    assert.equal(entitlements.maxActiveStudents, 0);
+    assert.equal(entitlements.maxActiveStaff, 0);
+});
+
+test("subscription webhook does not guess plan when configured plan prices are duplicated", (t) => {
+    withBillingEnv(t);
+    process.env.STRIPE_PRICE_PRO_6_MONTH = process.env.STRIPE_PRICE_PLUS_6_MONTH;
+
+    const updates = billingService.buildSubscriptionProfileUpdates({
+        id: "sub_duplicate_config",
+        customer: "cus_duplicate_config",
+        status: "active",
+        current_period_start: 1767225600,
+        current_period_end: 1782864000,
+        cancel_at_period_end: false,
+        trial_end: null,
+        items: {
+            data: [{ price: { id: process.env.STRIPE_PRICE_PLUS_6_MONTH, product: "prod_duplicate" } }],
+        },
+    });
+
+    assert.equal(updates.stripePriceId, "price_plus_6_month");
+    assert.equal(updates.plan, null);
+    assert.equal(updates.billingInterval, null);
+});
+
+test("subscription profile update handles missing items and top-level period fallback", (t) => {
+    withBillingEnv(t);
+
+    const topLevelUpdates = billingService.buildSubscriptionProfileUpdates({
+        id: "sub_top_level",
+        customer: "cus_top_level",
+        status: "active",
+        current_period_start: 1767225600,
+        current_period_end: 1782864000,
+        cancel_at_period_end: false,
+        trial_end: null,
+        items: {
+            data: [{ price: { id: "price_plus_6_month", product: "prod_plus" } }],
+        },
+    });
+    assert.equal(topLevelUpdates.currentPeriodStart.toISOString(), "2026-01-01T00:00:00.000Z");
+    assert.equal(topLevelUpdates.currentPeriodEnd.toISOString(), "2026-07-01T00:00:00.000Z");
+    assert.equal(topLevelUpdates.plan, "plus");
+
+    const missingItemUpdates = billingService.buildSubscriptionProfileUpdates({
+        id: "sub_missing_items",
+        customer: "cus_missing_items",
+        status: "active",
+        cancel_at_period_end: false,
+        trial_end: null,
+        items: {
+            data: [],
+        },
+    });
+    assert.equal(missingItemUpdates.stripePriceId, null);
+    assert.equal(missingItemUpdates.plan, null);
+    assert.equal(missingItemUpdates.billingInterval, null);
+    assert.equal(missingItemUpdates.currentPeriodStart, null);
+    assert.equal(missingItemUpdates.currentPeriodEnd, null);
+});
+
+test("checkout completed retrieves subscription before syncing billing profile", async (t) => {
+    withBillingEnv(t);
+    const data = mockBillingDependencies(t);
+    const { client, calls } = buildStripeMock();
+    billingService.setStripeClientForTests(client);
+
+    await billingService.processStripeWebhookEvent({
+        id: "evt_checkout_completed",
+        type: "checkout.session.completed",
+        data: {
+            object: {
+                id: "cs_completed",
+                customer: "cus_checkout",
+                subscription: "sub_checkout",
+                client_reference_id: institutionId,
+                metadata: { institutionId, plan: "pro" },
+            },
+        },
+    });
+
+    assert.deepEqual(calls.subscriptionsRetrieve, ["sub_checkout"]);
+    const profileUpdate = data.queryLog.find(
+        (entry) => entry.model === "InstitutionBillingProfile" && entry.method === "findOneAndUpdate"
+    );
+    assert.equal(profileUpdate.update.$set.stripeSubscriptionId, "sub_checkout");
+    assert.equal(profileUpdate.update.$set.stripePriceId, "price_plus_6_month");
+    assert.equal(profileUpdate.update.$set.plan, "plus");
+});
+
+test("checkout completed supports expanded subscription object shape", async (t) => {
+    withBillingEnv(t);
+    const data = mockBillingDependencies(t);
+    const { client, calls } = buildStripeMock();
+    billingService.setStripeClientForTests(client);
+
+    await billingService.processStripeWebhookEvent({
+        id: "evt_checkout_expanded_subscription",
+        type: "checkout.session.completed",
+        data: {
+            object: {
+                id: "cs_expanded_subscription",
+                customer: "cus_checkout",
+                subscription: { id: "sub_checkout_expanded" },
+                client_reference_id: institutionId,
+                metadata: { institutionId },
+            },
+        },
+    });
+
+    assert.deepEqual(calls.subscriptionsRetrieve, ["sub_checkout_expanded"]);
+    const profileUpdate = data.queryLog.find(
+        (entry) => entry.model === "InstitutionBillingProfile" && entry.method === "findOneAndUpdate"
+    );
+    assert.equal(profileUpdate.update.$set.stripeSubscriptionId, "sub_checkout_expanded");
+});
+
+for (const item of [
+    {
+        name: "metadata/client_reference_id conflict fails",
+        session: {
+            customer: "cus_checkout",
+            subscription: "sub_checkout",
+            client_reference_id: otherInstitutionId,
+            metadata: { institutionId },
+        },
+        profiles: [],
+    },
+    {
+        name: "customer mapping conflict fails",
+        session: {
+            customer: "cus_checkout_conflict",
+            subscription: "sub_checkout",
+            client_reference_id: institutionId,
+            metadata: { institutionId },
+        },
+        profiles: [
+            buildBillingProfile({
+                institutionId: otherInstitutionId,
+                stripeCustomerId: "cus_checkout_conflict",
+                stripeSubscriptionId: "sub_other_checkout",
+            }),
+        ],
+    },
+    {
+        name: "subscription mapping conflict fails",
+        session: {
+            customer: "cus_checkout",
+            subscription: "sub_checkout_conflict",
+            client_reference_id: institutionId,
+            metadata: { institutionId },
+        },
+        profiles: [
+            buildBillingProfile({
+                institutionId: otherInstitutionId,
+                stripeCustomerId: "cus_other_checkout",
+                stripeSubscriptionId: "sub_checkout_conflict",
+            }),
+        ],
+    },
+]) {
+    test(`checkout completed ${item.name}`, async (t) => {
+        withBillingEnv(t);
+        const data = mockBillingDependencies(t, {
+            billingProfiles: item.profiles,
+        });
+        const { client, calls } = buildStripeMock();
+        billingService.setStripeClientForTests(client);
+
+        await assert.rejects(
+            () =>
+                billingService.processStripeWebhookEvent({
+                    id: `evt_checkout_${item.name.replaceAll(" ", "_")}`,
+                    type: "checkout.session.completed",
+                    data: {
+                        object: {
+                            id: "cs_conflict",
+                            ...item.session,
+                        },
+                    },
+                }),
+            { statusCode: 409, message: "Stripe billing identity conflict" }
+        );
+
+        assert.deepEqual(calls.subscriptionsRetrieve, []);
+        assert.equal(
+            data.queryLog.some(
+                (entry) => entry.model === "InstitutionBillingProfile" && entry.method === "findOneAndUpdate"
+            ),
+            false
+        );
+    });
+}
+
+test("checkout completed with no institution candidate returns without tenant update", async (t) => {
+    withBillingEnv(t);
+    const data = mockBillingDependencies(t);
+    const { client, calls } = buildStripeMock();
+    billingService.setStripeClientForTests(client);
+
+    await billingService.processStripeWebhookEvent({
+        id: "evt_checkout_no_candidate",
+        type: "checkout.session.completed",
+        data: {
+            object: {
+                id: "cs_no_candidate",
+                customer: "cus_no_candidate",
+                subscription: "sub_no_candidate",
+                metadata: {},
+            },
+        },
+    });
+
+    assert.deepEqual(calls.subscriptionsRetrieve, []);
+    assert.equal(
+        data.queryLog.some(
+            (entry) => entry.model === "InstitutionBillingProfile" && entry.method === "findOneAndUpdate"
+        ),
+        false
+    );
+});
+
 test("failed webhook processing marks failed and allows retry", async (t) => {
     withBillingEnv(t);
     const data = mockBillingDependencies(t, {
         billingProfileUpdateThrows: new Error("profile update failed"),
     });
+    const currentSubscription = buildStripeSubscription({
+        id: "sub_retry",
+        customer: "cus_retry",
+    });
+    setCurrentStripeSubscriptionForWebhook(currentSubscription);
     const event = {
         id: "evt_retry",
         type: "customer.subscription.updated",
         data: {
-            object: {
-                id: "sub_retry",
-                customer: "cus_retry",
-                status: "active",
-                current_period_end: 1782864000,
-                cancel_at_period_end: false,
-                trial_end: null,
-                metadata: { institutionId },
-                items: {
-                    data: [{ price: { id: "price_1TetMH3lPsyty9Ic5cBRcXvJ" } }],
-                },
-            },
+            object: currentSubscription,
         },
     };
 
@@ -806,23 +1511,16 @@ test("subscription webhook can fall back to stored Stripe subscription id", asyn
             stripeCustomerId: "cus_existing",
         }),
     });
+    const currentSubscription = buildStripeSubscription({
+        metadata: {},
+    });
+    setCurrentStripeSubscriptionForWebhook(currentSubscription);
 
     await billingService.processStripeWebhookEvent({
         id: "evt_subscription_no_metadata",
         type: "customer.subscription.updated",
         data: {
-            object: {
-                id: "sub_existing",
-                customer: "cus_existing",
-                status: "active",
-                current_period_end: 1782864000,
-                cancel_at_period_end: false,
-                trial_end: null,
-                metadata: {},
-                items: {
-                    data: [{ price: { id: "price_1TetMH3lPsyty9Ic5cBRcXvJ" } }],
-                },
-            },
+            object: currentSubscription,
         },
     });
 
@@ -838,6 +1536,237 @@ test("subscription webhook can fall back to stored Stripe subscription id", asyn
         (entry) => entry.model === "InstitutionBillingProfile" && entry.method === "findOneAndUpdate"
     );
     assert.equal(normalizeId(profileUpdate.query.institutionId), institutionId);
+});
+
+test("subscription webhook reconciles metadata, subscription, and customer institution candidates", async (t) => {
+    withBillingEnv(t);
+    const data = mockBillingDependencies(t, {
+        billingProfiles: [
+            buildBillingProfile({
+                institutionId,
+                stripeSubscriptionId: "sub_existing",
+                stripeCustomerId: "cus_existing",
+            }),
+        ],
+    });
+    const currentSubscription = buildStripeSubscription();
+    setCurrentStripeSubscriptionForWebhook(currentSubscription);
+
+    await billingService.processStripeWebhookEvent({
+        id: "evt_subscription_matching_candidates",
+        type: "customer.subscription.updated",
+        data: {
+            object: currentSubscription,
+        },
+    });
+
+    const profileUpdate = data.queryLog.find(
+        (entry) => entry.model === "InstitutionBillingProfile" && entry.method === "findOneAndUpdate"
+    );
+    assert.equal(normalizeId(profileUpdate.query.institutionId), institutionId);
+});
+
+for (const item of [
+    {
+        name: "metadata-only institution resolution works",
+        eventObject: {
+            id: "sub_metadata_only",
+            customer: "cus_metadata_only",
+            metadata: { institutionId },
+        },
+        profiles: [],
+    },
+    {
+        name: "subscription mapping-only institution resolution works",
+        eventObject: {
+            id: "sub_mapped",
+            customer: "cus_unmapped",
+            metadata: {},
+        },
+        profiles: [buildBillingProfile({ stripeSubscriptionId: "sub_mapped", stripeCustomerId: "cus_other" })],
+    },
+    {
+        name: "customer mapping-only institution resolution works",
+        eventObject: {
+            id: "sub_unmapped",
+            customer: "cus_mapped",
+            metadata: {},
+        },
+        profiles: [buildBillingProfile({ stripeSubscriptionId: "sub_other", stripeCustomerId: "cus_mapped" })],
+    },
+]) {
+    test(`subscription webhook ${item.name}`, async (t) => {
+        withBillingEnv(t);
+        const data = mockBillingDependencies(t, {
+            billingProfiles: item.profiles,
+        });
+        const currentSubscription = buildStripeSubscription({
+            ...item.eventObject,
+            status: "active",
+            current_period_end: 1782864000,
+            cancel_at_period_end: false,
+            trial_end: null,
+            items: {
+                data: [{ price: { id: "price_plus_6_month", product: "prod_plus" } }],
+            },
+        });
+        setCurrentStripeSubscriptionForWebhook(currentSubscription);
+
+        await billingService.processStripeWebhookEvent({
+            id: `evt_${item.eventObject.id}`,
+            type: "customer.subscription.updated",
+            data: {
+                object: currentSubscription,
+            },
+        });
+
+        const profileUpdate = data.queryLog.find(
+            (entry) => entry.model === "InstitutionBillingProfile" && entry.method === "findOneAndUpdate"
+        );
+        assert.equal(normalizeId(profileUpdate.query.institutionId), institutionId);
+    });
+}
+
+for (const item of [
+    {
+        name: "metadata versus subscription mapping conflict fails",
+        eventObject: {
+            id: "sub_conflict",
+            customer: "cus_unmapped",
+            metadata: { institutionId },
+        },
+        profiles: [
+            buildBillingProfile({
+                institutionId: otherInstitutionId,
+                stripeSubscriptionId: "sub_conflict",
+                stripeCustomerId: "cus_other",
+            }),
+        ],
+    },
+    {
+        name: "metadata versus customer mapping conflict fails",
+        eventObject: {
+            id: "sub_unmapped",
+            customer: "cus_conflict",
+            metadata: { institutionId },
+        },
+        profiles: [
+            buildBillingProfile({
+                institutionId: otherInstitutionId,
+                stripeSubscriptionId: "sub_other",
+                stripeCustomerId: "cus_conflict",
+            }),
+        ],
+    },
+    {
+        name: "subscription versus customer mapping conflict fails",
+        eventObject: {
+            id: "sub_conflict",
+            customer: "cus_conflict",
+            metadata: {},
+        },
+        profiles: [
+            buildBillingProfile({
+                institutionId,
+                stripeSubscriptionId: "sub_conflict",
+                stripeCustomerId: "cus_institution",
+            }),
+            buildBillingProfile({
+                institutionId: otherInstitutionId,
+                stripeSubscriptionId: "sub_other",
+                stripeCustomerId: "cus_conflict",
+            }),
+        ],
+    },
+]) {
+    test(`subscription webhook ${item.name}`, async (t) => {
+        withBillingEnv(t);
+        const data = mockBillingDependencies(t, {
+            billingProfiles: item.profiles,
+        });
+        const currentSubscription = buildStripeSubscription({
+            ...item.eventObject,
+            status: "active",
+            current_period_end: 1782864000,
+            cancel_at_period_end: false,
+            trial_end: null,
+            items: {
+                data: [{ price: { id: "price_plus_6_month", product: "prod_plus" } }],
+            },
+        });
+        setCurrentStripeSubscriptionForWebhook(currentSubscription);
+
+        await assert.rejects(
+            () =>
+                billingService.processStripeWebhookEvent({
+                    id: `evt_${item.name.replaceAll(" ", "_")}`,
+                    type: "customer.subscription.updated",
+                    data: {
+                        object: currentSubscription,
+                    },
+                }),
+            { statusCode: 409, message: "Stripe billing identity conflict" }
+        );
+
+        assert.equal(
+            data.queryLog.some(
+                (entry) => entry.model === "InstitutionBillingProfile" && entry.method === "findOneAndUpdate"
+            ),
+            false
+        );
+    });
+}
+
+test("subscription webhook with no institution candidate returns without tenant update", async (t) => {
+    withBillingEnv(t);
+    const data = mockBillingDependencies(t);
+    const currentSubscription = buildStripeSubscription({
+        id: "sub_no_candidate",
+        customer: "cus_no_candidate",
+        metadata: {},
+    });
+    setCurrentStripeSubscriptionForWebhook(currentSubscription);
+
+    await billingService.processStripeWebhookEvent({
+        id: "evt_subscription_no_candidate",
+        type: "customer.subscription.updated",
+        data: {
+            object: currentSubscription,
+        },
+    });
+
+    assert.equal(
+        data.queryLog.some(
+            (entry) => entry.model === "InstitutionBillingProfile" && entry.method === "findOneAndUpdate"
+        ),
+        false
+    );
+});
+
+test("subscription webhook resolved institution must exist before profile update", async (t) => {
+    withBillingEnv(t);
+    const data = mockBillingDependencies(t);
+    const currentSubscription = buildStripeSubscription({
+        id: "sub_missing_institution",
+        customer: "cus_missing_institution",
+        metadata: { institutionId: otherInstitutionId },
+    });
+    setCurrentStripeSubscriptionForWebhook(currentSubscription);
+
+    await billingService.processStripeWebhookEvent({
+        id: "evt_subscription_missing_institution",
+        type: "customer.subscription.updated",
+        data: {
+            object: currentSubscription,
+        },
+    });
+
+    assert.equal(
+        data.queryLog.some(
+            (entry) => entry.model === "InstitutionBillingProfile" && entry.method === "findOneAndUpdate"
+        ),
+        false
+    );
 });
 
 test("billing routes are wired and webhook route is mounted before json parser", () => {

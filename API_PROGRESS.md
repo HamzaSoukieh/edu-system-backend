@@ -34,17 +34,23 @@
 
 ### Billing / Institution Subscriptions
 - `POST /institutions/:institutionId/billing/checkout-session`
+- `POST /institutions/:institutionId/billing/upgrade-to-pro`
 - `GET /institutions/:institutionId/billing/status`
 - `POST /stripe/webhook`
 - Current implemented rules:
   - uses Stripe Billing subscription Checkout Sessions, not Stripe Connect
-  - checkout session creation is limited to the institution owner or active admin membership
-  - checkout session creation rejects existing `active`, `trialing`, or `past_due` subscriptions with a stored Stripe subscription id to avoid duplicate paid subscriptions
+  - checkout session creation is limited to the institution owner or active admin membership, and actor membership must match the actor user, route institution, and `status=active`
+  - checkout session creation rejects existing `active`, `trialing`, or `past_due` subscription status even when the stored Stripe subscription id is missing
   - creates or reuses a Stripe Customer for the institution
   - Stripe Customer creation uses an institution-stable idempotency key
-  - uses `STRIPE_PRICE_BASIC_MONTHLY` and attaches `institutionId` metadata to Checkout and Subscription creation
+  - accepts `plan: "plus"` or `plan: "pro"` and resolves Stripe Price IDs only from server-side `STRIPE_PRICE_PLUS_6_MONTH` / `STRIPE_PRICE_PRO_6_MONTH`
+  - configured Plus/Pro Stripe Price IDs must be non-placeholder `price_...` values and must be distinct before Checkout calls Stripe
+  - attaches safe `institutionId` and selected plan metadata to Checkout and Subscription creation, but webhook entitlements are resolved from the actual subscription item Price ID
   - stores only Stripe customer/subscription ids and subscription status projection in `InstitutionBillingProfile`
-  - `InstitutionBillingProfile` keeps one profile per institution and uses partial unique indexes for Stripe customer/subscription ids
+  - `InstitutionBillingProfile` normalizes optional Stripe customer/subscription/price/product ids to trimmed strings or `null`; empty strings do not participate in partial unique indexes
+  - `InstitutionBillingProfile` supports `plan: "plus" | "pro" | null`, `billingInterval: "six_month" | null`, and nullable supported Stripe subscription statuses
+  - `InstitutionBillingProfile` keeps one profile per institution and uses partial unique indexes for non-null Stripe customer/subscription ids
+  - authoritative active student/staff limits remain in the billing plan catalog, not in `InstitutionBillingProfile`
   - does not store card data or payment method data
   - webhook route is mounted before `express.json()` and verifies signatures with `STRIPE_WEBHOOK_SECRET`
   - webhook processing records `StripeWebhookEvent.stripeEventId` for duplicate prevention with `processing|processed|failed` status
@@ -58,18 +64,40 @@
     - `customer.subscription.deleted`
     - `invoice.paid`
     - `invoice.payment_failed`
-  - subscription webhooks update status, subscription id, price id, current period end, cancel-at-period-end, and trial end when Stripe provides them
-  - subscription webhook processing first uses Stripe metadata `institutionId`, then falls back to stored Stripe subscription/customer ids when metadata is absent
-  - no global app access gate, plan limits, Stripe Connect, or student payment flows are added in Phase 1
+  - subscription webhooks update status, plan, billing interval, subscription id, price id, product id, current period start/end, cancel-at-period-end, and trial end when Stripe provides them
+  - unknown Stripe Price IDs keep safe Stripe identifiers/status but store `plan: null` / `billingInterval: null` and grant no paid access
+  - billing status includes normalized safe entitlements with paid-access state and active student/staff limits
+  - Plus and Pro have identical application feature access in V1; the only differences are subscription price and active student/staff membership limits
+  - active Plus subscriptions can request an immediate prorated upgrade to Pro through the existing Stripe subscription
+  - Plus-to-Pro upgrade uses `proration_behavior=always_invoice` and `payment_behavior=pending_if_incomplete`, preserves the existing billing-cycle anchor, and uses a server-generated idempotency key that includes a trusted Stripe state marker such as the latest invoice id
+  - the upgrade endpoint never creates a Checkout Session, Stripe Customer, or second Stripe Subscription
+  - upgrade eligibility requires both the local profile and the live retrieved Stripe subscription to be `active`, the local stored Price to match the configured Plus Price, automatic collection, no subscription schedule, and one subscription item with quantity `1`
+  - Stripe is pinned to API version `2026-05-27.dahlia` with `stripe@22.2.0`; upgrade responses request only `latest_invoice.confirmation_secret`
+  - upgrade responses are safe: `processing` when no pending update remains, `payment_action_required` with a Stripe client confirmation secret only when trusted payment state indicates customer action, `payment_failed` for payment-method failure, or `payment_incomplete` for unresolved pending states
+  - the local billing profile remains Plus until verified webhook synchronization stores the Pro Price/plan; Pro seat limits are not granted early
+  - upgrade from `trialing`, `past_due`, `unpaid`, `incomplete`, `incomplete_expired`, `canceled`, missing, or unknown subscription status is intentionally unsupported in this phase
+  - active student seats are active `Membership` rows with `role=student`; active staff seats are active `Membership` rows with `role in [admin, instructor]`
+  - member create, member activation/reactivation, and role transitions that increase active seat usage enforce hard plan limits with `BILLING_LIMIT_REACHED`
+  - the real member service write paths covered by billing limits are `createMember`, `updateMemberStatus`, and `updateMember`; profile-only updates and deactivation remain allowed while over limit
+  - subscription webhook processing reconciles Stripe metadata `institutionId`, stored subscription mapping, and stored customer mapping; conflicts fail safely without updating tenant billing data
+  - `customer.subscription.created` and `customer.subscription.updated` webhooks retrieve the current Stripe subscription before syncing so older snapshots cannot revert newer Plus-to-Pro state; deletion snapshots are still applied directly
+  - checkout completion webhook processing applies the same conflict-safe reconciliation to metadata, `client_reference_id`, customer mapping, and subscription mapping
+  - invalid internal billing seat categories fail closed instead of bypassing enforcement
+  - no global app access gate, Stripe Connect, or student payment flows are added in Phase 1
 - Required environment variables:
   - `STRIPE_SECRET_KEY`
-  - `STRIPE_PRICE_BASIC_MONTHLY`
+  - `STRIPE_PRICE_PLUS_6_MONTH`
+  - `STRIPE_PRICE_PRO_6_MONTH`
   - `STRIPE_WEBHOOK_SECRET`
   - `BILLING_SUCCESS_URL`
   - `BILLING_CANCEL_URL`
 - Still missing:
+  - TODO/verify: simultaneous member activations can race because the local MongoDB setup does not use transactions; V1 recounts immediately before writes but is not perfectly atomic
+  - TODO/verify: simultaneous duplicate Plus-to-Pro upgrade requests rely on Stripe idempotency and current-subscription inspection; no distributed lock is introduced
+  - TODO/verify: old Basic monthly subscription/profile migration is deferred; old or unknown prices remain `plan: null` until reconciled
   - TODO/verify: future billing access gate middleware after grace-period/trial/product rules are decided
-  - TODO/verify: customer portal route if admins need self-service cancellation/payment-method management
+  - TODO/verify: Pro-to-Plus downgrade, broader plan changes, Customer Portal, cancellation, and pause behavior remain deferred
+  - TODO/verify: frontend Stripe.js confirmation handling for invoice confirmation secrets should be verified against the project Stripe account settings
 
 ### Departments
 - `POST /institutions/:institutionId/departments`
@@ -116,6 +144,9 @@
   - supports `draft`, `active`, and `archived`
   - one active academic year is allowed per institution
   - names are unique per institution by normalized name
+  - the active academic year is discoverable in `GET /institutions/me` for frontend bootstrap
+  - `GET /institutions/:institutionId/academic-years/active` is a read-only current-context endpoint available to any active institution member through `institutionAccess()`
+  - create/list/get-by-id/update/archive academic-year routes remain protected by `institution.manage`
   - active resolver returns `404` with `Active academic year not found` when none exists
   - archived academic years cannot be updated or activated
   - no year rollover, next-year placement, transcript locking, or historical snapshots are introduced
@@ -126,9 +157,21 @@
 ### Members
 - `POST /institutions/:institutionId/members`
 - `GET /institutions/:institutionId/members`
+- `GET /institutions/:institutionId/members/me`
 - `GET /institutions/:institutionId/members/:membershipId`
 - `PATCH /institutions/:institutionId/members/:membershipId`
 - `PATCH /institutions/:institutionId/members/:membershipId/status`
+- Current implemented rules:
+  - `/members/me` is self-only and returns the authenticated user's active Membership plus full safe MemberProfile details for the route institution
+  - `/members/me` uses `authJwt`, `requireEmailVerified`, and `institutionAccess()`; it does not require `membership.manage`
+  - the self membership id comes from trusted middleware context, not from request params/body/query
+  - self membership is re-read with `_id + institutionId + userId + status=active`
+  - self MemberProfile is queried by `institutionId + membershipId`; missing profiles return `profile: null`
+  - admin member-detail `/members/:membershipId` remains unchanged and still requires `membership.manage`
+  - `/members/me` must be registered before `/members/:membershipId` so `me` is not consumed as a membership id
+  - manual Postman testing artifacts:
+    - `postman/member-self-profile.postman_collection.json`
+    - `postman/member-self-profile.postman_environment.json`
 
 ### Responsibility Assignments
 - `POST /institutions/:institutionId/responsibility-assignments`

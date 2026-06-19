@@ -1,6 +1,6 @@
 # Edu SaaS Backend API Documentation
 
-Generated from the repository code on 2026-06-16. This documentation covers only endpoints mounted in `src/app.js`, `src/routes/authRoutes.js`, and `src/routes/institutionRoutes.js`. When exact behavior is broad or product-dependent, it is marked TODO/VERIFY instead of guessed.
+Generated from the repository code on 2026-06-18. This documentation covers only endpoints mounted in `src/app.js`, `src/routes/authRoutes.js`, and `src/routes/institutionRoutes.js`. When exact behavior is broad or product-dependent, it is marked TODO/VERIFY instead of guessed.
 
 ## Overview
 
@@ -185,7 +185,7 @@ Environment variable names found in code/docs:
 - `JWT_SECRET`, `JWT_EXPIRES_IN`, `BCRYPT_SALT_ROUNDS`
 - `OTP_EXPIRES_MINUTES`, `OTP_MAX_ATTEMPTS`
 - `GMAIL_USER`, `GMAIL_APP_PASSWORD`, `EMAIL_FROM`
-- `STRIPE_SECRET_KEY`, `STRIPE_PRICE_BASIC_MONTHLY`, `STRIPE_WEBHOOK_SECRET`, `BILLING_SUCCESS_URL`, `BILLING_CANCEL_URL`
+- `STRIPE_SECRET_KEY`, `STRIPE_PRICE_PLUS_6_MONTH`, `STRIPE_PRICE_PRO_6_MONTH`, `STRIPE_WEBHOOK_SECRET`, `BILLING_SUCCESS_URL`, `BILLING_CANCEL_URL`
 - `MAX_LOGO_SIZE_MB`, `MAX_PROFILE_PICTURE_SIZE_MB`, `MAX_HOMEWORK_SUBMISSION_SIZE_MB`, `MAX_SECTION_MATERIAL_SIZE_MB`
 - `ATTENDANCE_QR_DATE_OVERRIDE` for non-production local attendance QR testing only
 
@@ -259,6 +259,7 @@ Frontend rules:
 - Show Head/Coordinator/Mentor labels from `scopedCapabilities[].responsibilityType`, not from `role`.
 - `memberProfile` is `null` when no profile exists; when present it is limited to `fullName`, `firstName`, `lastName`, `mobile`, and `profilePictureUrl`.
 - `activeSemester` and `activeAcademicYear` are read-only summaries and may be `null`.
+- Use `activeAcademicYear` from `/institutions/me` for initial multi-institution bootstrap; use `GET /institutions/:institutionId/academic-years/active` to refresh the selected institution's current year.
 - `onboarding.nextStep` is navigation guidance only, not authorization.
 - Active non-admin memberships are usable access. Instructors, students, Heads, Coordinators, and Mentors complete onboarding with `nextStep: null`.
 - `wait_for_membership_activation` means the user has memberships but none are active.
@@ -268,9 +269,35 @@ Frontend rules:
 
 | Method | Path | Purpose | Auth / permission | Request | Success | Security notes |
 |---|---|---|---|---|---|---|
-| POST | `/institutions/:institutionId/billing/checkout-session` | Create Stripe-hosted subscription Checkout Session. | `institutionAccess()`; service requires owner or active admin. | No body. | `201 { checkoutSession: { id, url } }` | Uses `STRIPE_PRICE_BASIC_MONTHLY`; rejects duplicate active/trialing/past_due subscriptions with subscription id. |
-| GET | `/institutions/:institutionId/billing/status` | Read local billing profile. | `institutionAccess()` | No body. | `200 { billingProfile }` | Returns local Stripe ids/status projection only; no card/payment method data. |
+| POST | `/institutions/:institutionId/billing/checkout-session` | Create Stripe-hosted subscription Checkout Session. | `institutionAccess()`; service requires owner or active admin. | `{ plan: "plus" }` or `{ plan: "pro" }` only. | `201 { checkoutSession: { id, url }, billingProfile, entitlements }` | Resolves Stripe Price IDs from server-side Plus/Pro env vars; rejects duplicate active/trialing/past_due subscriptions with subscription id. |
+| POST | `/institutions/:institutionId/billing/upgrade-to-pro` | Immediately upgrade an existing Plus subscription to Pro. | `institutionAccess()`; service requires active owner or active admin. | No trusted body fields. | `200 { upgrade: { fromPlan, toPlan, status, clientSecret? } }` | Only Plus -> Pro is supported. Uses the existing Stripe subscription item, immediate proration, `payment_behavior=pending_if_incomplete`, and waits for verified webhook sync before granting Pro limits. |
+| GET | `/institutions/:institutionId/billing/status` | Read local billing profile. | `institutionAccess()`; service requires owner or active admin. | No body. | `200 { billingProfile, entitlements }` | Returns local Stripe ids/status projection plus safe normalized entitlements; no card/payment method data. |
 | POST | `/stripe/webhook` | Process Stripe webhook. | Public route, Stripe signature. | Raw `application/json` body with `Stripe-Signature`. | `200 { received, duplicate }` | Must remain before `express.json()`; verifies with `STRIPE_WEBHOOK_SECRET`; idempotent via `StripeWebhookEvent`. |
+
+Billing plan rules:
+
+- `plus` and `pro` are six-month plans with the same application features.
+- Plus uses `STRIPE_PRICE_PLUS_6_MONTH`, allows 300 active student memberships, and allows 30 active staff memberships.
+- Pro uses `STRIPE_PRICE_PRO_6_MONTH`, allows 1000 active student memberships, and allows 100 active staff memberships.
+- The backend plan catalog is authoritative. Clients never send Stripe Price IDs, Stripe Customer IDs, Stripe Subscription IDs, billing limits, paid status, or proration settings.
+- Active student seats are active `Membership` records with `role: "student"`.
+- Active staff seats are active `Membership` records with `role` in `["admin", "instructor"]`; owner admin memberships count as staff.
+- `MemberProfile`, `Enrollment`, and `ResponsibilityAssignment` records do not consume seats.
+- Paid access is granted only for known Plus/Pro plans with subscription status `active`, `trialing`, or `past_due`. `past_due` remains a temporary grace-period decision.
+- Unknown or old Stripe prices keep `plan: null` / `billingInterval: null` and grant no paid access.
+
+Plus -> Pro upgrade rules:
+
+- The upgrade endpoint does not create a Checkout Session, Customer, or second subscription.
+- The service validates local tenant billing state first: local plan must be `plus`, local subscription status must be `active`, local stored Stripe Price must match the configured Plus Price, and tenant Stripe Customer/Subscription IDs must exist.
+- The service retrieves the live Stripe subscription and requires live status `active`, `collection_method: "charge_automatically"`, no subscription schedule, one subscription item, quantity `1`, and the configured Plus Price.
+- The Stripe client is pinned to API version `2026-05-27.dahlia`. The update expands `latest_invoice.confirmation_secret`.
+- Stripe update parameters are `items: [{ id: existingSubscriptionItemId, price: trustedProPriceId }]`, `proration_behavior: "always_invoice"`, and `payment_behavior: "pending_if_incomplete"`.
+- A safe server-generated idempotency key includes institution id, subscription id, current latest-invoice marker, current Plus Price, and target Pro Price.
+- The upgrade response is `processing` when Stripe has no pending update, `payment_action_required` only when trusted payment state requires action and a safe client secret exists, `payment_failed` for declined/missing-payment-method style pending updates, and `payment_incomplete` for other pending updates.
+- Calling the upgrade endpoint never directly changes local `plan`, `stripePriceId`, subscription status, period dates, or seat limits.
+- Pro limits become available only after a verified Stripe webhook synchronizes a trusted Pro Price from Stripe.
+- `customer.subscription.created` and `customer.subscription.updated` webhooks retrieve the current Stripe subscription before updating the local billing profile, reducing stale-event regressions. `customer.subscription.deleted` applies the deletion snapshot.
 
 ### Responsibility Assignments
 
@@ -555,10 +582,10 @@ Current notification types:
 |---|---|---|---|---|
 | POST | `/institutions/:institutionId/academic-years` | JSON `name`, `startDate`, `endDate`, optional `status`. | `201 { academicYear }` | `institution.manage`; one active academic year per institution; normalized-name unique. |
 | GET | `/institutions/:institutionId/academic-years` | Query `status`, `search`/`name`, `page`, `limit`. | `200 { academicYears, pagination }` | `institution.manage`. |
-| GET | `/institutions/:institutionId/academic-years/active` | No body. | `200 { academicYear }` | `404 Active academic year not found` if none. |
-| GET | `/institutions/:institutionId/academic-years/:academicYearId` | Path `academicYearId`. | `200 { academicYear }` | Tenant-scoped. |
-| PATCH | `/institutions/:institutionId/academic-years/:academicYearId` | JSON patch `name`, dates, `status`. | `200 { academicYear }` | Archived years cannot be updated/activated. |
-| POST | `/institutions/:institutionId/academic-years/:academicYearId/archive` | No body. | `200 { academicYear }` | Status-only archive. |
+| GET | `/institutions/:institutionId/academic-years/active` | No body. | `200 { academicYear }` | Active institution membership; `404 Active academic year not found` if none. |
+| GET | `/institutions/:institutionId/academic-years/:academicYearId` | Path `academicYearId`. | `200 { academicYear }` | `institution.manage`; tenant-scoped. |
+| PATCH | `/institutions/:institutionId/academic-years/:academicYearId` | JSON patch `name`, dates, `status`. | `200 { academicYear }` | `institution.manage`; archived years cannot be updated/activated. |
+| POST | `/institutions/:institutionId/academic-years/:academicYearId/archive` | No body. | `200 { academicYear }` | `institution.manage`; status-only archive. |
 
 ### Departments
 
@@ -612,9 +639,12 @@ School-only structure module. No delete routes exist for class levels, school cl
 |---|---|---|---|---|
 | POST | `/institutions/:institutionId/members` | JSON or multipart: `email`, `role`, `profile`; optional `profilePicture`. | `201 { member }` | `membership.manage`; supports text/plain JSON and multipart `payload`/`profile` JSON strings. |
 | GET | `/institutions/:institutionId/members` | Query `role`, `status`, `search`, `page`, `limit`. | `200 { total, members }` | List response is summary shape. |
+| GET | `/institutions/:institutionId/members/me` | No body. | `200 { member }` | Self-only full member/profile read. Requires active institution membership, not `membership.manage`; missing `MemberProfile` returns `profile: null`. |
 | GET | `/institutions/:institutionId/members/:membershipId` | Path `membershipId`. | `200 { member }` | Detail response includes profile details. |
 | PATCH | `/institutions/:institutionId/members/:membershipId` | JSON or multipart profile patch; optional `profilePicture`. | `200 { member }` | Uploaded file cleaned up when service rejects. |
 | PATCH | `/institutions/:institutionId/members/:membershipId/status` | JSON `status` (`active` or `suspended`). | `200 { member }` | Does not change role. |
+
+`GET /institutions/:institutionId/members/me` uses the authenticated active membership from `institutionAccess()` and re-reads it by `_id + institutionId + userId + status=active`. It never accepts a client-supplied membership id. `MemberProfile` is loaded by `institutionId + membershipId`, and the route is registered before `/members/:membershipId` so the literal `me` is not treated as a membership id. The existing admin detail route remains protected by `membership.manage`.
 
 ### Sections
 
@@ -879,6 +909,9 @@ Authorization: Bearer <JWT_TOKEN>
 ```http
 POST /institutions/507f1f77bcf86cd799439011/billing/checkout-session
 Authorization: Bearer <JWT_TOKEN>
+Content-Type: application/json
+
+{ "plan": "plus" }
 ```
 
 ```json
@@ -886,9 +919,98 @@ Authorization: Bearer <JWT_TOKEN>
   "checkoutSession": {
     "id": "cs_test_placeholder",
     "url": "https://checkout.stripe.com/c/pay/cs_test_placeholder"
+  },
+  "billingProfile": {
+    "institutionId": "507f1f77bcf86cd799439011",
+    "stripeCustomerId": "cus_test_placeholder",
+    "stripeSubscriptionId": null,
+    "stripePriceId": "price_test_placeholder",
+    "plan": null,
+    "billingInterval": null,
+    "status": null,
+    "cancelAtPeriodEnd": false,
+    "trialEnd": null
+  },
+  "entitlements": {
+    "plan": null,
+    "billingInterval": null,
+    "subscriptionStatus": null,
+    "hasPaidAccess": false,
+    "maxActiveStudents": 0,
+    "maxActiveStaff": 0,
+    "currentPeriodStart": null,
+    "currentPeriodEnd": null,
+    "cancelAtPeriodEnd": false,
+    "trialEnd": null
   }
 }
 ```
+
+```http
+GET /institutions/507f1f77bcf86cd799439011/billing/status
+Authorization: Bearer <JWT_TOKEN>
+```
+
+```json
+{
+  "billingProfile": {
+    "institutionId": "507f1f77bcf86cd799439011",
+    "stripeCustomerId": "cus_test_placeholder",
+    "stripeSubscriptionId": "sub_test_placeholder",
+    "stripePriceId": "price_plus_6_month_placeholder",
+    "plan": "plus",
+    "billingInterval": "six_month",
+    "stripeProductId": "prod_test_placeholder",
+    "status": "active",
+    "currentPeriodStart": "2026-01-01T00:00:00.000Z",
+    "currentPeriodEnd": "2026-07-01T00:00:00.000Z",
+    "cancelAtPeriodEnd": false,
+    "trialEnd": null
+  },
+  "entitlements": {
+    "plan": "plus",
+    "billingInterval": "six_month",
+    "subscriptionStatus": "active",
+    "hasPaidAccess": true,
+    "maxActiveStudents": 300,
+    "maxActiveStaff": 30,
+    "currentPeriodStart": "2026-01-01T00:00:00.000Z",
+    "currentPeriodEnd": "2026-07-01T00:00:00.000Z",
+    "cancelAtPeriodEnd": false,
+    "trialEnd": null
+  }
+}
+```
+
+```http
+POST /institutions/507f1f77bcf86cd799439011/billing/upgrade-to-pro
+Authorization: Bearer <JWT_TOKEN>
+```
+
+```json
+{
+  "upgrade": {
+    "fromPlan": "plus",
+    "toPlan": "pro",
+    "status": "processing"
+  }
+}
+```
+
+If Stripe requires customer action for the prorated invoice, the response may include only the safe Stripe.js client secret:
+
+```json
+{
+  "upgrade": {
+    "fromPlan": "plus",
+    "toPlan": "pro",
+    "status": "payment_action_required",
+    "clientSecret": "pi_client_secret_placeholder"
+  }
+}
+```
+
+The local billing profile remains Plus until a verified Stripe webhook confirms the subscription now uses the trusted Pro Price.
 
 ### Responsibility Assignments
 

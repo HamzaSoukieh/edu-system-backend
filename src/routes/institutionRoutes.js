@@ -64,6 +64,13 @@ router.post(
     institutionAccess(),
     billingController.createCheckoutSession
 );
+router.post(
+    "/:institutionId/billing/upgrade-to-pro",
+    authJwt,
+    requireEmailVerified,
+    institutionAccess(),
+    billingController.upgradeToPro
+);
 router.get(
     "/:institutionId/billing/status",
     authJwt,
@@ -232,7 +239,6 @@ router.get(
     authJwt,
     requireEmailVerified,
     institutionAccess(),
-    requirePermission("institution.manage"),
     academicYearController.getActiveAcademicYear
 );
 router.get(
@@ -606,6 +612,13 @@ router.get(
     institutionAccess(),
     requirePermission("membership.manage"),
     memberController.listMembers
+);
+router.get(
+    "/:institutionId/members/me",
+    authJwt,
+    requireEmailVerified,
+    institutionAccess(),
+    memberController.getMyMemberProfile
 );
 router.get(
     "/:institutionId/members/:membershipId",

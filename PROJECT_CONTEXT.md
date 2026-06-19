@@ -95,7 +95,7 @@
   - does not automatically move students to the next class level
 - `InstitutionBillingProfile`
   - tenant-scoped Stripe Billing profile for one institution
-  - stores Stripe customer/subscription ids and local subscription status projection
+  - stores Stripe customer/subscription/product/price ids, selected server-resolved plan projection, billing interval, period dates, and local subscription status projection
 - `StripeWebhookEvent`
   - processed Stripe webhook event ids for idempotency
   - prevents duplicate webhook processing
@@ -283,10 +283,15 @@
     - non-PDF/link/video material sources and notifications are deferred
 - Billing / Institution Subscriptions
   - Phase 1 Stripe Billing support for institution subscriptions
-  - admin/owner can create a Stripe-hosted subscription Checkout Session
-  - local billing status reads from `InstitutionBillingProfile`
-  - Stripe webhooks update subscription status and store processed event ids
-  - Stripe Connect, student payments, global access gating, and plan limits are not added
+  - admin/owner can create a Stripe-hosted subscription Checkout Session for `plus` or `pro`
+  - Plus and Pro have identical application feature access in V1
+  - the only V1 plan differences are Stripe price and active student/staff Membership limits
+  - local billing status reads from `InstitutionBillingProfile` and returns normalized safe entitlements
+  - Stripe webhooks update subscription plan/status/period projection and store processed event ids
+  - member-management writes enforce active student/staff hard limits when a transition increases active seat usage
+  - active Plus subscriptions can request an immediate prorated Plus-to-Pro upgrade through the existing Stripe subscription
+  - upgrade state remains webhook-authoritative; Pro limits are not granted until verified Stripe webhook synchronization stores the Pro Price/plan
+  - Stripe Connect, student payments, broad global access gating, downgrades, Customer Portal, and broader plan-change flows are not added
 - University Academic Policy / Self-Enrollment Foundation
   - admin create/list/get/update for institution-level university academic policy
   - implementation files use university-prefixed service/controller names while keeping existing public `/academic-policies` routes stable

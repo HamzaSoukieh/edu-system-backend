@@ -3,6 +3,7 @@ const mongoose = require("mongoose");
 const Membership = require("../models/Membership");
 const MemberProfile = require("../models/MemberProfile");
 const User = require("../models/User");
+const { assertMembershipSeatTransitionAllowed } = require("./billingEntitlementService");
 const { sendMemberAccountCreatedEmail } = require("./emailService");
 
 const DEFAULT_SALT_ROUNDS = 10;
@@ -39,6 +40,24 @@ function isValidEmail(value) {
 
 function isValidObjectId(value) {
     return Boolean(value) && mongoose.Types.ObjectId.isValid(value);
+}
+
+function normalizeId(value) {
+    if (value === undefined || value === null) {
+        return null;
+    }
+
+    if (typeof value === "string") {
+        const trimmed = value.trim();
+        return trimmed || null;
+    }
+
+    if (typeof value.toString === "function") {
+        const normalized = value.toString().trim();
+        return normalized || null;
+    }
+
+    return null;
 }
 
 function isDuplicateKeyError(error) {
@@ -420,6 +439,10 @@ function toMemberProfileSummary(profile) {
 }
 
 function toMemberProfileDetails(profile) {
+    if (!profile) {
+        return null;
+    }
+
     return {
         firstName: profile.firstName,
         lastName: profile.lastName,
@@ -595,6 +618,15 @@ async function createMember({ institutionId, createdByUserId, payload }) {
         }
     }
 
+    await assertMembershipSeatTransitionAllowed({
+        institutionId,
+        sourceMembership: null,
+        destinationMembership: {
+            role,
+            status: "active",
+        },
+    });
+
     const configuredRounds = Number(process.env.BCRYPT_SALT_ROUNDS);
     const saltRounds =
         Number.isInteger(configuredRounds) && configuredRounds > 0 ? configuredRounds : DEFAULT_SALT_ROUNDS;
@@ -623,6 +655,15 @@ async function createMember({ institutionId, createdByUserId, payload }) {
     let createdProfile = null;
 
     try {
+        await assertMembershipSeatTransitionAllowed({
+            institutionId,
+            sourceMembership: null,
+            destinationMembership: {
+                role,
+                status: "active",
+            },
+        });
+
         createdMembership = await Membership.create({
             userId: existingUser._id,
             institutionId,
@@ -790,6 +831,67 @@ async function getMemberById({ institutionId, membershipId }) {
     };
 }
 
+async function getMyMemberProfile({ institutionId, actorUser, actorMembership }) {
+    if (!institutionId || !isValidObjectId(institutionId)) {
+        throw createError(400, "Invalid institution context");
+    }
+
+    const actorUserId = normalizeId(actorUser?.id || actorUser?._id);
+    if (!actorUserId || !isValidObjectId(actorUserId)) {
+        throw createError(401, "Unauthorized");
+    }
+
+    const actorMembershipId = normalizeId(actorMembership?._id);
+    const actorMembershipUserId = normalizeId(actorMembership?.userId);
+    const actorMembershipInstitutionId = normalizeId(actorMembership?.institutionId);
+
+    if (!actorMembershipId || !isValidObjectId(actorMembershipId)) {
+        throw createError(403, "Institution access denied");
+    }
+
+    if (
+        actorMembershipUserId !== actorUserId ||
+        actorMembershipInstitutionId !== normalizeId(institutionId) ||
+        actorMembership.status !== "active"
+    ) {
+        throw createError(403, "Institution access denied");
+    }
+
+    const membership = await Membership.findOne({
+        _id: actorMembershipId,
+        institutionId,
+        userId: actorUserId,
+        status: "active",
+    })
+        .select("_id userId institutionId role status joinedAt")
+        .populate({
+            path: "userId",
+            select: "_id email status isEmailVerified",
+        })
+        .lean();
+
+    if (!membership) {
+        throw createError(403, "Institution access denied");
+    }
+
+    if (!membership.userId || typeof membership.userId !== "object" || !membership.userId._id) {
+        throw createError(404, "Member user not found");
+    }
+
+    const profile = await MemberProfile.findOne({
+        institutionId,
+        membershipId: membership._id,
+    })
+        .select(
+            "firstName lastName fatherName motherName birthPlace birthDate gender nationality nationalNumber mobile profilePictureUrl fullName"
+        )
+        .lean();
+
+    return {
+        member: toMemberDetailsResponse({ membership, profile }),
+    };
+}
+
 async function updateMember({ institutionId, membershipId, payload }) {
     if (!institutionId || !isValidObjectId(institutionId)) {
         throw createError(400, "Invalid institution context");
@@ -850,6 +952,15 @@ async function updateMember({ institutionId, membershipId, payload }) {
         }
 
         if (updates.role && updates.role !== memberRecord.membership.role) {
+            await assertMembershipSeatTransitionAllowed({
+                institutionId,
+                sourceMembership: memberRecord.membership,
+                destinationMembership: {
+                    ...memberRecord.membership,
+                    role: updates.role,
+                },
+            });
+
             await Membership.updateOne(
                 {
                     _id: membershipId,
@@ -902,6 +1013,26 @@ async function updateMemberStatus({ institutionId, membershipId, payload }) {
 
     const { status } = validateUpdateMemberStatusInput(payload);
 
+    const existingMembership = await Membership.findOne({
+        _id: membershipId,
+        institutionId,
+    })
+        .select("_id institutionId role status")
+        .lean();
+
+    if (!existingMembership) {
+        throw createError(404, "Member not found");
+    }
+
+    await assertMembershipSeatTransitionAllowed({
+        institutionId,
+        sourceMembership: existingMembership,
+        destinationMembership: {
+            ...existingMembership,
+            status,
+        },
+    });
+
     const membership = await Membership.findOneAndUpdate(
         {
             _id: membershipId,
@@ -935,6 +1066,7 @@ module.exports = {
     createMember,
     listMembers,
     getMemberById,
+    getMyMemberProfile,
     updateMember,
     updateMemberStatus,
 };
