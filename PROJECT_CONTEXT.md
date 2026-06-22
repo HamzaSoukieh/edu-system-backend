@@ -514,3 +514,11 @@
 - Verify pagination for class promotion summaries if school classes become large; current summary returns the assigned class roster in one response.
 - Verify student/parent report-card access later; current read-only report-card routes are admin/staff-only through `class.manage`.
 - Verify future automatic next-year placement/class assignment after final outcomes are reviewed; current finalization never moves students.
+
+## Self-Hosted Deployment
+- Development remains on `Dockerfile.dev` and `docker-compose.yml`, including Nodemon, published local MongoDB access, and Stripe CLI.
+- The separate `compose.selfhosted.yml` runs one production backend behind Nginx with authenticated local MongoDB.
+- Nginx alone publishes ports 80/443; backend and MongoDB have no published production ports.
+- Production has a minimal public `GET /health`, trusts exactly one Nginx proxy hop, and excludes automatic localhost CORS origins.
+- MongoDB data, public uploads, and private storage persist in named local volumes; this topology is limited to one server and one backend replica.
+- `SELF_HOSTED_DEPLOYMENT.md` is the operational source for ACME bootstrap, HTTPS activation, renewal, backups, and rollback.

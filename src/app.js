@@ -8,7 +8,11 @@ const stripeWebhookController = require("./controllers/stripeWebhookController")
 
 const app = express();
 
-const DEFAULT_ALLOWED_ORIGINS = ["http://localhost:5173", "http://localhost:3000"];
+if (process.env.NODE_ENV === "production") {
+    app.set("trust proxy", 1);
+}
+
+const DEVELOPMENT_ALLOWED_ORIGINS = ["http://localhost:5173", "http://localhost:3000"];
 
 function parseAllowedOrigins() {
     const configuredOrigins = [process.env.FRONTEND_URL, process.env.FRONTEND_URLS]
@@ -17,7 +21,11 @@ function parseAllowedOrigins() {
         .map((origin) => origin.trim())
         .filter(Boolean);
 
-    return [...new Set([...configuredOrigins, ...DEFAULT_ALLOWED_ORIGINS])];
+    const defaultOrigins = process.env.NODE_ENV === "production"
+        ? []
+        : DEVELOPMENT_ALLOWED_ORIGINS;
+
+    return [...new Set([...configuredOrigins, ...defaultOrigins])];
 }
 
 const allowedOrigins = parseAllowedOrigins();
@@ -37,6 +45,9 @@ app.use(
 app.post("/stripe/webhook", express.raw({ type: "application/json" }), stripeWebhookController.handleStripeWebhook);
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
+app.get("/health", (_req, res) => {
+    return res.status(200).json({ status: "ok" });
+});
 app.use("/uploads", express.static(path.join(__dirname, "..", "uploads")));
 app.use("/auth", authRoutes);
 app.use("/institutions", institutionRoutes);

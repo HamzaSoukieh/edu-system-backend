@@ -629,3 +629,16 @@
 - Institution-fixed billing queries reject a query-string `institutionId` instead of ignoring or overriding the route institution.
 - Authorized operation failures attempt one sanitized `PlatformAuditLog` record with `result=failed` and stable `errorCode=PLATFORM_OPERATION_FAILED`. Audit-write failure never replaces the original operation error; no application logger exists to report it separately.
 - Permission middleware remains responsible for denied audits, so service authorization rejection is not duplicated as an operation failure.
+
+## D062 - Self-Hosted Production Is Additive And Nginx-Only At The Public Edge
+- Status: Confirmed
+- Decision: Keep the existing Nodemon/Mongo/Stripe-CLI development topology unchanged and add a separate single-server production Compose topology.
+- Notes:
+  - Only Nginx publishes host ports, limited to 80 and 443; backend port 5000 and MongoDB port 27017 remain Docker-internal.
+  - Production Express trusts exactly one proxy hop because Nginx is the only public path to the backend.
+  - MongoDB requires root authentication and persists to a named local volume; the backend connects through `mongo:27017` with `authSource=admin`.
+  - Public uploads and authorization-gated private storage use separate named local volumes suitable for one server and one backend replica only.
+  - The backend keeps outbound access for Stripe/email while MongoDB stays on an internal network.
+  - The Stripe webhook path, raw-body parsing order, signature verification, and billing behavior remain unchanged.
+  - HTTPS uses an HTTP-only ACME bootstrap followed by an operator-activated certificate-dependent Nginx configuration.
+  - Docker volumes are not backups; MongoDB, file, and certificate backups must be copied off-server.

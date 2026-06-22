@@ -1036,3 +1036,15 @@ Key result:
 - authorized failures create sanitized best-effort failed audit records without masking original errors
 - route tests prove exact permission mapping and `/platform` mounting; controller tests prove plain trusted arguments and ignore tenant/client actor fields
 - no platform write routes, tenant authority reuse, or new dependencies were added
+
+# 2026-06-20 Separate Self-Hosted Nginx Deployment
+
+Add an additive single-server production topology using Nginx, Certbot, one backend replica, and authenticated local MongoDB while preserving the development Docker/Nodemon/Mongo/Stripe-CLI workflow.
+
+Key result:
+- only Nginx publishes production ports 80/443
+- backend and MongoDB stay un-published on a private Docker network
+- production Express trusts one proxy hop, exposes minimal `/health`, and does not add localhost CORS origins
+- Stripe raw-body webhook ordering and all platform/tenant authorization behavior remain unchanged
+- named volumes persist MongoDB, public uploads, and private files for the documented one-server/one-replica boundary
+- HTTP ACME bootstrap, HTTPS activation, renewal, backups, troubleshooting, and rollback are documented

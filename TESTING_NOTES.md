@@ -2279,3 +2279,15 @@
 - Full repository result after hardening: 694 passed, 0 failed, 0 skipped, 0 todo.
 - Failed-audit policy: preserve the original operation error; best-effort failed-audit write errors are swallowed because the repository has no shared application logger.
 - 2026-06-20 Docker smoke fix: corrected the platform Membership aggregation `$project` to avoid mixing exclusion and inclusion projection forms, which real MongoDB rejects even though mocked unit aggregations do not execute the pipeline. Focused platform result remained 63 passed, 0 failed.
+
+# 2026-06-20 Self-Hosted Nginx Deployment
+- Added `test/self-hosted-deployment.test.js` covering exact production proxy trust, unchanged development proxy/CORS behavior, minimal public health response, production CORS, server host binding, Compose exposure/networks/volumes, Mongo placeholders, Nginx headers/limits/rate-limit scope, TLS example settings, Dockerfile hardening, and ignore rules.
+- Confirmed the existing billing route-order test still proves `/stripe/webhook` uses the raw parser before general JSON parsing.
+- `node --check src/app.js`, `node --check src/server.js`, and `node --check test/self-hosted-deployment.test.js` passed.
+- Focused deployment result: 9 passed, 0 failed.
+- Focused deployment + billing + platform regression result before the final static-test addition: 116 passed, 1 failed due to an overly strict ignore assertion; the ignore entry was made explicit and the corrected focused deployment suite passed.
+- Full repository result after implementation: 703 passed, 0 failed, 0 skipped, 0 todo (`node --test`).
+- `docker compose -f compose.selfhosted.yml config` passed using `.env.selfhosted.example` through the validation-only `SELFHOSTED_ENV_FILE` override; the tools-profile service list included mongo, backend, certbot, and nginx.
+- `git diff --check` passed apart from informational Windows LF-to-CRLF conversion warnings.
+- Docker image build and containerized Nginx syntax validation could not run because the Docker Desktop Linux daemon was not running (`dockerDesktopLinuxEngine` pipe unavailable).
+- TODO/verify on a Docker host: run the production image build, validate bootstrap Nginx with `nginx -t`, start authenticated MongoDB from a fresh volume, and exercise the documented HTTP/HTTPS smoke path.

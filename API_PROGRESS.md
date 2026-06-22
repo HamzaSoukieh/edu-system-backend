@@ -1036,6 +1036,12 @@
 - Keep this file easy to update after each work session.
 - If a module is partially built, list the exact completed endpoints under `In Progress`.
 - If something is uncertain, add `TODO/verify` instead of guessing.
+
+# Self-Hosted Deployment Support (2026-06-20)
+- Added public unauthenticated `GET /health` returning only `{ "status": "ok" }`.
+- Added production-only one-hop proxy trust and production CORS behavior that does not automatically include localhost.
+- Added a separate production Dockerfile, authenticated local-Mongo Compose topology, Nginx HTTP bootstrap/HTTPS example, Certbot profile, persistent volumes, and deployment runbook.
+- Existing API paths, tenant/platform authorization, Stripe billing logic, and development Docker workflow remain unchanged.
 # Provider Control Plane Phase 1 (2026-06-19)
 - Added protected read-only `/platform` routes using `authJwt`, `requireEmailVerified`, `resolvePlatformAdmin`, and one explicit platform permission per route.
 - Added institution list/detail/billing, failed-webhook, and platform-audit endpoints.

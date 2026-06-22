@@ -1,9 +1,13 @@
 node_modules/
 .env
 .env.*
+.env.selfhosted
 !.env.example
 !.env.docker.example
 !.env.production.example
+!.env.selfhosted.example
+certbot/conf/
+certbot/www/
 uploads/
 storage/
 postman/*.local.postman_environment.json
