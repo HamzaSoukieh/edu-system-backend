@@ -2291,3 +2291,12 @@
 - `git diff --check` passed apart from informational Windows LF-to-CRLF conversion warnings.
 - Docker image build and containerized Nginx syntax validation could not run because the Docker Desktop Linux daemon was not running (`dockerDesktopLinuxEngine` pipe unavailable).
 - TODO/verify on a Docker host: run the production image build, validate bootstrap Nginx with `nginx -t`, start authenticated MongoDB from a fresh volume, and exercise the documented HTTP/HTTPS smoke path.
+## Background Email Queue
+
+- Focused automated coverage: `node --test test/email-queue.test.js`
+- Run development API + MongoDB + private Redis + worker: `docker compose up --build`
+- Run worker outside Compose with `EMAIL_QUEUE_ENABLED=true`, reachable `MONGO_URI`/`REDIS_URL`, and SMTP settings: `npm run worker:email`.
+- `EMAIL_WORKER_CONCURRENCY` defaults to `2`; invalid values fall back to `2`.
+- Queue-disabled producer behavior is covered and does not invoke Redis.
+- Queue tests cover payload trimming, unknown-key rejection, invalid Redis URL port/database parsing, deterministic safe-delimiter job ids, worker-side invalid-payload skips, invalid-date skips, and SMTP failures surfacing for BullMQ retry.
+- OTP regression asserts auth continues to await the existing synchronous email helper directly.

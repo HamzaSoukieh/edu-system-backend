@@ -1056,3 +1056,12 @@
 - Fixed institution billing queries reject query-string `institutionId`; the route parameter remains authoritative.
 - Authorized service failures create sanitized best-effort failed audit records while preserving the original response error.
 - Exact five-route permission mapping, `/platform` mount, controller trust boundaries, and absence of write routes are covered by focused tests.
+## Phase 1 Background Email Queue
+
+- Added private persistent Redis services to development and self-hosted Compose.
+- Added one BullMQ email queue and dedicated MongoDB-connected email worker.
+- Homework assignment, assessment announcement/result publication, and session cancellation now enqueue deterministic ID-only jobs.
+- Queue producer and worker now validate/trim ID-only payloads, reject invalid Redis URL ports/database paths, and preserve deterministic `~`-delimited job IDs.
+- Worker reloads current tenant-scoped records and safely skips invalid events, invalid dates, invalid payloads, or recipients.
+- Signup/email verification/password reset OTP behavior remains synchronous.
+- TODO/verify: MongoDB outbox / email delivery log remains deferred for stronger atomicity and crash-after-send idempotency.

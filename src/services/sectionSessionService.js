@@ -8,11 +8,12 @@ const SectionSession = require("../models/SectionSession");
 const Semester = require("../models/Semester");
 const Subject = require("../models/Subject");
 const User = require("../models/User");
+const emailQueue = require("../queues/emailQueue");
+const { EMAIL_JOB_TYPES } = require("../queues/emailQueueNames");
 const {
     hasResponsibilityPermissionWithinScope,
     isResponsibilityAssignmentActiveNow,
 } = require("../auth/scopedResponsibilities");
-const { sendSectionSessionStatusUpdatedEmail } = require("./emailService");
 
 const DAY_LABELS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
 const DAY_KEYS = DAY_LABELS.map((day) => day.toLowerCase());
@@ -876,7 +877,7 @@ async function ensureCanManageSectionSession({
     };
 }
 
-async function notifyCancelledSectionSessionStudents({
+async function enqueueCancelledSectionSessionStudentJobs({
     institutionId,
     sectionId,
     sectionSession,
@@ -903,62 +904,44 @@ async function notifyCancelledSectionSessionStudents({
     const memberships = await Membership.find({
         _id: { $in: studentMemberIds },
         institutionId,
+        role: "student",
         status: MEMBER_ACTIVE_STATUS,
     })
-        .select("_id userId")
+        .select("_id")
         .lean();
 
     if (!memberships.length) {
         return;
     }
 
-    const userIds = [...new Set(memberships.map((membership) => normalizeId(membership.userId)).filter(Boolean))];
-    if (!userIds.length) {
-        return;
+    const enqueueResults = await Promise.all(memberships.map((membership) => emailQueue.enqueueEmailJob({
+        institutionId,
+        entityId: sectionSession._id,
+        recipientMembershipId: membership._id,
+        emailType: EMAIL_JOB_TYPES.SESSION_CANCELLED,
+    })));
+    const notQueued = enqueueResults.filter((result) => result && !result.queued);
+    if (notQueued.length) {
+        console.warn("Some session cancellation email jobs were not queued", {
+            institutionId: normalizeId(institutionId),
+            entityId: normalizeId(sectionSession?._id),
+            count: notQueued.length,
+            reasons: [...new Set(notQueued.map((result) => result?.reason || "unknown"))],
+        });
+        // TODO/verify: add a MongoDB outbox for durable non-critical email delivery after writes.
     }
+}
 
-    const users = await User.find({
-        _id: { $in: userIds },
-        email: { $exists: true, $nin: [null, ""] },
-    })
-        .select("_id email")
-        .lean();
-
-    if (!users.length) {
-        return;
+async function notifyCancelledSectionSessionStudents(input) {
+    try {
+        await enqueueCancelledSectionSessionStudentJobs(input);
+    } catch (error) {
+        console.error("Failed to prepare session cancellation email jobs", {
+            institutionId: normalizeId(input.institutionId),
+            entityId: normalizeId(input.sectionSession?._id),
+            error: error?.message || error,
+        });
     }
-
-    const emailRecipients = [...new Set(users.map((user) => normalizeString(user.email)).filter(Boolean))];
-    if (!emailRecipients.length) {
-        return;
-    }
-
-    const emailResults = await Promise.allSettled(
-        emailRecipients.map((email) =>
-            sendSectionSessionStatusUpdatedEmail({
-                to: email,
-                subjectName: subject.name,
-                subjectCode: subject.code,
-                sectionCode: section.code,
-                sectionTitle: section.title || null,
-                sessionDate: formatDateOnly(new Date(sectionSession.sessionDate)),
-                startTime: sectionSession.startTime,
-                endTime: sectionSession.endTime,
-                room: sectionSession.room || null,
-                status: sectionSession.status,
-                note: sectionSession.statusNote || null,
-            })
-        )
-    );
-
-    emailResults.forEach((result, index) => {
-        if (result.status === "rejected") {
-            console.error("Failed to send section session status email", {
-                email: emailRecipients[index],
-                error: result.reason?.message || result.reason,
-            });
-        }
-    });
 }
 
 async function createSectionSession({ institutionId, sectionId, createdByUserId, actorMembership, payload }) {

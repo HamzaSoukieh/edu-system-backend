@@ -9,10 +9,8 @@ const Section = require("../models/Section");
 const SectionSession = require("../models/SectionSession");
 const Subject = require("../models/Subject");
 const User = require("../models/User");
-const {
-    sendAssessmentAnnouncedEmail,
-    sendAssessmentResultsPublishedEmail,
-} = require("./emailService");
+const emailQueue = require("../queues/emailQueue");
+const { EMAIL_JOB_TYPES } = require("../queues/emailQueueNames");
 const { ensureCanChangeSectionSessionStatus } = require("./sectionSessionService");
 
 const ASSESSMENT_TYPES = ["quiz", "assignment", "midterm", "final", "project", "practical", "oral", "other"];
@@ -766,7 +764,7 @@ function sortStudentItems(left, right) {
     return left.studentMemberId.localeCompare(right.studentMemberId);
 }
 
-async function notifyAssessmentStudents({
+async function enqueueAssessmentStudentJobs({
     institutionId,
     sectionId,
     section,
@@ -797,77 +795,64 @@ async function notifyAssessmentStudents({
         role: "student",
         status: "active",
     })
-        .select("_id userId")
+        .select("_id")
         .lean();
 
     if (!memberships.length) {
         return;
     }
 
-    const userIds = [...new Set(memberships.map((membership) => normalizeId(membership.userId)).filter(Boolean))];
-    if (!userIds.length) {
-        return;
+    let entityIdByMembershipId = new Map();
+    if (notificationType === "published") {
+        const results = await AssessmentResult.find({
+            institutionId,
+            assessmentId: assessment._id,
+            studentMemberId: { $in: memberships.map((membership) => membership._id) },
+        }).select("_id studentMemberId").lean();
+        entityIdByMembershipId = new Map(results.map((result) => [
+            normalizeId(result.studentMemberId),
+            result._id,
+        ]));
     }
 
-    const users = await User.find({
-        _id: { $in: userIds },
-        email: { $exists: true, $nin: [null, ""] },
-    })
-        .select("_id email")
-        .lean();
-
-    if (!users.length) {
-        return;
+    const enqueueResults = await Promise.all(memberships.map((membership) => {
+        const entityId = notificationType === "announced"
+            ? assessment._id
+            : entityIdByMembershipId.get(normalizeId(membership._id));
+        if (!entityId) return null;
+        return emailQueue.enqueueEmailJob({
+            institutionId,
+            entityId,
+            recipientMembershipId: membership._id,
+            emailType: notificationType === "announced"
+                ? EMAIL_JOB_TYPES.ASSESSMENT_ANNOUNCEMENT
+                : EMAIL_JOB_TYPES.ASSESSMENT_RESULT,
+        });
+    }));
+    const notQueued = enqueueResults.filter((result) => result && !result.queued);
+    if (notQueued.length) {
+        console.warn("Some assessment email jobs were not queued", {
+            institutionId: normalizeId(institutionId),
+            entityId: normalizeId(assessment?._id),
+            notificationType,
+            count: notQueued.length,
+            reasons: [...new Set(notQueued.map((result) => result?.reason || "unknown"))],
+        });
+        // TODO/verify: add a MongoDB outbox for durable non-critical email delivery after writes.
     }
+}
 
-    const userById = new Map(users.map((user) => [user._id.toString(), user]));
-    const emailRecipients = [
-        ...new Set(
-            memberships
-                .map((membership) => {
-                    const user = membership.userId ? userById.get(membership.userId.toString()) || null : null;
-                    return normalizeString(user?.email);
-                })
-                .filter(Boolean)
-        ),
-    ];
-
-    if (!emailRecipients.length) {
-        return;
+async function notifyAssessmentStudents(input) {
+    try {
+        await enqueueAssessmentStudentJobs(input);
+    } catch (error) {
+        console.error("Failed to prepare assessment email jobs", {
+            institutionId: normalizeId(input.institutionId),
+            entityId: normalizeId(input.assessment?._id),
+            notificationType: input.notificationType,
+            error: error?.message || error,
+        });
     }
-
-    const sendEmail =
-        notificationType === "announced"
-            ? sendAssessmentAnnouncedEmail
-            : sendAssessmentResultsPublishedEmail;
-    const emailPayload = {
-        subjectName: subject.name,
-        subjectCode: subject.code,
-        sectionCode: section.code,
-        sectionTitle: section.title || null,
-        assessmentTitle: assessment.title,
-        assessmentType: assessment.type,
-        assessmentDate: formatDateOnly(new Date(assessment.assessmentDate)),
-    };
-
-    const emailResults = await Promise.allSettled(
-        emailRecipients.map((email) =>
-            sendEmail({
-                to: email,
-                ...emailPayload,
-            })
-        )
-    );
-
-    emailResults.forEach((result, index) => {
-        if (result.status === "rejected") {
-            console.error("Failed to send assessment notification email", {
-                email: emailRecipients[index],
-                notificationType,
-                error: result.reason?.message || result.reason,
-            });
-        }
-    });
 }
 
 async function ensureStaffCanManageSectionAssessments({

@@ -5,6 +5,8 @@
   "scripts": {
     "start": "node src/server.js",
     "dev": "nodemon src/server.js",
+    "worker:email": "node src/workers/emailWorker.js",
+    "dev:worker:email": "nodemon src/workers/emailWorker.js",
     "seed:dev": "node scripts/seed-dev.js",
     "seed:dev:reset": "node scripts/seed-dev.js --reset",
     "platform:create-owner": "node scripts/create-platform-owner.js"
@@ -15,6 +17,7 @@
   "description": "",
   "dependencies": {
     "bcrypt": "^6.0.0",
+    "bullmq": "^5.79.1",
     "cors": "^2.8.6",
     "dotenv": "^17.3.1",
     "express": "^5.2.1",

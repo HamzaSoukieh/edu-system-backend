@@ -1,6 +1,6 @@
 # Edu SaaS Backend API Documentation
 
-Generated from the repository code on 2026-06-18. This documentation covers only endpoints mounted in `src/app.js`, `src/routes/authRoutes.js`, and `src/routes/institutionRoutes.js`. When exact behavior is broad or product-dependent, it is marked TODO/VERIFY instead of guessed.
+Generated from the repository code on 2026-06-22. This documentation covers endpoints mounted in `src/app.js`, `src/routes/authRoutes.js`, `src/routes/institutionRoutes.js`, and `src/routes/platformRoutes.js`. When exact behavior is broad or product-dependent, it is marked TODO/VERIFY instead of guessed.
 
 ## Overview
 
@@ -20,6 +20,7 @@ Route files inspected:
 - `src/server.js`
 - `src/routes/authRoutes.js`
 - `src/routes/institutionRoutes.js`
+- `src/routes/platformRoutes.js`
 
 Supporting code inspected:
 
@@ -114,27 +115,179 @@ Mentor assignments have no effective operational or academic permissions yet.
 
 Do not activate future scoped permissions such as `studentProfile.read_scope`, `attendance.excuse_manage_scope`, `academicDecision.review_scope`, `enrollment.review_scope`, or `studentDropRisk.review_scope` until service-level enforcement exists.
 
-## Provider Control Plane Phase 1
+## Platform Provider Control Plane APIs
 
-Provider authority is separate from tenant membership: `User -> PlatformAdmin -> platform role -> platform permissions`. An active verified User with an active `platform_owner` can use provider routes without a tenant Membership; tenant admin membership alone grants no provider access.
+The `/platform` namespace is a provider-level, read-only control plane. Platform authority is separate from tenant membership:
 
-All provider routes use `authJwt`, `requireEmailVerified`, `resolvePlatformAdmin`, and an explicit platform permission. They do not use `institutionAccess()`.
+```text
+User -> PlatformAdmin -> platform role -> platform permissions
+```
 
-| Method | Path | Permission | Result |
-|---|---|---|---|
-| GET | `/platform/institutions` | `platform.institutions.read` | `{ items, pagination }`; page, limit, status, type, search, plan, subscriptionStatus filters. |
-| GET | `/platform/institutions/:institutionId` | `platform.institutions.read` | Provider summary; Stripe ids require `platform.billing.read`. |
-| GET | `/platform/institutions/:institutionId/billing` | `platform.billing.read` | Billing projection, canonical seats, sync state, and failed webhooks. |
-| GET | `/platform/webhook-events` | `platform.webhooks.read` | Failed summaries only; no raw payload. |
-| GET | `/platform/audit` | `platform.audit.read` | Immutable allowlisted provider audit records. |
+An active, email-verified User with an active `PlatformAdmin` record can use these APIs without a tenant Membership. Conversely, an institution owner or tenant admin receives no platform access merely from their Membership.
 
-Phase 1 performs no tenant or billing-data mutation. Sensitive reads create `PlatformAuditLog` records. Stripe remains authoritative and views use local webhook-synchronized state. Replay, live reconciliation, suspension, impersonation/support access, and role management are absent. MFA remains required production hardening but is not implemented.
+### Platform role and permissions
 
-Platform response visibility is permission-shaped. Institution list/detail always include safe institution identity and aggregate counts. `platform.billing.read` adds `billing` and `seatUsage`; `platform.webhooks.read` adds `billingSync`. The institution billing route omits `billingSync` and `failedWebhooks` unless webhook read is also granted. Billing-route query strings cannot provide `institutionId`; the route parameter is the only institution source.
+Phase 1 supports one platform role:
 
-Platform services re-read the active PlatformAdmin and derive permissions from its stored role for defense in depth. Authorized operation failures attempt a sanitized `result=failed` audit entry with a stable error category and never store raw errors, stacks, request bodies, or secrets.
+| Role | Permissions |
+|---|---|
+| `platform_owner` | `platform.institutions.read`, `platform.billing.read`, `platform.webhooks.read`, `platform.audit.read` |
 
-Billing synchronization states are `synced`, `missing_profile`, `missing_customer_mapping`, `missing_subscription_mapping`, `unknown_plan`, `unknown_price`, `webhook_failed`, `stale`, or `unknown`. A mapped profile is `stale` when no successful correlated webhook exists within seven days. Historical webhook rows without institution correlation remain global rather than being guessed into a tenant.
+Every platform request passes through this sequence:
+
+1. `authJwt` verifies the bearer JWT and loads an active User.
+2. `requireEmailVerified` rejects unverified Users.
+3. `resolvePlatformAdmin` loads an active `PlatformAdmin` for the same User and derives permissions from the backend role catalog.
+4. `requirePlatformPermission(...)` checks the route-specific permission.
+5. The service re-reads the active PlatformAdmin and permission catalog before accessing provider data.
+6. The operation writes a sanitized `PlatformAuditLog` success or failure record. Permission denials are audited on a best-effort basis.
+
+Platform routes never use `institutionAccess()` and never trust a tenant Membership as provider authority.
+
+### Platform owner setup and frontend flow
+
+There is intentionally no HTTP endpoint for granting platform authority. Create the first owner through the trusted CLI after the User exists and is active and email-verified:
+
+```bash
+npm run platform:create-owner -- --email owner@example.test
+```
+
+Recommended client/operations flow:
+
+1. Seed or create the active verified User.
+2. Run `platform:create-owner` once. It refuses missing/ineligible Users and duplicate PlatformAdmin records.
+3. Log in through `POST /auth/login` with the platform owner's normal User credentials.
+4. Store the returned `accessToken` and send `Authorization: Bearer <accessToken>` to `/platform/...`.
+5. Load `GET /platform/institutions` for the control-plane landing page.
+6. Open `GET /platform/institutions/:institutionId` for institution operations detail.
+7. Open `/billing`, `/webhook-events`, or `/audit` only for the corresponding operational screen.
+8. Treat `401` as an invalid/expired login and `403` as missing platform authority or permission. Do not fall back to tenant-admin authorization.
+
+Local Postman flow is documented in `postman/PLATFORM_CONTROL_PLANE_POSTMAN_GUIDE.md` and uses:
+
+- `postman/platform-control-plane.postman_collection.json`
+- `postman/platform-control-plane.local.postman_environment.json`
+
+### Platform endpoint summary
+
+All endpoints require `Authorization: Bearer <accessToken>`. Pagination defaults to `page=1&limit=25`; `limit` must be between 1 and 100. Unexpected query fields return `400`.
+
+| Method | Path | Permission | Query fields | Response |
+|---|---|---|---|---|
+| GET | `/platform/institutions` | `platform.institutions.read` | `page`, `limit`, `status`, `type`, `search`, `plan`, `subscriptionStatus` | `{ items, pagination }` |
+| GET | `/platform/institutions/:institutionId` | `platform.institutions.read` | None | `{ institution, counts, billing?, seatUsage?, billingSync? }` |
+| GET | `/platform/institutions/:institutionId/billing` | `platform.billing.read` | `page`, `limit`, `eventType`, `status`, `stripeEventId`, `dateFrom`, `dateTo` | `{ institutionId, billing, seatUsage, billingSync?, failedWebhooks? }` |
+| GET | `/platform/webhook-events` | `platform.webhooks.read` | `page`, `limit`, `eventType`, `status`, `institutionId`, `stripeEventId`, `dateFrom`, `dateTo` | `{ items, pagination }` |
+| GET | `/platform/audit` | `platform.audit.read` | `page`, `limit`, `actorPlatformAdminId`, `action`, `targetType`, `targetId`, `institutionId`, `result`, `dateFrom`, `dateTo` | `{ items, pagination }` |
+
+Allowed filter enums:
+
+- Institution `status`: `active`, `archived`.
+- Institution `type`: `school`, `university`.
+- Billing `plan`: `plus`, `pro`.
+- Subscription status: `incomplete`, `trialing`, `active`, `past_due`, `canceled`, `unpaid`, `incomplete_expired`, `paused`.
+- Audit `result`: `success`, `denied`, `failed`.
+- Webhook `status`, when supplied, must be `failed`; this API never exposes processed webhook payloads.
+
+`dateFrom` and `dateTo` accept ISO dates/timestamps and are inclusive when a date-only `dateTo` is supplied. `dateFrom` must not be later than `dateTo`.
+
+### `GET /platform/institutions`
+
+Returns safe institution identity and aggregate active-membership counts. Billing filters require `platform.billing.read`. The returned fields are permission-shaped: billing permission adds `billing` and `seatUsage`, while webhook permission adds `billingSync`.
+
+```json
+{
+  "items": [
+    {
+      "institutionId": "507f1f77bcf86cd799439011",
+      "name": "Demo School",
+      "type": "school",
+      "status": "active",
+      "counts": {
+        "totalMemberships": 9,
+        "activeMemberships": 9,
+        "activeStudents": 5,
+        "activeStaff": 4
+      },
+      "billing": {
+        "plan": "pro",
+        "billingInterval": "six_month",
+        "subscriptionStatus": "trialing",
+        "hasPaidAccess": true,
+        "currentPeriodStart": "2026-04-01T00:00:00.000Z",
+        "currentPeriodEnd": "2026-10-01T00:00:00.000Z",
+        "cancelAtPeriodEnd": false,
+        "trialEnd": "2026-09-15T00:00:00.000Z"
+      },
+      "seatUsage": {
+        "activeStudents": 5,
+        "maxActiveStudents": 1000,
+        "activeStaff": 4,
+        "maxActiveStaff": 100
+      },
+      "billingSync": {
+        "state": "stale",
+        "lastWebhookAt": null,
+        "failedWebhookCount": 0
+      }
+    }
+  ],
+  "pagination": { "page": 1, "limit": 25, "total": 1, "totalPages": 1 }
+}
+```
+
+### `GET /platform/institutions/:institutionId`
+
+Returns institution timestamps and canonical membership counts: total Users/Memberships, active/inactive/suspended Memberships, active Students/Admins/Instructors, and combined active Staff. With billing permission it also returns billing, full seat availability, and Stripe customer/subscription/price IDs. With webhook permission it returns full billing synchronization state.
+
+A missing institution returns `404 { "message": "Institution not found" }`; an invalid ID returns `400`.
+
+### `GET /platform/institutions/:institutionId/billing`
+
+Returns the local webhook-synchronized billing projection and canonical seat usage. The route parameter is the only institution source; an `institutionId` query field is rejected.
+
+If the actor also has `platform.webhooks.read`, the response includes `billingSync` and a paginated `failedWebhooks` result filtered to this institution. Without that permission, both fields are omitted. Stripe secret keys, client secrets, raw webhook payloads, and arbitrary Stripe objects are never returned.
+
+Billing synchronization `state` values:
+
+| State | Meaning |
+|---|---|
+| `synced` | Billing mappings are recognized and a successful correlated webhook occurred within seven days. |
+| `missing_profile` | No local institution billing profile exists. |
+| `missing_customer_mapping` | The profile has no Stripe customer ID. |
+| `missing_subscription_mapping` | The profile has no Stripe subscription ID. |
+| `unknown_plan` | The local plan is missing or unsupported. |
+| `unknown_price` | The Stripe price is missing or does not resolve to the local plan. |
+| `webhook_failed` | At least one correlated failed webhook exists. |
+| `stale` | No successful correlated webhook exists within seven days. |
+| `unknown` | No more specific state could be derived. |
+
+Stripe remains authoritative. These APIs report local synchronized state and do not perform live Stripe reconciliation.
+
+### `GET /platform/webhook-events`
+
+Returns only failed Stripe webhook summaries. Each item contains `webhookEventId`, `stripeEventId`, `eventType`, `status`, nullable `institutionId`, a sanitized/truncated `errorMessage`, `attemptCount`, timestamps, and nullable `processedAt`.
+
+Historical failures without institution correlation remain global with `institutionId: null`; the backend does not guess a tenant. Raw webhook payloads and secrets are never exposed. A clean environment may legitimately return an empty list.
+
+### `GET /platform/audit`
+
+Returns immutable, allowlisted provider audit records. Each item contains actor IDs, action, target fields, nullable institution/reason, safe metadata, IP address, user agent, result, and creation time.
+
+Current audit actions are:
+
+- `platform.institutions.list`
+- `platform.institutions.view`
+- `platform.institutions.billing.view`
+- `platform.webhooks.failures.list`
+- `platform.audit.list`
+- `platform.permission.denied`
+
+Audit metadata is restricted to `page`, `limit`, `filterCount`, `returnedCount`, and `errorCode`. Raw errors, stacks, bodies, tokens, passwords, and Stripe secrets are never written. An authorized operation failure attempts a sanitized `result=failed` audit with `errorCode=PLATFORM_OPERATION_FAILED` while preserving the original API error.
+
+### Phase 1 boundaries
+
+The platform namespace is GET-only. It does not provide tenant or billing mutation, webhook replay, live reconciliation, institution suspension, impersonation/support access, or platform-role management. MFA is recommended production hardening but is not implemented by this phase.
 
 ## Common Headers
 

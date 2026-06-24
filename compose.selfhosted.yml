@@ -13,6 +13,8 @@ services:
     depends_on:
       mongo:
         condition: service_healthy
+      redis:
+        condition: service_healthy
     healthcheck:
       test:
         - CMD
@@ -23,6 +25,24 @@ services:
       timeout: 5s
       retries: 3
       start_period: 20s
+    restart: unless-stopped
+    init: true
+    networks:
+      - private
+      - backend_egress
+
+  email-worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command: npm run worker:email
+    env_file:
+      - ${SELFHOSTED_ENV_FILE:-.env.selfhosted}
+    depends_on:
+      mongo:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
     restart: unless-stopped
     init: true
     networks:
@@ -44,6 +64,22 @@ services:
       timeout: 5s
       retries: 10
       start_period: 30s
+    restart: unless-stopped
+    networks:
+      - private
+
+  redis:
+    image: redis:7-alpine
+    command: redis-server --appendonly yes --appendfsync everysec --maxmemory-policy noeviction
+    expose:
+      - "6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
     restart: unless-stopped
     networks:
       - private
@@ -79,6 +115,7 @@ volumes:
   mongo_data:
   uploads_data:
   private_storage_data:
+  redis_data:
 
 networks:
   private:

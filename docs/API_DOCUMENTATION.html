@@ -1,5 +1,5 @@
-﻿<!doctype html><html><head><meta charset="utf-8"><title>Edu SaaS Backend API Documentation</title><style>body{font-family:Arial,Helvetica,sans-serif;line-height:1.45;color:#111827;margin:32px;max-width:1200px}h1{font-size:30px}h2{margin-top:32px;border-bottom:1px solid #d1d5db;padding-bottom:6px}h3{margin-top:24px}table{border-collapse:collapse;width:100%;font-size:11px;margin:14px 0;table-layout:auto}th,td{border:1px solid #d1d5db;padding:6px;vertical-align:top;word-break:break-word}th{background:#f3f4f6}code{background:#f3f4f6;padding:1px 3px;border-radius:3px}pre{background:#f8fafc;color:#111827;border:1px solid #cbd5e1;padding:12px;border-radius:6px;overflow:auto;font-size:12px}pre code{background:transparent;color:#111827;padding:0}a{color:#1d4ed8}@media print{body{margin:16px;max-width:none}table{font-size:8px}pre{white-space:pre-wrap;background:#ffffff;color:#111827;border:1px solid #9ca3af}pre code{color:#111827}h2,h3{break-after:avoid}}</style></head><body><h1>Edu SaaS Backend API Documentation</h1>
-<p>Generated from the repository code on 2026-06-18. This documentation covers only endpoints mounted in <code>src/app.js</code>, <code>src/routes/authRoutes.js</code>, and <code>src/routes/institutionRoutes.js</code>. When exact behavior is broad or product-dependent, it is marked TODO/VERIFY instead of guessed.</p>
+<!doctype html><html><head><meta charset="utf-8"><title>Edu SaaS Backend API Documentation</title><style>body{font-family:Arial,Helvetica,sans-serif;line-height:1.45;color:#111827;margin:32px;max-width:1200px}h1{font-size:30px}h2{margin-top:32px;border-bottom:1px solid #d1d5db;padding-bottom:6px}h3{margin-top:24px}table{border-collapse:collapse;width:100%;font-size:11px;margin:14px 0;table-layout:auto}th,td{border:1px solid #d1d5db;padding:6px;vertical-align:top;word-break:break-word}th{background:#f3f4f6}code{background:#f3f4f6;padding:1px 3px;border-radius:3px}pre{background:#f8fafc;color:#111827;border:1px solid #cbd5e1;padding:12px;border-radius:6px;overflow:auto;font-size:12px}pre code{background:transparent;color:#111827;padding:0}a{color:#1d4ed8}@media print{body{margin:16px;max-width:none}table{font-size:8px}pre{white-space:pre-wrap;background:#ffffff;color:#111827;border:1px solid #9ca3af}pre code{color:#111827}h2,h3{break-after:avoid}}</style></head><body><h1>Edu SaaS Backend API Documentation</h1>
+<p>Generated from the repository code on 2026-06-22. This documentation covers endpoints mounted in <code>src/app.js</code>, <code>src/routes/authRoutes.js</code>, <code>src/routes/institutionRoutes.js</code>, and <code>src/routes/platformRoutes.js</code>. When exact behavior is broad or product-dependent, it is marked TODO/VERIFY instead of guessed.</p>
 <h2>Overview</h2>
 <p>This is a Node.js + Express + Mongoose multi-tenant Edu SaaS backend for school and university institutions.</p>
 <p>Mounted API surface:</p>
@@ -7,6 +7,7 @@
 <li><code>POST /stripe/webhook</code> is mounted before JSON parsing and uses <code>express.raw({ type: &quot;application/json&quot; })</code>.</li>
 <li><code>/auth</code> is mounted from <code>src/routes/authRoutes.js</code>.</li>
 <li><code>/institutions</code> is mounted from <code>src/routes/institutionRoutes.js</code>.</li>
+<li><code>/platform</code> is mounted from <code>src/routes/platformRoutes.js</code> as the separate provider namespace.</li>
 <li><code>/uploads</code> is static public storage for institution logos and member profile pictures only.</li>
 </ul>
 <p>Route files inspected:</p>
@@ -15,6 +16,7 @@
 <li><code>src/server.js</code></li>
 <li><code>src/routes/authRoutes.js</code></li>
 <li><code>src/routes/institutionRoutes.js</code></li>
+<li><code>src/routes/platformRoutes.js</code></li>
 </ul>
 <p>Supporting code inspected:</p>
 <ul>
@@ -136,6 +138,223 @@
 <p>Coordinator assignments are currently used by selected section reads, section-session reads/management, and attendance reads/management.</p>
 <p>Mentor assignments have no effective operational or academic permissions yet.</p>
 <p>Do not activate future scoped permissions such as <code>studentProfile.read_scope</code>, <code>attendance.excuse_manage_scope</code>, <code>academicDecision.review_scope</code>, <code>enrollment.review_scope</code>, or <code>studentDropRisk.review_scope</code> until service-level enforcement exists.</p>
+<h2>Platform Provider Control Plane APIs</h2>
+<p>The <code>/platform</code> namespace is a provider-level, read-only control plane. Platform authority is separate from tenant membership:</p>
+<pre><code class="language-text">User -&gt; PlatformAdmin -&gt; platform role -&gt; platform permissions
+</code></pre>
+<p>An active, email-verified User with an active <code>PlatformAdmin</code> record can use these APIs without a tenant Membership. Conversely, an institution owner or tenant admin receives no platform access merely from their Membership.</p>
+<h3>Platform role and permissions</h3>
+<p>Phase 1 supports one platform role:</p>
+<table>
+<thead>
+<tr>
+<th>Role</th>
+<th>Permissions</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>platform_owner</code></td>
+<td><code>platform.institutions.read</code>, <code>platform.billing.read</code>, <code>platform.webhooks.read</code>, <code>platform.audit.read</code></td>
+</tr>
+</tbody></table>
+<p>Every platform request passes through this sequence:</p>
+<ol>
+<li><code>authJwt</code> verifies the bearer JWT and loads an active User.</li>
+<li><code>requireEmailVerified</code> rejects unverified Users.</li>
+<li><code>resolvePlatformAdmin</code> loads an active <code>PlatformAdmin</code> for the same User and derives permissions from the backend role catalog.</li>
+<li><code>requirePlatformPermission(...)</code> checks the route-specific permission.</li>
+<li>The service re-reads the active PlatformAdmin and permission catalog before accessing provider data.</li>
+<li>The operation writes a sanitized <code>PlatformAuditLog</code> success or failure record. Permission denials are audited on a best-effort basis.</li>
+</ol>
+<p>Platform routes never use <code>institutionAccess()</code> and never trust a tenant Membership as provider authority.</p>
+<h3>Platform owner setup and frontend flow</h3>
+<p>There is intentionally no HTTP endpoint for granting platform authority. Create the first owner through the trusted CLI after the User exists and is active and email-verified:</p>
+<pre><code class="language-bash">npm run platform:create-owner -- --email owner@example.test
+</code></pre>
+<p>Recommended client/operations flow:</p>
+<ol>
+<li>Seed or create the active verified User.</li>
+<li>Run <code>platform:create-owner</code> once. It refuses missing/ineligible Users and duplicate PlatformAdmin records.</li>
+<li>Log in through <code>POST /auth/login</code> with the platform owner&#39;s normal User credentials.</li>
+<li>Store the returned <code>accessToken</code> and send <code>Authorization: Bearer &lt;accessToken&gt;</code> to <code>/platform/...</code>.</li>
+<li>Load <code>GET /platform/institutions</code> for the control-plane landing page.</li>
+<li>Open <code>GET /platform/institutions/:institutionId</code> for institution operations detail.</li>
+<li>Open <code>/billing</code>, <code>/webhook-events</code>, or <code>/audit</code> only for the corresponding operational screen.</li>
+<li>Treat <code>401</code> as an invalid/expired login and <code>403</code> as missing platform authority or permission. Do not fall back to tenant-admin authorization.</li>
+</ol>
+<p>Local Postman flow is documented in <code>postman/PLATFORM_CONTROL_PLANE_POSTMAN_GUIDE.md</code> and uses:</p>
+<ul>
+<li><code>postman/platform-control-plane.postman_collection.json</code></li>
+<li><code>postman/platform-control-plane.local.postman_environment.json</code></li>
+</ul>
+<h3>Platform endpoint summary</h3>
+<p>All endpoints require <code>Authorization: Bearer &lt;accessToken&gt;</code>. Pagination defaults to <code>page=1&amp;limit=25</code>; <code>limit</code> must be between 1 and 100. Unexpected query fields return <code>400</code>.</p>
+<table>
+<thead>
+<tr>
+<th>Method</th>
+<th>Path</th>
+<th>Permission</th>
+<th>Query fields</th>
+<th>Response</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>GET</td>
+<td><code>/platform/institutions</code></td>
+<td><code>platform.institutions.read</code></td>
+<td><code>page</code>, <code>limit</code>, <code>status</code>, <code>type</code>, <code>search</code>, <code>plan</code>, <code>subscriptionStatus</code></td>
+<td><code>{ items, pagination }</code></td>
+</tr>
+<tr>
+<td>GET</td>
+<td><code>/platform/institutions/:institutionId</code></td>
+<td><code>platform.institutions.read</code></td>
+<td>None</td>
+<td><code>{ institution, counts, billing?, seatUsage?, billingSync? }</code></td>
+</tr>
+<tr>
+<td>GET</td>
+<td><code>/platform/institutions/:institutionId/billing</code></td>
+<td><code>platform.billing.read</code></td>
+<td><code>page</code>, <code>limit</code>, <code>eventType</code>, <code>status</code>, <code>stripeEventId</code>, <code>dateFrom</code>, <code>dateTo</code></td>
+<td><code>{ institutionId, billing, seatUsage, billingSync?, failedWebhooks? }</code></td>
+</tr>
+<tr>
+<td>GET</td>
+<td><code>/platform/webhook-events</code></td>
+<td><code>platform.webhooks.read</code></td>
+<td><code>page</code>, <code>limit</code>, <code>eventType</code>, <code>status</code>, <code>institutionId</code>, <code>stripeEventId</code>, <code>dateFrom</code>, <code>dateTo</code></td>
+<td><code>{ items, pagination }</code></td>
+</tr>
+<tr>
+<td>GET</td>
+<td><code>/platform/audit</code></td>
+<td><code>platform.audit.read</code></td>
+<td><code>page</code>, <code>limit</code>, <code>actorPlatformAdminId</code>, <code>action</code>, <code>targetType</code>, <code>targetId</code>, <code>institutionId</code>, <code>result</code>, <code>dateFrom</code>, <code>dateTo</code></td>
+<td><code>{ items, pagination }</code></td>
+</tr>
+</tbody></table>
+<p>Allowed filter enums:</p>
+<ul>
+<li>Institution <code>status</code>: <code>active</code>, <code>archived</code>.</li>
+<li>Institution <code>type</code>: <code>school</code>, <code>university</code>.</li>
+<li>Billing <code>plan</code>: <code>plus</code>, <code>pro</code>.</li>
+<li>Subscription status: <code>incomplete</code>, <code>trialing</code>, <code>active</code>, <code>past_due</code>, <code>canceled</code>, <code>unpaid</code>, <code>incomplete_expired</code>, <code>paused</code>.</li>
+<li>Audit <code>result</code>: <code>success</code>, <code>denied</code>, <code>failed</code>.</li>
+<li>Webhook <code>status</code>, when supplied, must be <code>failed</code>; this API never exposes processed webhook payloads.</li>
+</ul>
+<p><code>dateFrom</code> and <code>dateTo</code> accept ISO dates/timestamps and are inclusive when a date-only <code>dateTo</code> is supplied. <code>dateFrom</code> must not be later than <code>dateTo</code>.</p>
+<h3><code>GET /platform/institutions</code></h3>
+<p>Returns safe institution identity and aggregate active-membership counts. Billing filters require <code>platform.billing.read</code>. The returned fields are permission-shaped: billing permission adds <code>billing</code> and <code>seatUsage</code>, while webhook permission adds <code>billingSync</code>.</p>
+<pre><code class="language-json">{
+  &quot;items&quot;: [
+    {
+      &quot;institutionId&quot;: &quot;507f1f77bcf86cd799439011&quot;,
+      &quot;name&quot;: &quot;Demo School&quot;,
+      &quot;type&quot;: &quot;school&quot;,
+      &quot;status&quot;: &quot;active&quot;,
+      &quot;counts&quot;: {
+        &quot;totalMemberships&quot;: 9,
+        &quot;activeMemberships&quot;: 9,
+        &quot;activeStudents&quot;: 5,
+        &quot;activeStaff&quot;: 4
+      },
+      &quot;billing&quot;: {
+        &quot;plan&quot;: &quot;pro&quot;,
+        &quot;billingInterval&quot;: &quot;six_month&quot;,
+        &quot;subscriptionStatus&quot;: &quot;trialing&quot;,
+        &quot;hasPaidAccess&quot;: true,
+        &quot;currentPeriodStart&quot;: &quot;2026-04-01T00:00:00.000Z&quot;,
+        &quot;currentPeriodEnd&quot;: &quot;2026-10-01T00:00:00.000Z&quot;,
+        &quot;cancelAtPeriodEnd&quot;: false,
+        &quot;trialEnd&quot;: &quot;2026-09-15T00:00:00.000Z&quot;
+      },
+      &quot;seatUsage&quot;: {
+        &quot;activeStudents&quot;: 5,
+        &quot;maxActiveStudents&quot;: 1000,
+        &quot;activeStaff&quot;: 4,
+        &quot;maxActiveStaff&quot;: 100
+      },
+      &quot;billingSync&quot;: {
+        &quot;state&quot;: &quot;stale&quot;,
+        &quot;lastWebhookAt&quot;: null,
+        &quot;failedWebhookCount&quot;: 0
+      }
+    }
+  ],
+  &quot;pagination&quot;: { &quot;page&quot;: 1, &quot;limit&quot;: 25, &quot;total&quot;: 1, &quot;totalPages&quot;: 1 }
+}
+</code></pre>
+<h3><code>GET /platform/institutions/:institutionId</code></h3>
+<p>Returns institution timestamps and canonical membership counts: total Users/Memberships, active/inactive/suspended Memberships, active Students/Admins/Instructors, and combined active Staff. With billing permission it also returns billing, full seat availability, and Stripe customer/subscription/price IDs. With webhook permission it returns full billing synchronization state.</p>
+<p>A missing institution returns <code>404 { &quot;message&quot;: &quot;Institution not found&quot; }</code>; an invalid ID returns <code>400</code>.</p>
+<h3><code>GET /platform/institutions/:institutionId/billing</code></h3>
+<p>Returns the local webhook-synchronized billing projection and canonical seat usage. The route parameter is the only institution source; an <code>institutionId</code> query field is rejected.</p>
+<p>If the actor also has <code>platform.webhooks.read</code>, the response includes <code>billingSync</code> and a paginated <code>failedWebhooks</code> result filtered to this institution. Without that permission, both fields are omitted. Stripe secret keys, client secrets, raw webhook payloads, and arbitrary Stripe objects are never returned.</p>
+<p>Billing synchronization <code>state</code> values:</p>
+<table>
+<thead>
+<tr>
+<th>State</th>
+<th>Meaning</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>synced</code></td>
+<td>Billing mappings are recognized and a successful correlated webhook occurred within seven days.</td>
+</tr>
+<tr>
+<td><code>missing_profile</code></td>
+<td>No local institution billing profile exists.</td>
+</tr>
+<tr>
+<td><code>missing_customer_mapping</code></td>
+<td>The profile has no Stripe customer ID.</td>
+</tr>
+<tr>
+<td><code>missing_subscription_mapping</code></td>
+<td>The profile has no Stripe subscription ID.</td>
+</tr>
+<tr>
+<td><code>unknown_plan</code></td>
+<td>The local plan is missing or unsupported.</td>
+</tr>
+<tr>
+<td><code>unknown_price</code></td>
+<td>The Stripe price is missing or does not resolve to the local plan.</td>
+</tr>
+<tr>
+<td><code>webhook_failed</code></td>
+<td>At least one correlated failed webhook exists.</td>
+</tr>
+<tr>
+<td><code>stale</code></td>
+<td>No successful correlated webhook exists within seven days.</td>
+</tr>
+<tr>
+<td><code>unknown</code></td>
+<td>No more specific state could be derived.</td>
+</tr>
+</tbody></table>
+<p>Stripe remains authoritative. These APIs report local synchronized state and do not perform live Stripe reconciliation.</p>
+<h3><code>GET /platform/webhook-events</code></h3>
+<p>Returns only failed Stripe webhook summaries. Each item contains <code>webhookEventId</code>, <code>stripeEventId</code>, <code>eventType</code>, <code>status</code>, nullable <code>institutionId</code>, a sanitized/truncated <code>errorMessage</code>, <code>attemptCount</code>, timestamps, and nullable <code>processedAt</code>.</p>
+<p>Historical failures without institution correlation remain global with <code>institutionId: null</code>; the backend does not guess a tenant. Raw webhook payloads and secrets are never exposed. A clean environment may legitimately return an empty list.</p>
+<h3><code>GET /platform/audit</code></h3>
+<p>Returns immutable, allowlisted provider audit records. Each item contains actor IDs, action, target fields, nullable institution/reason, safe metadata, IP address, user agent, result, and creation time.</p>
+<p>Current audit actions are:</p>
+<ul>
+<li><code>platform.institutions.list</code></li>
+<li><code>platform.institutions.view</code></li>
+<li><code>platform.institutions.billing.view</code></li>
+<li><code>platform.webhooks.failures.list</code></li>
+<li><code>platform.audit.list</code></li>
+<li><code>platform.permission.denied</code></li>
+</ul>
+<p>Audit metadata is restricted to <code>page</code>, <code>limit</code>, <code>filterCount</code>, <code>returnedCount</code>, and <code>errorCode</code>. Raw errors, stacks, bodies, tokens, passwords, and Stripe secrets are never written. An authorized operation failure attempts a sanitized <code>result=failed</code> audit with <code>errorCode=PLATFORM_OPERATION_FAILED</code> while preserving the original API error.</p>
+<h3>Phase 1 boundaries</h3>
+<p>The platform namespace is GET-only. It does not provide tenant or billing mutation, webhook replay, live reconciliation, institution suspension, impersonation/support access, or platform-role management. MFA is recommended production hardening but is not implemented by this phase.</p>
 <h2>Common Headers</h2>
 <table>
 <thead>

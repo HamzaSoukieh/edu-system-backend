@@ -19,6 +19,8 @@
   - route -> middleware -> controller -> service -> model
 - Institution-scoped business routes live under:
   - `/institutions/:institutionId/...`
+- Non-critical lifecycle email is processed by one Redis/BullMQ queue and a separate worker; the API only enqueues validated ID-only jobs. OTP flows remain synchronous.
+- Redis is queue infrastructure only. MongoDB remains the source of truth for tenant scope, membership, and current event validity.
 
 ## Main Entities / Models
 - `PlatformAdmin`

@@ -12,7 +12,8 @@ const Section = require("../models/Section");
 const SectionSession = require("../models/SectionSession");
 const Subject = require("../models/Subject");
 const User = require("../models/User");
-const emailService = require("./emailService");
+const emailQueue = require("../queues/emailQueue");
+const { EMAIL_JOB_TYPES } = require("../queues/emailQueueNames");
 const { ensureCanChangeSectionSessionStatus } = require("./sectionSessionService");
 
 const HOMEWORK_TYPES = ["homework", "project"];
@@ -840,76 +841,28 @@ async function notifyAssignedHomeworkStudentsBestEffort({ institutionId, section
             role: "student",
             status: "active",
         })
-            .select("_id userId")
+            .select("_id")
             .lean();
-
-        if (!memberships.length) {
-            return;
+        const enqueueResults = await Promise.all(memberships.map((membership) => emailQueue.enqueueEmailJob({
+            institutionId,
+            entityId: homework._id,
+            recipientMembershipId: membership._id,
+            emailType: EMAIL_JOB_TYPES.HOMEWORK_ASSIGNED,
+        })));
+        const notQueued = enqueueResults.filter((result) => result && !result.queued);
+        if (notQueued.length) {
+            console.warn("Some homework assigned email jobs were not queued", {
+                institutionId: normalizeId(institutionId),
+                entityId: normalizeId(homework?._id),
+                count: notQueued.length,
+                reasons: [...new Set(notQueued.map((result) => result?.reason || "unknown"))],
+            });
+            // TODO/verify: add a MongoDB outbox for durable non-critical email delivery after writes.
         }
-
-        const userIds = [...new Set(memberships.map((membership) => normalizeId(membership.userId)).filter(Boolean))];
-        if (!userIds.length) {
-            return;
-        }
-
-        const users = await User.find({
-            _id: { $in: userIds },
-            email: { $exists: true, $nin: [null, ""] },
-        })
-            .select("_id email")
-            .lean();
-
-        if (!users.length) {
-            return;
-        }
-
-        const userById = new Map(users.map((user) => [user._id.toString(), user]));
-        const emailRecipients = [
-            ...new Set(
-                memberships
-                    .map((membership) => {
-                        const user = membership.userId ? userById.get(membership.userId.toString()) || null : null;
-                        const email = normalizeEmail(user?.email);
-                        return isUsableEmail(email) ? email : null;
-                    })
-                    .filter(Boolean)
-            ),
-        ];
-
-        if (!emailRecipients.length) {
-            return;
-        }
-
-        const emailPayload = {
-            subjectName: subject.name,
-            subjectCode: subject.code,
-            sectionCode: section.code,
-            sectionTitle: section.title || null,
-            homeworkTitle: homework.title,
-            homeworkType: homework.type,
-            dueAt: formatHomeworkDueAt(homework.dueAt),
-            submissionMode: homework.submissionMode,
-        };
-
-        const emailResults = await Promise.allSettled(
-            emailRecipients.map((email) =>
-                emailService.sendHomeworkAssignedEmail({
-                    to: email,
-                    ...emailPayload,
-                })
-            )
-        );
-
-        emailResults.forEach((result, index) => {
-            if (result.status === "rejected") {
-                console.error("Failed to send homework assigned notification email", {
-                    email: emailRecipients[index],
-                    error: result.reason?.message || result.reason,
-                });
-            }
-        });
     } catch (error) {
-        console.error("Failed to prepare homework assigned notification emails", {
+        console.error("Failed to prepare homework assigned email jobs", {
+            institutionId: normalizeId(institutionId),
+            entityId: normalizeId(homework?._id),
             error: error?.message || error,
         });
     }

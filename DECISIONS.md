@@ -642,3 +642,12 @@
   - The Stripe webhook path, raw-body parsing order, signature verification, and billing behavior remain unchanged.
   - HTTPS uses an HTTP-only ACME bootstrap followed by an operator-activated certificate-dependent Nginx configuration.
   - Docker volumes are not backups; MongoDB, file, and certificate backups must be copied off-server.
+## D063 - Non-Critical Lifecycle Emails Use One BullMQ Worker
+
+- Decision: Homework assignment, assessment announcement/result publication, and section-session cancellation emails are produced by the API as ID-only BullMQ jobs and sent by a dedicated worker.
+- MongoDB remains the business source of truth; Redis is private queue infrastructure only and is not used for authorization or caching.
+- The worker reloads and tenant-scopes the event, section, subject, enrollment, membership, and user before sending through the existing email service.
+- Queue payloads are validated by both producer and worker. The API producer keeps fail-fast Redis retries, while the worker uses reconnect-friendly Redis options and a low default SMTP concurrency of 2.
+- Worker section status behavior is intentionally conservative: homework assignment and assessment announcement require active sections; published assessment results and cancelled session emails allow active or closed sections. TODO/verify: revisit if product policy should restrict all lifecycle email to active sections only.
+- OTP and account-sensitive email flows remain synchronous.
+- Enqueue is best-effort after the MongoDB write. Deterministic BullMQ job ids reduce duplicate queued jobs, but duplicate sends can still happen if SMTP succeeds and the worker crashes before BullMQ marks complete. TODO/verify: add a MongoDB outbox / delivery log for atomic write-to-queue delivery and stronger delivery idempotency.

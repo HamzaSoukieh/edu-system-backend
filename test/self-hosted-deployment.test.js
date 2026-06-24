@@ -118,23 +118,33 @@ test("health is public and minimal, and production CORS does not add localhost",
     });
 });
 
-test("self-hosted Compose exposes only Nginx and persists MongoDB and files", () => {
+test("self-hosted Compose keeps backend, worker, MongoDB, and Redis private with persistent data", () => {
     const compose = read("compose.selfhosted.yml");
     const backend = getComposeService(compose, "backend");
     const mongo = getComposeService(compose, "mongo");
+    const redis = getComposeService(compose, "redis");
+    const emailWorker = getComposeService(compose, "email-worker");
     const nginx = getComposeService(compose, "nginx");
     const certbot = getComposeService(compose, "certbot");
 
     assert.doesNotMatch(backend, /^    ports:/m);
     assert.doesNotMatch(mongo, /^    ports:/m);
+    assert.doesNotMatch(redis, /^    ports:/m);
+    assert.doesNotMatch(emailWorker, /^    ports:/m);
     assert.doesNotMatch(certbot, /^    ports:/m);
-    assert.match(nginx, /- "80:80"/);
-    assert.match(nginx, /- "443:443"/);
+    assert.match(nginx, /- "8080:80"/);
+    assert.match(nginx, /- "8443:443"/);
 
     assert.match(backend, /uploads_data:\/app\/uploads/);
     assert.match(backend, /private_storage_data:\/app\/storage/);
     assert.match(backend, /http:\/\/127\.0\.0\.1:5000\/health/);
     assert.match(mongo, /mongo_data:\/data\/db/);
+    assert.match(redis, /redis_data:\/data/);
+    assert.match(redis, /--appendonly yes/);
+    assert.match(redis, /--maxmemory-policy noeviction/);
+    assert.match(emailWorker, /npm run worker:email/);
+    assert.match(emailWorker, /- private/);
+    assert.match(emailWorker, /- backend_egress/);
     assert.match(backend, /- private/);
     assert.match(mongo, /- private/);
     assert.match(compose, /private:\r?\n    driver: bridge\r?\n    internal: true/);

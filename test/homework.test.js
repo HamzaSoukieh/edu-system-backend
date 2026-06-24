@@ -21,6 +21,7 @@ const app = require("../src/app");
 const homeworkController = require("../src/controllers/homeworkController");
 const uploadHomeworkSubmission = require("../src/middleware/uploadHomeworkSubmission");
 const emailService = require("../src/services/emailService");
+const emailQueue = require("../src/queues/emailQueue");
 const homeworkService = require("../src/services/homeworkService");
 const institutionRoutes = require("../src/routes/institutionRoutes");
 
@@ -657,7 +658,7 @@ test("create homework supports optional and valid assessment links", async (t) =
     assert.equal(linkedResult.homework.assessmentId, assessmentId);
 });
 
-test("creating assigned homework sends filtered best-effort student notification emails", async (t) => {
+test("creating assigned homework enqueues ID-only jobs for eligible student memberships", async (t) => {
     const invalidEmailMemberId = "507f1f77bcf86cd799439073";
     const inactiveMemberId = "507f1f77bcf86cd799439074";
     const nonStudentMemberId = "507f1f77bcf86cd799439075";
@@ -666,9 +667,10 @@ test("creating assigned homework sends filtered best-effort student notification
     const inactiveUserId = "507f1f77bcf86cd799439094";
     const nonStudentUserId = "507f1f77bcf86cd799439095";
     const wrongTenantUserId = "507f1f77bcf86cd799439096";
-    const sentEmails = [];
-    t.mock.method(emailService, "sendHomeworkAssignedEmail", async (payload) => {
-        sentEmails.push(payload);
+    const queuedJobs = [];
+    t.mock.method(emailQueue, "enqueueEmailJob", async (payload) => {
+        queuedJobs.push(payload);
+        return { queued: true };
     });
 
     mockBaseHomeworkDependencies(t, {
@@ -736,17 +738,17 @@ test("creating assigned homework sends filtered best-effort student notification
     });
 
     assert.equal(result.homework.status, "assigned");
-    assert.equal(sentEmails.length, 1);
-    assert.equal(sentEmails[0].to, "student@example.com");
-    assert.equal(sentEmails[0].homeworkTitle, "Research Project PDF");
-    assert.equal(sentEmails[0].homeworkType, "project");
-    assert.equal(sentEmails[0].sectionCode, "SEC-1");
-    assert.equal(sentEmails[0].sectionTitle, "Section 1");
-    assert.equal(sentEmails[0].dueAt, "2026-06-20T23:59:00.000Z");
-    assert.equal(sentEmails[0].submissionMode, "online_upload");
-    const payloadText = JSON.stringify(sentEmails[0]);
+    assert.equal(queuedJobs.length, 3);
+    assert.deepEqual(queuedJobs[0], {
+        institutionId,
+        entityId: homeworkId,
+        recipientMembershipId: studentMemberId,
+        emailType: "homework-assigned",
+    });
+    const payloadText = JSON.stringify(queuedJobs);
+    assert.equal(payloadText.includes("student@example.com"), false);
+    assert.equal(payloadText.includes("homeworkTitle"), false);
     assert.equal(payloadText.includes("fileKey"), false);
-    assert.equal(payloadText.includes("storage/homework-submissions"), false);
 });
 
 test("homework assignment notification is not sent for non-assigned create or failed create", async (t) => {
@@ -811,14 +813,8 @@ test("homework assignment notification is not sent for non-assigned create or fa
     assert.equal(sentEmails.length, 0);
 });
 
-test("homework assignment email failures do not fail homework create or status assignment", async (t) => {
-    const loggedErrors = [];
-    t.mock.method(console, "error", (...args) => {
-        loggedErrors.push(args);
-    });
-    t.mock.method(emailService, "sendHomeworkAssignedEmail", async () => {
-        throw new Error("smtp down");
-    });
+test("homework enqueue failures do not fail homework create or status assignment", async (t) => {
+    t.mock.method(emailQueue, "enqueueEmailJob", async () => ({ queued: false, reason: "enqueue_failed" }));
 
     mockBaseHomeworkDependencies(t, {
         homework: null,
@@ -839,16 +835,9 @@ test("homework assignment email failures do not fail homework create or status a
         },
     });
     assert.equal(created.homework.status, "assigned");
-    assert.ok(loggedErrors.some((entry) => entry[0] === "Failed to send homework assigned notification email"));
 
     t.mock.reset();
-    const statusLoggedErrors = [];
-    t.mock.method(console, "error", (...args) => {
-        statusLoggedErrors.push(args);
-    });
-    t.mock.method(emailService, "sendHomeworkAssignedEmail", async () => {
-        throw new Error("smtp down");
-    });
+    t.mock.method(emailQueue, "enqueueEmailJob", async () => ({ queued: false, reason: "enqueue_failed" }));
     mockBaseHomeworkDependencies(t, {
         homework: buildHomework({ status: "draft" }),
         enrollments: [buildEnrollment({ studentMemberId })],
@@ -865,7 +854,6 @@ test("homework assignment email failures do not fail homework create or status a
         payload: { status: "assigned" },
     });
     assert.equal(assigned.homework.status, "assigned");
-    assert.ok(statusLoggedErrors.some((entry) => entry[0] === "Failed to send homework assigned notification email"));
 });
 
 test("create homework rejects cross-section and archived assessment links plus invalid input", async (t) => {
@@ -1758,9 +1746,9 @@ test("homework status transitions are constrained", async (t) => {
 });
 
 test("draft to assigned status transition sends assignment email only after successful update", async (t) => {
-    const sentEmails = [];
-    t.mock.method(emailService, "sendHomeworkAssignedEmail", async (payload) => {
-        sentEmails.push(payload);
+    const queuedJobs = [];
+    t.mock.method(emailQueue, "enqueueEmailJob", async (payload) => {
+        queuedJobs.push(payload);
     });
     mockBaseHomeworkDependencies(t, {
         homework: buildHomework({ status: "draft" }),
@@ -1778,8 +1766,8 @@ test("draft to assigned status transition sends assignment email only after succ
         payload: { status: "assigned" },
     });
     assert.equal(assigned.homework.status, "assigned");
-    assert.equal(sentEmails.length, 1);
-    assert.equal(sentEmails[0].to, "student@example.com");
+    assert.equal(queuedJobs.length, 1);
+    assert.equal(queuedJobs[0].recipientMembershipId, studentMemberId);
 
     t.mock.reset();
     const nonAssignmentEmails = [];

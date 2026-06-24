@@ -12,6 +12,21 @@ services:
       - /app/node_modules
     depends_on:
       - mongo
+      - redis
+
+  email-worker:
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+    command: npm run dev:worker:email
+    env_file:
+      - .env.docker
+    volumes:
+      - .:/app
+      - /app/node_modules
+    depends_on:
+      - mongo
+      - redis
 
   mongo:
     image: mongo:7
@@ -19,6 +34,14 @@ services:
       - "27017:27017"
     volumes:
       - mongo_data:/data/db
+
+  redis:
+    image: redis:7-alpine
+    command: redis-server --appendonly yes --appendfsync everysec --maxmemory-policy noeviction
+    expose:
+      - "6379"
+    volumes:
+      - redis_data:/data
 
   stripe-cli:
     image: stripe/stripe-cli:latest
@@ -30,3 +53,4 @@ services:
 
 volumes:
   mongo_data:
+  redis_data:
