@@ -341,6 +341,9 @@
   - the preview payload is now the canonical read-side explanation surface for self-enrollment rule evaluation, with stable blocking reason codes plus grouped prerequisite/capacity/load summaries
   - per-section preview keeps structural/duplicate/prerequisite/capacity guidance, while minimum enrollment is now deferred to final multi-section submission validation
   - policy now uses a blocking `minimumEnrollmentCreditHours` field for final registration validation
+  - final self-enrollment submission now enforces backend-authoritative schedule conflict validation from `Section.schedule`
+  - schedule conflicts are checked against same-institution active-semester `Enrollment.status = enrolled` sections plus other sections in the same submitted selection
+  - overlapping same-day time ranges return `409` with `reasonCode = schedule_conflict`; back-to-back sections are allowed
   - current remaining gap:
     - broader university transcript/report exports beyond the current profile and standing-dashboard projections
     - university final academic outcome confirmation / override workflow, if product needs explicit administrative finalization

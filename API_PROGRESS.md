@@ -373,10 +373,14 @@
     - creates shared enrollment rows only when the full submitted decision is eligible
     - validates final projected load against policy min/max using current counted load plus the submitted unique-subject selection
     - rejects duplicate same-subject selections inside one submission
+    - enforces backend schedule conflict validation from `Section.schedule`
+    - blocks same-day overlapping time ranges against same-institution active-semester `Enrollment.status = enrolled` sections
+    - blocks same-day overlapping time ranges between sections selected in the same submission
+    - allows back-to-back section times such as `10:00-11:00` and `11:00-12:00`
+    - returns `409` with `reasonCode: "schedule_conflict"` and `blockingReasonCodes: ["schedule_conflict"]` for schedule conflicts
     - re-checks duplicate enrollment and current capacity in the shared create path before each insert
     - relies on the existing unique enrollment index for duplicate-row protection
     - keeps near-graduation under-minimum exception explicitly deferred until a future graduation requirement source exists
-    - TODO/verify: submitted student schedule-overlap validation is deferred until a shared non-room-specific schedule helper exists
 - Still missing:
   - delete/withdraw flow
 

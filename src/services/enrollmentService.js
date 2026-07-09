@@ -212,7 +212,7 @@ async function loadSectionRecordsByIds({ institutionId, sectionIds = [] }) {
         institutionId,
         _id: { $in: sectionIds },
     })
-        .select("_id institutionId semesterId subjectId schoolClassId code title capacity status")
+        .select("_id institutionId semesterId subjectId schoolClassId code title capacity schedule status")
         .lean();
 
     if (sections.length !== sectionIds.length) {
@@ -889,7 +889,7 @@ async function loadCurrentActiveSemesterEnrollmentLoad({
         semesterId: activeSemesterId,
         status: { $in: ENROLLABLE_SECTION_STATUSES },
     })
-        .select("_id subjectId")
+        .select("_id subjectId code title schedule")
         .lean();
 
     // Self-enrollment registration load intentionally keeps only unique active-semester

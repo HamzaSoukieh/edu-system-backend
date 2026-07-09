@@ -2,6 +2,7 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 
 const {
+    timeRangesOverlap,
     resolveSelfEnrollmentEligibility,
     resolveSelfEnrollmentSubmissionEligibility,
 } = require("../src/services/universitySelfEnrollmentEligibilityService");
@@ -96,6 +97,15 @@ function buildSubmissionSelection(overrides = {}) {
             title: "Section A",
             status: "active",
             capacity: 30,
+            schedule: [
+                {
+                    sessionType: "lecture",
+                    day: "sunday",
+                    startTime: "10:00",
+                    endTime: "11:00",
+                    room: "Room 101",
+                },
+            ],
         },
         targetSubject: {
             _id: "subject-submission-1",
@@ -117,6 +127,15 @@ function buildSubmissionSelection(overrides = {}) {
             title: "Section A",
             status: "active",
             capacity: 30,
+            schedule: [
+                {
+                    sessionType: "lecture",
+                    day: "sunday",
+                    startTime: "10:00",
+                    endTime: "11:00",
+                    room: "Room 101",
+                },
+            ],
             ...(overrides.targetSection || {}),
         },
         targetSubject: {
@@ -202,6 +221,15 @@ test("resolveSelfEnrollmentEligibility counts one enrolled section for one subje
                 {
                     _id: "section-current-1",
                     subjectId: "subject-current-1",
+                    schedule: [
+                        {
+                            sessionType: "lecture",
+                            day: "monday",
+                            startTime: "08:00",
+                            endTime: "09:00",
+                            room: "Room 201",
+                        },
+                    ],
                 },
             ],
             currentActiveSemesterSubjects: [
@@ -622,6 +650,15 @@ test("resolveSelfEnrollmentSubmissionEligibility blocks combined projected load 
             {
                 _id: "section-current-1",
                 subjectId: "subject-current-1",
+                schedule: [
+                    {
+                        sessionType: "lecture",
+                        day: "monday",
+                        startTime: "08:00",
+                        endTime: "09:00",
+                        room: "Room 201",
+                    },
+                ],
             },
         ],
         currentActiveSemesterSubjects: [
@@ -636,7 +673,20 @@ test("resolveSelfEnrollmentSubmissionEligibility blocks combined projected load 
                 targetSubject: { _id: "subject-submission-1", creditHours: 3 },
             }),
             buildSubmissionSelection({
-                targetSection: { _id: "section-submission-2", subjectId: "subject-submission-2", code: "B" },
+                targetSection: {
+                    _id: "section-submission-2",
+                    subjectId: "subject-submission-2",
+                    code: "B",
+                    schedule: [
+                        {
+                            sessionType: "lecture",
+                            day: "sunday",
+                            startTime: "11:00",
+                            endTime: "12:00",
+                            room: "Room 102",
+                        },
+                    ],
+                },
                 targetSubject: { _id: "subject-submission-2", code: "CS202", name: "Algorithms", creditHours: 3 },
             }),
         ],
@@ -671,7 +721,20 @@ test("resolveSelfEnrollmentSubmissionEligibility blocks duplicate subjects in th
                 targetSubject: { _id: "subject-submission-1", code: "CS201" },
             }),
             buildSubmissionSelection({
-                targetSection: { _id: "section-submission-2", subjectId: "subject-submission-1", code: "B" },
+                targetSection: {
+                    _id: "section-submission-2",
+                    subjectId: "subject-submission-1",
+                    code: "B",
+                    schedule: [
+                        {
+                            sessionType: "lecture",
+                            day: "sunday",
+                            startTime: "11:00",
+                            endTime: "12:00",
+                            room: "Room 102",
+                        },
+                    ],
+                },
                 targetSubject: { _id: "subject-submission-1", code: "CS201" },
             }),
         ],
@@ -709,4 +772,334 @@ test("resolveSelfEnrollmentSubmissionEligibility keeps same-subject final-pass b
     assert.equal(decision.isEligible, false);
     assert.ok(decision.blockingReasonCodes.includes("same_subject_already_passed_final"));
     assert.equal(decision.sectionDecisions[0].eligibility.sameSubjectSummary.bestOutcomeStatus, "passed_final");
+});
+
+test("timeRangesOverlap treats time ranges as half-open intervals", () => {
+    assert.equal(timeRangesOverlap(10 * 60, 11 * 60, 11 * 60, 12 * 60), false);
+    assert.equal(timeRangesOverlap(10 * 60, 11 * 60 + 30, 11 * 60, 12 * 60), true);
+    assert.equal(timeRangesOverlap(8 * 60, 12 * 60, 9 * 60, 10 * 60), true);
+    assert.equal(timeRangesOverlap(10 * 60, 11 * 60, 9 * 60, 10 * 60), false);
+});
+
+test("resolveSelfEnrollmentSubmissionEligibility blocks selected section conflicts with active enrolled sections", () => {
+    const decision = resolveSelfEnrollmentSubmissionEligibility({
+        studentMembership: buildEligibilityContext().studentMembership,
+        activeSemester: buildEligibilityContext().activeSemester,
+        policy: buildPolicy({
+            minimumEnrollmentCreditHours: 3,
+        }),
+        academicOutcomeSummary: buildEligibilityContext().academicOutcomeSummary,
+        currentActiveSemesterSections: [
+            {
+                _id: "section-current-1",
+                subjectId: "subject-current-1",
+                code: "CUR101",
+                title: "Current Section",
+                schedule: [
+                    {
+                        sessionType: "lecture",
+                        day: "sunday",
+                        startTime: "10:00",
+                        endTime: "11:30",
+                        room: "Room 201",
+                    },
+                ],
+            },
+        ],
+        currentActiveSemesterSubjects: [
+            {
+                _id: "subject-current-1",
+                creditHours: 3,
+            },
+        ],
+        selections: [
+            buildSubmissionSelection({
+                targetSection: {
+                    _id: "section-submission-1",
+                    subjectId: "subject-submission-1",
+                    schedule: [
+                        {
+                            sessionType: "lecture",
+                            day: "sunday",
+                            startTime: "11:00",
+                            endTime: "12:00",
+                            room: "Room 101",
+                        },
+                    ],
+                },
+            }),
+        ],
+    });
+
+    assert.equal(decision.isEligible, false);
+    assert.deepEqual(decision.blockingReasonCodes, ["schedule_conflict"]);
+    assert.equal(decision.blockingReasons[0].message, "Selected section schedule conflicts with another enrolled or selected section.");
+    assert.equal(decision.scheduleConflictSummary.hasScheduleConflict, true);
+    assert.equal(decision.scheduleConflictSummary.conflicts[0].conflictingSource, "enrolled");
+});
+
+test("resolveSelfEnrollmentSubmissionEligibility allows non-overlapping selected section against current schedule", () => {
+    const scenarios = [
+        {
+            name: "same day back-to-back",
+            currentDay: "sunday",
+            currentStart: "10:00",
+            currentEnd: "11:00",
+            selectedDay: "sunday",
+            selectedStart: "11:00",
+            selectedEnd: "12:00",
+        },
+        {
+            name: "same time different day",
+            currentDay: "sunday",
+            currentStart: "10:00",
+            currentEnd: "11:00",
+            selectedDay: "monday",
+            selectedStart: "10:00",
+            selectedEnd: "11:00",
+        },
+        {
+            name: "same day no overlap",
+            currentDay: "sunday",
+            currentStart: "08:00",
+            currentEnd: "09:00",
+            selectedDay: "sunday",
+            selectedStart: "10:00",
+            selectedEnd: "11:00",
+        },
+        {
+            name: "selected ends exactly when current starts",
+            currentDay: "sunday",
+            currentStart: "11:00",
+            currentEnd: "12:00",
+            selectedDay: "sunday",
+            selectedStart: "10:00",
+            selectedEnd: "11:00",
+        },
+    ];
+
+    for (const scenario of scenarios) {
+        const decision = resolveSelfEnrollmentSubmissionEligibility({
+            studentMembership: buildEligibilityContext().studentMembership,
+            activeSemester: buildEligibilityContext().activeSemester,
+            policy: buildPolicy({
+                minimumEnrollmentCreditHours: 3,
+            }),
+            academicOutcomeSummary: buildEligibilityContext().academicOutcomeSummary,
+            currentActiveSemesterSections: [
+                {
+                    _id: `section-current-${scenario.name}`,
+                    subjectId: "subject-current-1",
+                    schedule: [
+                        {
+                            sessionType: "lecture",
+                            day: scenario.currentDay,
+                            startTime: scenario.currentStart,
+                            endTime: scenario.currentEnd,
+                            room: "Room 201",
+                        },
+                    ],
+                },
+            ],
+            currentActiveSemesterSubjects: [
+                {
+                    _id: "subject-current-1",
+                    creditHours: 3,
+                },
+            ],
+            selections: [
+                buildSubmissionSelection({
+                    targetSection: {
+                        _id: "section-submission-1",
+                        subjectId: "subject-submission-1",
+                        schedule: [
+                            {
+                                sessionType: "lecture",
+                                day: scenario.selectedDay,
+                                startTime: scenario.selectedStart,
+                                endTime: scenario.selectedEnd,
+                                room: "Room 101",
+                            },
+                        ],
+                    },
+                }),
+            ],
+        });
+
+        assert.equal(decision.isEligible, true, scenario.name);
+        assert.deepEqual(decision.blockingReasonCodes, [], scenario.name);
+    }
+});
+
+test("resolveSelfEnrollmentSubmissionEligibility detects conflicts inside the submitted selection", () => {
+    const conflictScenarios = [
+        {
+            name: "partial overlap",
+            leftStart: "10:00",
+            leftEnd: "11:30",
+            rightStart: "11:00",
+            rightEnd: "12:00",
+        },
+        {
+            name: "contained overlap",
+            leftStart: "08:00",
+            leftEnd: "12:00",
+            rightStart: "09:00",
+            rightEnd: "10:00",
+        },
+        {
+            name: "exact same day and time",
+            leftStart: "10:00",
+            leftEnd: "11:00",
+            rightStart: "10:00",
+            rightEnd: "11:00",
+        },
+    ];
+
+    for (const scenario of conflictScenarios) {
+        const decision = resolveSelfEnrollmentSubmissionEligibility({
+            studentMembership: buildEligibilityContext().studentMembership,
+            activeSemester: buildEligibilityContext().activeSemester,
+            policy: buildPolicy({
+                minimumEnrollmentCreditHours: 3,
+                defaultMaxCreditHours: 12,
+                overloadMaxCreditHours: 15,
+            }),
+            academicOutcomeSummary: buildEligibilityContext().academicOutcomeSummary,
+            currentActiveSemesterSections: [],
+            currentActiveSemesterSubjects: [],
+            selections: [
+                buildSubmissionSelection({
+                    targetSection: {
+                        _id: "section-submission-1",
+                        subjectId: "subject-submission-1",
+                        code: "A",
+                        schedule: [
+                            {
+                                sessionType: "lecture",
+                                day: "sunday",
+                                startTime: scenario.leftStart,
+                                endTime: scenario.leftEnd,
+                                room: "Room 101",
+                            },
+                        ],
+                    },
+                    targetSubject: {
+                        _id: "subject-submission-1",
+                        code: "CS201",
+                    },
+                }),
+                buildSubmissionSelection({
+                    targetSection: {
+                        _id: "section-submission-2",
+                        subjectId: "subject-submission-2",
+                        code: "B",
+                        schedule: [
+                            {
+                                sessionType: "lecture",
+                                day: "sunday",
+                                startTime: scenario.rightStart,
+                                endTime: scenario.rightEnd,
+                                room: "Room 102",
+                            },
+                        ],
+                    },
+                    targetSubject: {
+                        _id: "subject-submission-2",
+                        code: "CS202",
+                        name: "Algorithms",
+                    },
+                }),
+            ],
+        });
+
+        assert.equal(decision.isEligible, false, scenario.name);
+        assert.deepEqual(decision.blockingReasonCodes, ["schedule_conflict"], scenario.name);
+        assert.equal(decision.scheduleConflictSummary.conflicts[0].conflictingSource, "selected");
+    }
+});
+
+test("resolveSelfEnrollmentSubmissionEligibility allows selected sections that are back-to-back or on different days", () => {
+    const scenarios = [
+        {
+            name: "back-to-back selected sections",
+            leftDay: "sunday",
+            leftStart: "10:00",
+            leftEnd: "11:00",
+            rightDay: "sunday",
+            rightStart: "11:00",
+            rightEnd: "12:00",
+        },
+        {
+            name: "different day selected sections",
+            leftDay: "sunday",
+            leftStart: "10:00",
+            leftEnd: "11:00",
+            rightDay: "monday",
+            rightStart: "10:00",
+            rightEnd: "11:00",
+        },
+    ];
+
+    for (const scenario of scenarios) {
+        const decision = resolveSelfEnrollmentSubmissionEligibility({
+            studentMembership: buildEligibilityContext().studentMembership,
+            activeSemester: buildEligibilityContext().activeSemester,
+            policy: buildPolicy({
+                minimumEnrollmentCreditHours: 3,
+                defaultMaxCreditHours: 12,
+                overloadMaxCreditHours: 15,
+            }),
+            academicOutcomeSummary: buildEligibilityContext().academicOutcomeSummary,
+            currentActiveSemesterSections: [],
+            currentActiveSemesterSubjects: [],
+            selections: [
+                buildSubmissionSelection({
+                    targetSection: {
+                        _id: "section-submission-1",
+                        subjectId: "subject-submission-1",
+                        code: "A",
+                        schedule: [
+                            {
+                                sessionType: "lecture",
+                                day: scenario.leftDay,
+                                startTime: scenario.leftStart,
+                                endTime: scenario.leftEnd,
+                                room: "Room 101",
+                            },
+                        ],
+                    },
+                    targetSubject: {
+                        _id: "subject-submission-1",
+                        code: "CS201",
+                    },
+                }),
+                buildSubmissionSelection({
+                    targetSection: {
+                        _id: "section-submission-2",
+                        subjectId: "subject-submission-2",
+                        code: "B",
+                        schedule: [
+                            {
+                                sessionType: "lecture",
+                                day: scenario.rightDay,
+                                startTime: scenario.rightStart,
+                                endTime: scenario.rightEnd,
+                                room: "Room 102",
+                            },
+                        ],
+                    },
+                    targetSubject: {
+                        _id: "subject-submission-2",
+                        code: "CS202",
+                        name: "Algorithms",
+                    },
+                }),
+            ],
+        });
+
+        assert.equal(decision.isEligible, true, scenario.name);
+        assert.deepEqual(decision.blockingReasonCodes, [], scenario.name);
+        assert.equal(decision.scheduleConflictSummary.hasScheduleConflict, false, scenario.name);
+    }
 });

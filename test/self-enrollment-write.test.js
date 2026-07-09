@@ -7,6 +7,8 @@ const Membership = require("../src/models/Membership");
 const Section = require("../src/models/Section");
 const Subject = require("../src/models/Subject");
 const Semester = require("../src/models/Semester");
+const enrollmentController = require("../src/controllers/enrollmentController");
+const enrollmentService = require("../src/services/enrollmentService");
 
 function buildPolicy(overrides = {}) {
     return {
@@ -28,14 +30,29 @@ function buildInstitution(overrides = {}) {
 }
 
 function buildSection(overrides = {}) {
+    const sectionCode = overrides.code || "A";
+    const defaultStartTime = sectionCode === "B" ? "11:00" : "10:00";
+    const defaultEndTime = sectionCode === "B" ? "12:00" : "11:00";
+
     return {
         _id: "507f1f77bcf86cd799439021",
         institutionId: "507f1f77bcf86cd799439011",
         semesterId: "507f1f77bcf86cd799439031",
         subjectId: "507f1f77bcf86cd799439041",
         schoolClassId: null,
+        code: sectionCode,
+        title: `Section ${sectionCode}`,
         status: "active",
         capacity: 30,
+        schedule: [
+            {
+                sessionType: "lecture",
+                day: "sunday",
+                startTime: defaultStartTime,
+                endTime: defaultEndTime,
+                room: "Room 101",
+            },
+        ],
         ...overrides,
     };
 }
@@ -100,6 +117,21 @@ function mockQueryMethod(t, target, methodName, valuesOrResolver) {
         typeof valuesOrResolver === "function" ? valuesOrResolver : createSequence(valuesOrResolver);
 
     return t.mock.method(target, methodName, (...args) => createQuery(resolver(...args)));
+}
+
+function createMockResponse() {
+    return {
+        statusCode: null,
+        body: null,
+        status(statusCode) {
+            this.statusCode = statusCode;
+            return this;
+        },
+        json(body) {
+            this.body = body;
+            return this;
+        },
+    };
 }
 
 function loadEnrollmentServiceWithDependencyMocks({
@@ -503,6 +535,326 @@ test("createMySelfEnrollmentSubmission rejects existing same-section enrollment 
     assert.equal(createMock.mock.calls.length, 0);
 });
 
+test("createMySelfEnrollmentSubmission rejects schedule conflict with an active enrolled section", async (t) => {
+    const actorMembership = buildActorMembership();
+    const institution = buildInstitution();
+    const activeSemester = buildActiveSemester();
+    const selectedSection = buildSection({
+        _id: "507f1f77bcf86cd799439022",
+        subjectId: "507f1f77bcf86cd799439042",
+        code: "B",
+        schedule: [
+            {
+                sessionType: "lecture",
+                day: "sunday",
+                startTime: "11:00",
+                endTime: "12:00",
+                room: "Room 102",
+            },
+        ],
+    });
+    const currentSection = buildSection({
+        _id: "507f1f77bcf86cd799439023",
+        subjectId: "507f1f77bcf86cd799439043",
+        code: "C",
+        schedule: [
+            {
+                sessionType: "lecture",
+                day: "sunday",
+                startTime: "10:00",
+                endTime: "11:30",
+                room: "Room 201",
+            },
+        ],
+    });
+    const selectedSubject = buildSubject({
+        _id: "507f1f77bcf86cd799439042",
+        code: "CS202",
+        name: "Algorithms",
+    });
+    const currentSubject = buildSubject({
+        _id: "507f1f77bcf86cd799439043",
+        code: "CS203",
+        name: "Databases",
+    });
+    const enrollmentQueries = [];
+    const sectionQueries = [];
+    const { enrollmentService, restore } = loadEnrollmentServiceWithDependencyMocks({
+        policy: buildPolicy({
+            minimumEnrollmentCreditHours: 3,
+            defaultMaxCreditHours: 12,
+            overloadMaxCreditHours: 15,
+        }),
+    });
+
+    t.after(restore);
+    mockQueryMethod(t, Institution, "findOne", [institution]);
+    mockQueryMethod(t, Semester, "findOne", [activeSemester]);
+    t.mock.method(Section, "find", (query) => {
+        sectionQueries.push(query);
+        const sectionIds = (query?._id?.$in || []).map((value) => value.toString());
+        if (sectionIds.includes(currentSection._id)) {
+            return createQuery([currentSection]);
+        }
+
+        return createQuery([selectedSection]);
+    });
+    t.mock.method(Subject, "find", (query) => {
+        const subjectIds = (query?._id?.$in || []).map((value) => value.toString());
+        if (subjectIds.includes(currentSubject._id)) {
+            return createQuery([currentSubject]);
+        }
+
+        return createQuery([selectedSubject]);
+    });
+    t.mock.method(Enrollment, "find", (query) => {
+        enrollmentQueries.push(query);
+        if (query?.status === "enrolled") {
+            return createQuery([
+                {
+                    _id: "507f1f77bcf86cd799439091",
+                    sectionId: currentSection._id,
+                    status: "enrolled",
+                },
+            ]);
+        }
+
+        return createQuery([]);
+    });
+    t.mock.method(Enrollment, "aggregate", async () => [
+        { _id: selectedSection._id, enrolledSeatCount: 7 },
+    ]);
+    const createMock = t.mock.method(Enrollment, "create", async () => {
+        throw new Error("create should not be called when schedule conflict blocks");
+    });
+
+    await assert.rejects(
+        () =>
+            enrollmentService.createMySelfEnrollmentSubmission({
+                institutionId: institution._id,
+                actorUserId: "507f1f77bcf86cd799439071",
+                actorMembership,
+                payload: {
+                    sectionIds: [selectedSection._id],
+                },
+            }),
+        (error) => {
+            assert.equal(error.statusCode, 409);
+            assert.equal(error.message, "Selected section schedule conflicts with another enrolled or selected section.");
+            assert.equal(error.reasonCode, "schedule_conflict");
+            assert.deepEqual(error.blockingReasonCodes, ["schedule_conflict"]);
+            return true;
+        }
+    );
+
+    assert.equal(createMock.mock.calls.length, 0);
+    assert.equal(enrollmentQueries[1].institutionId, institution._id);
+    assert.equal(enrollmentQueries[1].studentMemberId, actorMembership._id);
+    assert.equal(enrollmentQueries[1].status, "enrolled");
+    assert.equal(sectionQueries[1].institutionId, institution._id);
+    assert.equal(sectionQueries[1].semesterId, activeSemester._id);
+});
+
+test("createMySelfEnrollmentSubmission rejects overlapping sections selected in one request", async (t) => {
+    const actorMembership = buildActorMembership();
+    const institution = buildInstitution();
+    const activeSemester = buildActiveSemester();
+    const sectionOne = buildSection({
+        _id: "507f1f77bcf86cd799439021",
+        subjectId: "507f1f77bcf86cd799439041",
+        code: "A",
+        schedule: [
+            {
+                sessionType: "lecture",
+                day: "sunday",
+                startTime: "10:00",
+                endTime: "11:30",
+                room: "Room 101",
+            },
+        ],
+    });
+    const sectionTwo = buildSection({
+        _id: "507f1f77bcf86cd799439022",
+        subjectId: "507f1f77bcf86cd799439042",
+        code: "B",
+        schedule: [
+            {
+                sessionType: "lecture",
+                day: "sunday",
+                startTime: "11:00",
+                endTime: "12:00",
+                room: "Room 102",
+            },
+        ],
+    });
+    const subjectOne = buildSubject({
+        _id: "507f1f77bcf86cd799439041",
+        code: "CS201",
+    });
+    const subjectTwo = buildSubject({
+        _id: "507f1f77bcf86cd799439042",
+        code: "CS202",
+        name: "Algorithms",
+    });
+    const { enrollmentService, restore } = loadEnrollmentServiceWithDependencyMocks({
+        policy: buildPolicy({
+            minimumEnrollmentCreditHours: 3,
+            defaultMaxCreditHours: 12,
+            overloadMaxCreditHours: 15,
+        }),
+    });
+
+    t.after(restore);
+    mockQueryMethod(t, Institution, "findOne", [institution]);
+    mockQueryMethod(t, Semester, "findOne", [activeSemester]);
+    t.mock.method(Section, "find", () => createQuery([sectionOne, sectionTwo]));
+    t.mock.method(Subject, "find", () => createQuery([subjectOne, subjectTwo]));
+    mockQueryMethod(t, Enrollment, "find", [[], []]);
+    t.mock.method(Enrollment, "aggregate", async () => [
+        { _id: sectionOne._id, enrolledSeatCount: 7 },
+        { _id: sectionTwo._id, enrolledSeatCount: 8 },
+    ]);
+    const createMock = t.mock.method(Enrollment, "create", async () => {
+        throw new Error("create should not be called when selected sections conflict");
+    });
+
+    await assert.rejects(
+        () =>
+            enrollmentService.createMySelfEnrollmentSubmission({
+                institutionId: institution._id,
+                actorUserId: "507f1f77bcf86cd799439071",
+                actorMembership,
+                payload: {
+                    sectionIds: [sectionOne._id, sectionTwo._id],
+                },
+            }),
+        (error) => {
+            assert.equal(error.statusCode, 409);
+            assert.equal(error.message, "Selected section schedule conflicts with another enrolled or selected section.");
+            assert.equal(error.reasonCode, "schedule_conflict");
+            assert.deepEqual(error.blockingReasonCodes, ["schedule_conflict"]);
+            return true;
+        }
+    );
+
+    assert.equal(createMock.mock.calls.length, 0);
+});
+
+test("createMySelfEnrollmentSubmission allows back-to-back selected sections and ignores dropped enrollments", async (t) => {
+    const actorMembership = buildActorMembership();
+    const institution = buildInstitution();
+    const activeSemester = buildActiveSemester();
+    const sectionOne = buildSection({
+        _id: "507f1f77bcf86cd799439021",
+        subjectId: "507f1f77bcf86cd799439041",
+        code: "A",
+        schedule: [
+            {
+                sessionType: "lecture",
+                day: "sunday",
+                startTime: "10:00",
+                endTime: "11:00",
+                room: "Room 101",
+            },
+        ],
+    });
+    const sectionTwo = buildSection({
+        _id: "507f1f77bcf86cd799439022",
+        subjectId: "507f1f77bcf86cd799439042",
+        code: "B",
+        schedule: [
+            {
+                sessionType: "lecture",
+                day: "sunday",
+                startTime: "11:00",
+                endTime: "12:00",
+                room: "Room 102",
+            },
+        ],
+    });
+    const subjectOne = buildSubject({
+        _id: "507f1f77bcf86cd799439041",
+        code: "CS201",
+    });
+    const subjectTwo = buildSubject({
+        _id: "507f1f77bcf86cd799439042",
+        code: "CS202",
+        name: "Algorithms",
+    });
+    const createdAt = new Date("2026-04-20T10:00:00.000Z");
+    const enrollmentFindQueries = [];
+    const createdEnrollments = [
+        {
+            _id: "507f1f77bcf86cd799439061",
+            sectionId: sectionOne._id,
+            studentMemberId: actorMembership._id,
+            status: "enrolled",
+            enrolledAt: createdAt,
+            createdAt,
+            updatedAt: createdAt,
+        },
+        {
+            _id: "507f1f77bcf86cd799439062",
+            sectionId: sectionTwo._id,
+            studentMemberId: actorMembership._id,
+            status: "enrolled",
+            enrolledAt: createdAt,
+            createdAt,
+            updatedAt: createdAt,
+        },
+    ];
+    const { enrollmentService, restore } = loadEnrollmentServiceWithDependencyMocks({
+        policy: buildPolicy({
+            minimumEnrollmentCreditHours: 3,
+            defaultMaxCreditHours: 12,
+            overloadMaxCreditHours: 15,
+        }),
+    });
+
+    t.after(restore);
+    mockQueryMethod(t, Institution, "findOne", [institution, institution, institution]);
+    mockQueryMethod(t, Semester, "findOne", [activeSemester]);
+    mockQueryMethod(t, Section, "findOne", [sectionOne, sectionTwo]);
+    t.mock.method(Section, "find", () => createQuery([sectionOne, sectionTwo]));
+    t.mock.method(Subject, "find", () => createQuery([subjectOne, subjectTwo]));
+    mockQueryMethod(t, Membership, "findOne", [
+        {
+            _id: actorMembership._id,
+            role: "student",
+            status: "active",
+        },
+        {
+            _id: actorMembership._id,
+            role: "student",
+            status: "active",
+        },
+    ]);
+    t.mock.method(Enrollment, "find", (query) => {
+        enrollmentFindQueries.push(query);
+        return createQuery([]);
+    });
+    mockQueryMethod(t, Enrollment, "findOne", [null, null]);
+    t.mock.method(Enrollment, "countDocuments", createSequence([7, 8]));
+    t.mock.method(Enrollment, "aggregate", async () => [
+        { _id: sectionOne._id, enrolledSeatCount: 7 },
+        { _id: sectionTwo._id, enrolledSeatCount: 8 },
+    ]);
+    const createMock = t.mock.method(Enrollment, "create", createSequence(createdEnrollments));
+
+    const result = await enrollmentService.createMySelfEnrollmentSubmission({
+        institutionId: institution._id,
+        actorUserId: "507f1f77bcf86cd799439071",
+        actorMembership,
+        payload: {
+            sectionIds: [sectionOne._id, sectionTwo._id],
+        },
+    });
+
+    assert.deepEqual(result.submission.sectionIds, [sectionOne._id, sectionTwo._id]);
+    assert.equal(createMock.mock.calls.length, 2);
+    assert.equal(enrollmentFindQueries[1].status, "enrolled");
+});
+
 test("createMySelfEnrollmentSubmission keeps tenant scoping and rejects a selected section outside the institution context", async (t) => {
     const actorMembership = buildActorMembership();
     const institution = buildInstitution();
@@ -534,4 +886,38 @@ test("createMySelfEnrollmentSubmission keeps tenant scoping and rejects a select
             return true;
         }
     );
+});
+
+test("createMySelfEnrollmentSubmission controller returns self-enrollment validation metadata", async (t) => {
+    const error = new Error("Selected section schedule conflicts with another enrolled or selected section.");
+    error.statusCode = 409;
+    error.reasonCode = "schedule_conflict";
+    error.blockingReasonCodes = ["schedule_conflict"];
+    t.mock.method(enrollmentService, "createMySelfEnrollmentSubmission", async () => {
+        throw error;
+    });
+
+    const req = {
+        params: {
+            institutionId: "507f1f77bcf86cd799439011",
+        },
+        tenantId: "507f1f77bcf86cd799439011",
+        user: {
+            id: "507f1f77bcf86cd799439071",
+        },
+        membership: buildActorMembership(),
+        body: {
+            sectionIds: ["507f1f77bcf86cd799439021"],
+        },
+    };
+    const res = createMockResponse();
+
+    await enrollmentController.createMySelfEnrollmentSubmission(req, res);
+
+    assert.equal(res.statusCode, 409);
+    assert.deepEqual(res.body, {
+        message: "Selected section schedule conflicts with another enrolled or selected section.",
+        reasonCode: "schedule_conflict",
+        blockingReasonCodes: ["schedule_conflict"],
+    });
 });

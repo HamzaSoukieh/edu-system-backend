@@ -1,5 +1,17 @@
 # Testing Notes
 
+## 2026-07-09 Self-Enrollment Schedule Conflict Enforcement
+
+- Added backend-authoritative schedule conflict validation for university student self-enrollment final submissions.
+- Validation reads recurring schedules from `Section.schedule` for selected sections and same-institution active-semester sections where the student has `Enrollment.status = enrolled`.
+- Same-day overlaps use `existingStart < selectedEnd && selectedStart < existingEnd`; back-to-back sections are allowed.
+- Schedule conflicts return `409` with message `Selected section schedule conflicts with another enrolled or selected section.`, `reasonCode: "schedule_conflict"`, and `blockingReasonCodes: ["schedule_conflict"]`.
+- Dropped enrollments do not block because the current-enrollment query filters `status: "enrolled"`.
+- Frontend schedule checks remain useful for UX, but backend validation is authoritative.
+- Ran `node --check src/services/universitySelfEnrollmentEligibilityService.js`, `node --check src/services/enrollmentService.js`, `node --check src/controllers/enrollmentController.js`, `node --check test/self-enrollment-eligibility.test.js`, and `node --check test/self-enrollment-write.test.js`.
+- Ran `node --test test/self-enrollment-eligibility.test.js test/self-enrollment-write.test.js test/self-enrollment-browse.test.js`; result: 42 passing.
+- Ran `node --test test/self-enrollment-eligibility.test.js test/self-enrollment-write.test.js test/self-enrollment-browse.test.js test/section-list-permission.test.js test/section-session-permission.test.js test/section-material.test.js`; result: 85 passing.
+
 ## 2026-06-19 Stripe Billing Postman Fixture Repair
 
 - Replaced blank/unknown local billing collection passwords with the deterministic `seed-dev` accounts.

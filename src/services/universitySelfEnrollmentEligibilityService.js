@@ -10,6 +10,9 @@ const {
 } = require("./universityRepeatPolicyService");
 
 const SELF_ENROLLMENT_ENROLLABLE_SECTION_STATUSES = ["draft", "active"];
+const SCHEDULE_DAYS = ["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"];
+const SCHEDULE_CONFLICT_MESSAGE =
+    "Selected section schedule conflicts with another enrolled or selected section.";
 const SELF_ENROLLMENT_REASON_MESSAGES = {
     already_enrolled_in_section: "Student is already enrolled in the target section.",
     existing_section_enrollment_record: "Student already has an enrollment record for the target section.",
@@ -18,6 +21,7 @@ const SELF_ENROLLMENT_REASON_MESSAGES = {
     same_subject_already_passed_final: "Student already has a final-pass outcome for the target subject.",
     repeat_blocked_grade_improvement_not_allowed:
         "The active repeat policy does not allow repeating an improvable passed subject.",
+    schedule_conflict: SCHEDULE_CONFLICT_MESSAGE,
     duplicate_subject_in_submission:
         "Self-enrollment submission cannot include multiple sections for the same subject.",
     projected_credit_load_exceeds_max: "Projected active-semester credit load exceeds the allowed maximum.",
@@ -59,6 +63,39 @@ function normalizeId(value) {
     }
 
     return null;
+}
+
+function normalizeString(value) {
+    if (typeof value !== "string") {
+        return "";
+    }
+
+    return value.trim();
+}
+
+function normalizeLowerString(value) {
+    return normalizeString(value).toLowerCase();
+}
+
+function parseTimeToMinutes(rawValue, fieldName) {
+    const value = normalizeString(rawValue);
+    const match = value.match(/^(\d{1,2}):(\d{2})$/);
+
+    if (!match) {
+        throw createError(409, `${fieldName} must be in HH:mm format for self-enrollment schedule validation`);
+    }
+
+    const hours = Number(match[1]);
+    const minutes = Number(match[2]);
+    if (hours > 23 || minutes > 59) {
+        throw createError(409, `${fieldName} must be in HH:mm format for self-enrollment schedule validation`);
+    }
+
+    return hours * 60 + minutes;
+}
+
+function timeRangesOverlap(aStart, aEnd, bStart, bEnd) {
+    return aStart < bEnd && bStart < aEnd;
 }
 
 function ensureActiveStudentMembership(studentMembership) {
@@ -105,6 +142,129 @@ function ensureTargetSubjectEligibilityContext(targetSubject) {
     if (!Number.isInteger(targetSubject.creditHours) || targetSubject.creditHours < 1) {
         throw createError(409, "Subject creditHours must be configured for university self-enrollment eligibility");
     }
+}
+
+function buildSelfEnrollmentScheduleEntries(section, source) {
+    const sectionId = normalizeId(section?._id);
+    if (!sectionId || !Array.isArray(section?.schedule) || section.schedule.length === 0) {
+        throw createError(
+            409,
+            "Section schedule is missing or incomplete for self-enrollment schedule validation"
+        );
+    }
+
+    return section.schedule.map((entry, index) => {
+        if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
+            throw createError(409, `schedule[${index}] must be an object for self-enrollment schedule validation`);
+        }
+
+        const day = normalizeLowerString(entry.day);
+        if (!SCHEDULE_DAYS.includes(day)) {
+            throw createError(
+                409,
+                `schedule[${index}].day must be one of ${SCHEDULE_DAYS.join(", ")} for self-enrollment schedule validation`
+            );
+        }
+
+        const startMinutes = parseTimeToMinutes(entry.startTime, `schedule[${index}].startTime`);
+        const endMinutes = parseTimeToMinutes(entry.endTime, `schedule[${index}].endTime`);
+        if (startMinutes >= endMinutes) {
+            throw createError(
+                409,
+                `schedule[${index}].startTime must be before schedule[${index}].endTime for self-enrollment schedule validation`
+            );
+        }
+
+        return {
+            source,
+            sectionId,
+            sectionCode: section.code || null,
+            sectionTitle: section.title || null,
+            day,
+            startTime: normalizeString(entry.startTime),
+            endTime: normalizeString(entry.endTime),
+            startMinutes,
+            endMinutes,
+        };
+    });
+}
+
+function buildScheduleConflict(entry, conflictingEntry) {
+    return {
+        selectedSectionId: entry.sectionId,
+        selectedSectionCode: entry.sectionCode,
+        selectedSectionTitle: entry.sectionTitle,
+        conflictingSectionId: conflictingEntry.sectionId,
+        conflictingSectionCode: conflictingEntry.sectionCode,
+        conflictingSectionTitle: conflictingEntry.sectionTitle,
+        conflictingSource: conflictingEntry.source,
+        day: entry.day,
+        selectedStartTime: entry.startTime,
+        selectedEndTime: entry.endTime,
+        conflictingStartTime: conflictingEntry.startTime,
+        conflictingEndTime: conflictingEntry.endTime,
+    };
+}
+
+function buildScheduleConflictSummary({
+    currentActiveSemesterSections = [],
+    selections = [],
+}) {
+    const selectedSections = selections
+        .map((selection) => selection?.targetSection || null)
+        .filter(Boolean);
+    const selectedEntries = selectedSections.flatMap((section) =>
+        buildSelfEnrollmentScheduleEntries(section, "selected")
+    );
+    const currentEntries = currentActiveSemesterSections.flatMap((section) =>
+        buildSelfEnrollmentScheduleEntries(section, "enrolled")
+    );
+    const conflicts = [];
+
+    for (const selectedEntry of selectedEntries) {
+        for (const currentEntry of currentEntries) {
+            if (selectedEntry.sectionId === currentEntry.sectionId || selectedEntry.day !== currentEntry.day) {
+                continue;
+            }
+
+            if (
+                timeRangesOverlap(
+                    currentEntry.startMinutes,
+                    currentEntry.endMinutes,
+                    selectedEntry.startMinutes,
+                    selectedEntry.endMinutes
+                )
+            ) {
+                conflicts.push(buildScheduleConflict(selectedEntry, currentEntry));
+            }
+        }
+    }
+
+    for (let leftIndex = 0; leftIndex < selectedEntries.length; leftIndex += 1) {
+        for (let rightIndex = leftIndex + 1; rightIndex < selectedEntries.length; rightIndex += 1) {
+            const leftEntry = selectedEntries[leftIndex];
+            const rightEntry = selectedEntries[rightIndex];
+            if (leftEntry.sectionId === rightEntry.sectionId || leftEntry.day !== rightEntry.day) {
+                continue;
+            }
+
+            if (
+                timeRangesOverlap(
+                    leftEntry.startMinutes,
+                    leftEntry.endMinutes,
+                    rightEntry.startMinutes,
+                    rightEntry.endMinutes
+                )
+            ) {
+                conflicts.push(buildScheduleConflict(leftEntry, rightEntry));
+            }
+        }
+    }
+
+    return {
+        hasScheduleConflict: conflicts.length > 0,
+        conflicts,
+    };
 }
 
 function buildOutcomeMap(outcomes = []) {
@@ -661,6 +821,18 @@ function resolveSelfEnrollmentSubmissionEligibility({
         );
     }
 
+    const scheduleConflictSummary = buildScheduleConflictSummary({
+        currentActiveSemesterSections,
+        selections,
+    });
+    if (scheduleConflictSummary.hasScheduleConflict) {
+        blockingReasons.push(
+            createReasonItem("schedule_conflict", {
+                conflicts: scheduleConflictSummary.conflicts,
+            })
+        );
+    }
+
     if (projectedCreditHours > maxAllowedCreditHours) {
         blockingReasons.push(
             createReasonItem("projected_credit_load_exceeds_max", {
@@ -737,6 +909,7 @@ function resolveSelfEnrollmentSubmissionEligibility({
         cumulativeGpa,
         sectionDecisions,
         duplicateSubjectSummary,
+        scheduleConflictSummary,
         loadSummary: {
             currentCreditHours,
             selectedCreditHours,
@@ -771,6 +944,8 @@ module.exports = {
     SELF_ENROLLMENT_ENROLLABLE_SECTION_STATUSES,
     SELF_ENROLLMENT_REASON_MESSAGES,
     calculateCurrentCreditHours,
+    timeRangesOverlap,
+    buildScheduleConflictSummary,
     toSelfEnrollmentEligibilitySummary,
     resolveSelfEnrollmentEligibility,
     resolveSelfEnrollmentSubmissionEligibility,

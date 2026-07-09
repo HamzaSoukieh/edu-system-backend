@@ -16,6 +16,22 @@ function resolveMessage(error, statusCode) {
     return error.message || "Request failed";
 }
 
+function buildErrorResponse(error, statusCode) {
+    const response = {
+        message: resolveMessage(error, statusCode),
+    };
+
+    if (statusCode < 500 && error?.reasonCode) {
+        response.reasonCode = error.reasonCode;
+    }
+
+    if (statusCode < 500 && Array.isArray(error?.blockingReasonCodes)) {
+        response.blockingReasonCodes = [...error.blockingReasonCodes];
+    }
+
+    return response;
+}
+
 async function createEnrollment(req, res) {
     try {
         const institutionId = req.params.institutionId || req.tenantId;
@@ -31,7 +47,7 @@ async function createEnrollment(req, res) {
         return res.status(201).json(result);
     } catch (error) {
         const statusCode = resolveStatusCode(error);
-        return res.status(statusCode).json({ message: resolveMessage(error, statusCode) });
+        return res.status(statusCode).json(buildErrorResponse(error, statusCode));
     }
 }
 
@@ -47,7 +63,7 @@ async function listEnrollments(req, res) {
         return res.status(200).json(result);
     } catch (error) {
         const statusCode = resolveStatusCode(error);
-        return res.status(statusCode).json({ message: resolveMessage(error, statusCode) });
+        return res.status(statusCode).json(buildErrorResponse(error, statusCode));
     }
 }
 
@@ -65,7 +81,7 @@ async function getEnrollmentById(req, res) {
         return res.status(200).json(result);
     } catch (error) {
         const statusCode = resolveStatusCode(error);
-        return res.status(statusCode).json({ message: resolveMessage(error, statusCode) });
+        return res.status(statusCode).json(buildErrorResponse(error, statusCode));
     }
 }
 
@@ -84,7 +100,7 @@ async function updateEnrollmentStatus(req, res) {
         return res.status(200).json(result);
     } catch (error) {
         const statusCode = resolveStatusCode(error);
-        return res.status(statusCode).json({ message: resolveMessage(error, statusCode) });
+        return res.status(statusCode).json(buildErrorResponse(error, statusCode));
     }
 }
 
@@ -103,7 +119,7 @@ async function getSelfEnrollmentEligibility(req, res) {
         return res.status(200).json(result);
     } catch (error) {
         const statusCode = resolveStatusCode(error);
-        return res.status(statusCode).json({ message: resolveMessage(error, statusCode) });
+        return res.status(statusCode).json(buildErrorResponse(error, statusCode));
     }
 }
 
@@ -121,7 +137,7 @@ async function listMySelfEnrollmentSections(req, res) {
         return res.status(200).json(result);
     } catch (error) {
         const statusCode = resolveStatusCode(error);
-        return res.status(statusCode).json({ message: resolveMessage(error, statusCode) });
+        return res.status(statusCode).json(buildErrorResponse(error, statusCode));
     }
 }
 
@@ -139,7 +155,7 @@ async function createMySelfEnrollmentSubmission(req, res) {
         return res.status(201).json(result);
     } catch (error) {
         const statusCode = resolveStatusCode(error);
-        return res.status(statusCode).json({ message: resolveMessage(error, statusCode) });
+        return res.status(statusCode).json(buildErrorResponse(error, statusCode));
     }
 }
 

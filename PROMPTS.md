@@ -1,5 +1,18 @@
 # Prompts
 
+## 2026-07-09 Self-Enrollment Schedule Conflict Enforcement
+
+Add backend schedule-conflict enforcement for university student self-enrollment final submissions.
+
+Key result:
+- schedule conflict validation now reads `Section.schedule` on selected sections and same-institution active-semester enrolled sections
+- overlapping same-day time ranges are blocked using `existingStart < selectedEnd && selectedStart < existingEnd`
+- back-to-back sections remain allowed
+- dropped enrollments do not block because only `Enrollment.status = enrolled` current records are considered
+- schedule conflicts return `409`, `reasonCode: "schedule_conflict"`, and `blockingReasonCodes: ["schedule_conflict"]`
+- frontend checks remain UX-only; backend validation is authoritative
+- no frontend, waitlist, advisor approval, attendance, section-session redesign, or schedule generation changes were added
+
 ## 2026-06-19 Stripe Billing Postman Fixture Repair
 
 Repair the local Stripe Billing Postman flow without weakening duplicate-subscription or upgrade eligibility checks. Use deterministic seeded credentials, create a fresh unpaid billing sandbox for checkout, and make the collection verify active Plus webhook state before requesting Plus-to-Pro upgrade.

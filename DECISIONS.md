@@ -189,7 +189,13 @@
 - Status: Confirmed
 - Decision: Keep browse/list and detailed preview per section, but make the actual university student self-enrollment write flow a multi-section submission/finalization route.
 - Reason: Real registration needs the minimum and maximum load rules evaluated against the final submitted selection, not one target section in isolation.
-- Notes: The shared `Enrollment` model stays unchanged, school flows remain excluded, the final submission still reuses the shared single-enrollment create path underneath, and the near-graduation under-minimum exception stays explicitly deferred until a real graduation requirement source exists.
+- Notes: The shared `Enrollment` model stays unchanged, school flows remain excluded, the final submission still reuses the shared single-enrollment create path underneath, schedule conflict validation is backend-authoritative from `Section.schedule`, and the near-graduation under-minimum exception stays explicitly deferred until a real graduation requirement source exists.
+
+## D031A - Backend Schedule Conflicts Block University Self-Enrollment
+- Status: Confirmed
+- Decision: Student self-enrollment final submission checks selected `Section.schedule` entries against same-institution active-semester sections where the student has `Enrollment.status = enrolled`, and against other sections in the same submission.
+- Reason: Frontend timetable checks are useful UX, but the backend must be authoritative for multi-section registration safety.
+- Notes: Time ranges overlap only when `existingStart < selectedEnd` and `selectedStart < existingEnd`; back-to-back sections are allowed. Schedule conflicts return `409` with `reasonCode = schedule_conflict` and `blockingReasonCodes = ["schedule_conflict"]`.
 
 ## D032 - School Academic Policy Is A Separate School-Only Module
 - Status: Confirmed
