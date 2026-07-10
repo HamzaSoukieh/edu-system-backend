@@ -1,0 +1,62 @@
+# Disposable local development infrastructure for the edu-system backend.
+#
+# Provides:
+#   - MongoDB 7 as a single-node REPLICA SET (required for multi-document transactions)
+#   - Redis 7 (BullMQ email queue)
+#   - Mailpit (local SMTP sink + web UI at http://localhost:8025) so signup / password-reset
+#     work without real Gmail credentials.
+#
+# The backend itself runs on the host (npm run dev) against these services.
+# All services bind to localhost only — never exposed publicly.
+#
+# Usage (see project-audit/DEV_ENVIRONMENT.md for full commands):
+#   docker compose -f docker-compose.dev.yml up -d
+#   docker compose -f docker-compose.dev.yml exec mongo mongosh --quiet --eval \
+#     "try { rs.status().ok } catch (e) { rs.initiate({_id:'rs0',members:[{_id:0,host:'127.0.0.1:27017'}]}) }"
+#   docker compose -f docker-compose.dev.yml down          # stop
+#   docker compose -f docker-compose.dev.yml down -v       # stop + destroy disposable data
+
+services:
+  mongo:
+    image: mongo:7
+    command: ["mongod", "--replSet", "rs0", "--bind_ip_all"]
+    ports:
+      - "127.0.0.1:27017:27017"
+    volumes:
+      - mongo_dev_data:/data/db
+    healthcheck:
+      # Initialize the single-node replica set on first healthy tick, then report status.
+      test:
+        [
+          "CMD",
+          "mongosh",
+          "--quiet",
+          "--eval",
+          "try { rs.status().ok } catch (e) { rs.initiate({_id:'rs0',members:[{_id:0,host:'127.0.0.1:27017'}]}) }",
+        ]
+      interval: 10s
+      timeout: 10s
+      retries: 10
+      start_period: 20s
+
+  redis:
+    image: redis:7-alpine
+    command: redis-server --appendonly yes --appendfsync everysec --maxmemory-policy noeviction
+    ports:
+      - "127.0.0.1:6379:6379"
+    volumes:
+      - redis_dev_data:/data
+
+  mailpit:
+    image: axllent/mailpit:latest
+    ports:
+      - "127.0.0.1:1025:1025" # SMTP
+      - "127.0.0.1:8025:8025" # Web UI
+    environment:
+      MP_MAX_MESSAGES: "500"
+      MP_SMTP_AUTH_ACCEPT_ANY: "true"
+      MP_SMTP_AUTH_ALLOW_INSECURE: "true"
+
+volumes:
+  mongo_dev_data:
+  redis_dev_data:

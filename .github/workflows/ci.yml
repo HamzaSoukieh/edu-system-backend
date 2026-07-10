@@ -1,0 +1,45 @@
+name: backend-ci
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    services:
+      mongo:
+        image: mongo:7
+        ports:
+          - 27017:27017
+        options: >-
+          --health-cmd "mongosh --quiet --eval 'db.runCommand({ping:1}).ok'"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+    env:
+      NODE_ENV: test
+      MONGO_URI: mongodb://127.0.0.1:27017/edu-saas-ci
+      JWT_SECRET: ci-throwaway-jwt-secret
+      QR_JWT_SECRET: ci-throwaway-qr-secret
+      REDIS_URL: redis://127.0.0.1:6379
+      EMAIL_QUEUE_ENABLED: "false"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+      - name: Install (clean)
+        run: npm ci
+      - name: Syntax check
+        run: node -e "const {execSync}=require('child_process');const fs=require('fs');const g=(d)=>fs.readdirSync(d,{withFileTypes:true}).flatMap(e=>e.isDirectory()?g(d+'/'+e.name):(e.name.endsWith('.js')?[d+'/'+e.name]:[]));for(const f of [...g('src'),...g('scripts'),...g('config')]){execSync('node --check '+f)}console.log('syntax ok')"
+      - name: Unit tests
+        run: npm test
+      - name: Dependency audit (fail on high)
+        run: npm audit --omit=dev --audit-level=high
