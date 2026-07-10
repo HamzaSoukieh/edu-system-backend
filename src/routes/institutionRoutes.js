@@ -473,7 +473,6 @@ router.get(
     authJwt,
     requireEmailVerified,
     institutionAccess(),
-    requirePermission("class.manage"),
     classLevelController.listClassLevels
 );
 router.get(
@@ -488,7 +487,6 @@ router.get(
     authJwt,
     requireEmailVerified,
     institutionAccess(),
-    requirePermission("class.manage"),
     classLevelController.getClassLevelById
 );
 router.patch(
@@ -568,7 +566,6 @@ router.get(
     authJwt,
     requireEmailVerified,
     institutionAccess(),
-    requirePermission("subject.manage"),
     subjectController.listSubjects
 );
 router.get(
@@ -576,7 +573,6 @@ router.get(
     authJwt,
     requireEmailVerified,
     institutionAccess(),
-    requirePermission("subject.manage"),
     subjectController.getSubjectById
 );
 router.patch(
