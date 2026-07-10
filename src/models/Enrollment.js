@@ -58,5 +58,8 @@ const enrollmentSchema = new mongoose.Schema(
 );
 
 enrollmentSchema.index({ institutionId: 1, sectionId: 1, studentMemberId: 1 }, { unique: true });
+// DB-14: hot path — many services query a student's enrollments by
+// (institution, student, status) (eligibility, academic profile, outcomes, …).
+enrollmentSchema.index({ institutionId: 1, studentMemberId: 1, status: 1 });
 
 module.exports = mongoose.model("Enrollment", enrollmentSchema);
