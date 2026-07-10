@@ -94,6 +94,7 @@ const schoolFinalOutcomeSchema = new mongoose.Schema(
         },
         academicYearId: {
             type: mongoose.Schema.Types.ObjectId,
+            ref: "AcademicYear", // DB-4: was a dangling ObjectId; enable populate()
             required: true,
             index: true,
         },

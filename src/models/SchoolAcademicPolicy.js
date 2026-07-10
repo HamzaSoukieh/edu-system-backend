@@ -54,6 +54,7 @@ const schoolAcademicPolicySchema = new mongoose.Schema(
         appliesTo: {
             academicYearId: {
                 type: mongoose.Schema.Types.ObjectId,
+                ref: "AcademicYear", // DB-4: enable populate()
                 required: true,
             },
             schoolStageId: {
