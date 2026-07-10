@@ -3,6 +3,16 @@ const mongoose = require("mongoose");
 
 dotenv.config();
 
+const { validateEnv } = require("./config/validateEnv");
+
+// SEC-12: fail fast on missing critical config rather than 500-ing per request.
+try {
+    validateEnv();
+} catch (error) {
+    console.error(`Startup config error: ${error.message}`);
+    process.exit(1);
+}
+
 const app = require("./app");
 
 const HOST = process.env.HOST || "0.0.0.0";
