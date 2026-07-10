@@ -8,6 +8,7 @@ const RefreshToken = require("../models/RefreshToken");
 const AccountSetupToken = require("../models/AccountSetupToken");
 const User = require("../models/User");
 const { sendOtpEmail } = require("./emailService");
+const { withTransaction } = require("../utils/withTransaction");
 
 const DEFAULT_SALT_ROUNDS = 10;
 // Short-lived access token; long-lived refresh token handles session continuity (D-008).
@@ -156,6 +157,27 @@ function validateCredentials({ email, password }) {
     }
 }
 
+// Persist an OTP record (invalidating prior unconsumed ones) WITHOUT sending the
+// email — so the write can join a transaction and the email is sent post-commit.
+async function persistOtpRecord({ email, purpose, userId, session = null }) {
+    const otpCode = generateOtpCode();
+    const otpExpiresMinutes = parsePositiveInteger(
+        process.env.OTP_EXPIRES_MINUTES,
+        DEFAULT_OTP_EXPIRES_MINUTES
+    );
+    const expiresAt = new Date(Date.now() + otpExpiresMinutes * 60 * 1000);
+    const codeHash = await bcrypt.hash(otpCode, DEFAULT_SALT_ROUNDS);
+    const options = session ? { session } : {};
+
+    await OtpCode.deleteMany({ email, purpose, consumedAt: null }, options);
+    const [otpRecord] = await OtpCode.create(
+        [{ userId: userId || null, email, purpose, codeHash, expiresAt }],
+        options
+    );
+
+    return { otpCode, otpRecordId: otpRecord._id, expiresInMinutes: otpExpiresMinutes };
+}
+
 async function createAndSendOtp({ email, purpose, userId }) {
     const otpCode = generateOtpCode();
     const otpExpiresMinutes = parsePositiveInteger(
@@ -253,43 +275,63 @@ async function signup({ email, password, confirmPassword, institutionName, insti
 
     const passwordHash = await bcrypt.hash(normalizedPassword, saltRounds);
 
-    const user = await User.create({ email: normalizedEmail, passwordHash });
-
-    let institution = null;
-    let membership = null;
-    let signupOtpCode = null;
+    // DB-1: create User + Institution + owner Membership + signup OTP atomically
+    // so a mid-sequence failure can't leave an orphan (a user with no institution,
+    // or an institution with no owner). The OTP email is a side effect sent only
+    // after the transaction commits. Standalone-Mongo fallback via withTransaction.
+    let user;
+    let institution;
+    let signupOtpCode;
     try {
-        institution = await Institution.create({
-            name: normalizedInstitutionName,
-            type: normalizedInstitutionType,
-            ownerUserId: user._id,
+        const result = await withTransaction(async (session) => {
+            const options = session ? { session } : {};
+            const [createdUser] = await User.create([{ email: normalizedEmail, passwordHash }], options);
+            const [createdInstitution] = await Institution.create(
+                [
+                    {
+                        name: normalizedInstitutionName,
+                        type: normalizedInstitutionType,
+                        ownerUserId: createdUser._id,
+                    },
+                ],
+                options
+            );
+            await Membership.create(
+                [
+                    {
+                        userId: createdUser._id,
+                        institutionId: createdInstitution._id,
+                        role: "admin",
+                        status: "active",
+                    },
+                ],
+                options
+            );
+            const otp = await persistOtpRecord({
+                email: normalizedEmail,
+                purpose: SIGNUP_OTP_PURPOSE,
+                userId: createdUser._id,
+                session,
+            });
+            return { user: createdUser, institution: createdInstitution, otp };
         });
+        user = result.user;
+        institution = result.institution;
+        signupOtpCode = result.otp.otpCode;
 
-        membership = await Membership.create({
-            userId: user._id,
-            institutionId: institution._id,
-            role: "admin",
-            status: "active",
-        });
-
-        signupOtpCode = await createAndSendOtp({
-            email: normalizedEmail,
+        // Side effect after the account is durably committed.
+        await sendOtpEmail({
+            to: normalizedEmail,
+            code: result.otp.otpCode,
             purpose: SIGNUP_OTP_PURPOSE,
-            userId: user._id,
+            expiresInMinutes: result.otp.expiresInMinutes,
         });
     } catch (error) {
-        if (membership?._id) {
-            await Membership.deleteOne({ _id: membership._id });
+        if (error && error.statusCode === 409) {
+            throw error;
         }
-        if (institution?._id) {
-            await Institution.deleteOne({ _id: institution._id });
-        }
-        await OtpCode.deleteMany({
-            userId: user._id,
-            purpose: SIGNUP_OTP_PURPOSE,
-            consumedAt: null,
-        });
-        await User.deleteOne({ _id: user._id });
+        // The account may already be committed (email failed) — surface a clear
+        // error; the user exists and can request a new OTP via resend.
         throw createError(500, "Failed to create account");
     }
 
