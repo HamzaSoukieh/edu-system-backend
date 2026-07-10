@@ -10,6 +10,7 @@ const schoolAcademicPolicyService = require("./schoolAcademicPolicyService");
 const schoolOutcomeService = require("./schoolOutcomeService");
 const schoolPromotionService = require("./schoolPromotionService");
 const { ensureSchoolInstitution } = require("./classLevelService");
+const { recordAuditLog } = require("./auditService");
 
 const SCHOOL_FINAL_OUTCOME_STATUSES = ["draft", "finalized", "cancelled"];
 const SCHOOL_FINAL_OUTCOME_MANAGE_PERMISSION = "class.manage";
@@ -604,6 +605,23 @@ async function overrideSchoolFinalOutcome({
     };
 
     await outcome.save();
+
+    // SEC-15: a final-outcome override changes a student's academic decision —
+    // audit it (actor, before/after decision).
+    await recordAuditLog({
+        institutionId: normalizedInstitutionId,
+        actorUserId: normalizedActorUserId,
+        action: "school.final_outcome.overridden",
+        entityType: "SchoolFinalOutcome",
+        entityId: outcome._id,
+        metadata: {
+            from: calculatedDecision.decision,
+            to: finalDecisionFields.finalDecision,
+            studentMembershipId: outcome.studentMembershipId
+                ? outcome.studentMembershipId.toString()
+                : null,
+        },
+    });
 
     return {
         schoolFinalOutcome: toSchoolFinalOutcomeResponse(outcome),
