@@ -1,4 +1,5 @@
 const mongoose = require("mongoose");
+const { withTransaction } = require("../utils/withTransaction");
 const Assessment = require("../models/Assessment");
 const AssessmentResult = require("../models/AssessmentResult");
 const Enrollment = require("../models/Enrollment");
@@ -931,49 +932,47 @@ async function createAssessment({ institutionId, sectionId, actorUserId, actorMe
         throw createError(409, "Assessments require at least one active enrolled student");
     }
 
-    let assessment = null;
-    try {
-        assessment = await Assessment.create({
-            institutionId,
-            sectionId,
-            sectionSessionId: input.sectionSessionId || null,
-            title: input.title,
-            description: input.description,
-            type: input.type,
-            assessmentDate,
-            maxScore: input.maxScore,
-            weight: input.weight,
-            status: "draft",
-            createdByUserId: actorUserId,
-        });
+    // DB-1: create the Assessment and seed one AssessmentResult per enrolled
+    // student atomically, so a failure mid-seed can't leave an assessment with a
+    // partial roster (or the reverse). Falls back to non-transactional on a
+    // standalone Mongo (see withTransaction).
+    const assessment = await withTransaction(async (session) => {
+        const options = session ? { session } : {};
+        const [createdAssessment] = await Assessment.create(
+            [
+                {
+                    institutionId,
+                    sectionId,
+                    sectionSessionId: input.sectionSessionId || null,
+                    title: input.title,
+                    description: input.description,
+                    type: input.type,
+                    assessmentDate,
+                    maxScore: input.maxScore,
+                    weight: input.weight,
+                    status: "draft",
+                    createdByUserId: actorUserId,
+                },
+            ],
+            options
+        );
 
         await AssessmentResult.insertMany(
             enrollments.map((enrollment) => ({
                 institutionId,
                 sectionId,
-                assessmentId: assessment._id,
+                assessmentId: createdAssessment._id,
                 enrollmentId: enrollment._id,
                 studentMemberId: enrollment.studentMemberId,
                 score: null,
                 note: null,
                 recordedByUserId: null,
             })),
-            { ordered: true }
+            { ordered: true, ...options }
         );
-    } catch (error) {
-        if (assessment?._id) {
-            await AssessmentResult.deleteMany({
-                institutionId,
-                assessmentId: assessment._id,
-            });
-            await Assessment.deleteOne({
-                _id: assessment._id,
-                institutionId,
-            });
-        }
 
-        throw error;
-    }
+        return createdAssessment;
+    });
 
     return {
         assessment: toAssessmentResponse(assessment, {
