@@ -2,6 +2,8 @@ const mongoose = require("mongoose");
 const Enrollment = require("../models/Enrollment");
 const Institution = require("../models/Institution");
 const Membership = require("../models/Membership");
+const MemberProfile = require("../models/MemberProfile");
+const User = require("../models/User");
 const Section = require("../models/Section");
 const ClassStudentAssignment = require("../models/ClassStudentAssignment");
 const Subject = require("../models/Subject");
@@ -676,9 +678,50 @@ async function listEnrollments({ institutionId, sectionId }) {
         .sort({ enrolledAt: -1, createdAt: -1, _id: -1 })
         .lean();
 
+    // Enrich each row with a { fullName, email } student summary so roster views
+    // don't have to resolve studentMemberId -> member separately (mirrors the
+    // attendance roster / assessment result shapes).
+    const studentMemberIds = [...new Set(enrollments.map((e) => e.studentMemberId?.toString()).filter(Boolean))];
+    const studentSummaryById = await buildEnrollmentStudentSummaries({ institutionId, studentMemberIds });
+
     return {
-        enrollments: enrollments.map(toEnrollmentListItem),
+        enrollments: enrollments.map((enrollment) => ({
+            ...toEnrollmentListItem(enrollment),
+            student: studentSummaryById.get(enrollment.studentMemberId?.toString()) || { fullName: null, email: null },
+        })),
     };
+}
+
+// Resolve Membership._id -> { fullName, email } for a set of student members.
+async function buildEnrollmentStudentSummaries({ institutionId, studentMemberIds }) {
+    const summaryById = new Map();
+    if (!studentMemberIds.length) {
+        return summaryById;
+    }
+
+    const [memberships, profiles] = await Promise.all([
+        Membership.find({ _id: { $in: studentMemberIds }, institutionId }).select("_id userId").lean(),
+        MemberProfile.find({ membershipId: { $in: studentMemberIds }, institutionId }).select("membershipId fullName").lean(),
+    ]);
+
+    const userIdByMembershipId = new Map(memberships.map((m) => [m._id.toString(), m.userId?.toString() || null]));
+    const fullNameByMembershipId = new Map(profiles.map((p) => [p.membershipId.toString(), p.fullName || null]));
+
+    const userIds = [...new Set([...userIdByMembershipId.values()].filter(Boolean))];
+    const users = userIds.length
+        ? await User.find({ _id: { $in: userIds } }).select("_id email").lean()
+        : [];
+    const emailByUserId = new Map(users.map((u) => [u._id.toString(), u.email || null]));
+
+    for (const membershipId of studentMemberIds) {
+        const userId = userIdByMembershipId.get(membershipId);
+        summaryById.set(membershipId, {
+            fullName: fullNameByMembershipId.get(membershipId) || null,
+            email: userId ? emailByUserId.get(userId) || null : null,
+        });
+    }
+
+    return summaryById;
 }
 
 async function getEnrollmentById({ institutionId, sectionId, enrollmentId }) {
