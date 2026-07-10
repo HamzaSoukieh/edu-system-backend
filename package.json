@@ -1,12 +1,16 @@
 {
   "name": "edu-saas-backend",
   "version": "1.0.0",
-  "main": "index.js",
+  "main": "src/server.js",
+  "engines": {
+    "node": ">=22 <23"
+  },
   "scripts": {
     "start": "node src/server.js",
     "dev": "nodemon src/server.js",
     "worker:email": "node src/workers/emailWorker.js",
     "dev:worker:email": "nodemon src/workers/emailWorker.js",
+    "test": "node --test test/",
     "seed:dev": "node scripts/seed-dev.js",
     "seed:dev:reset": "node scripts/seed-dev.js --reset",
     "platform:create-owner": "node scripts/create-platform-owner.js"
@@ -26,7 +30,7 @@
     "mongoose": "^9.2.1",
     "morgan": "^1.10.1",
     "multer": "^2.0.2",
-    "nodemailer": "^8.0.1",
+    "nodemailer": "^9.0.3",
     "stripe": "^22.2.0"
   },
   "devDependencies": {
