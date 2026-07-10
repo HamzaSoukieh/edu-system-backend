@@ -5,6 +5,7 @@ const Membership = require("../models/Membership");
 const MemberProfile = require("../models/MemberProfile");
 const User = require("../models/User");
 const { assertMembershipSeatTransitionAllowed } = require("./billingEntitlementService");
+const { withTransaction, createInSession } = require("../utils/withTransaction");
 const { sendMemberAccountCreatedEmail, sendMemberInviteEmail } = require("./emailService");
 const { createAccountSetupToken } = require("./authService");
 const { recordAuditLog } = require("./auditService");
@@ -644,70 +645,109 @@ async function createMember({ institutionId, createdByUserId, payload }) {
         Number.isInteger(configuredRounds) && configuredRounds > 0 ? configuredRounds : DEFAULT_SALT_ROUNDS;
 
     let createdUser = null;
+    let createdMembership = null;
+    let createdProfile = null;
+    let memberSetupToken = null;
+
+    // Precompute the new account's password hash (CPU work) outside the transaction.
+    let newUserPasswordHash = null;
     if (!existingUser) {
         // Never derive the initial credential from PII (SEC-17/D-006). Create the account
         // with a random, unusable password; the member sets their own via a one-time
         // setup link (emailed below). mustChangePassword gates them until they do.
         const unusablePassword = crypto.randomBytes(32).toString("hex");
-        const passwordHash = await bcrypt.hash(unusablePassword, saltRounds);
-        createdUser = await User.create({
-            email,
-            passwordHash,
-            isEmailVerified: true,
-            mustChangePassword: true,
-            status: "active",
-        });
-
-        existingUser = {
-            _id: createdUser._id,
-            email: createdUser.email,
-            status: createdUser.status,
-            isEmailVerified: createdUser.isEmailVerified,
-            mustChangePassword: createdUser.mustChangePassword,
-        };
+        newUserPasswordHash = await bcrypt.hash(unusablePassword, saltRounds);
     }
 
-    let createdMembership = null;
-    let createdProfile = null;
-    let memberSetupToken = null;
-
+    // Atomically create User (if new) + Membership + MemberProfile (DB-1). On a
+    // replica set this is a real transaction; on a standalone/mocked deployment it
+    // degrades to sequential writes guarded by the compensating deletes below.
     try {
-        await assertMembershipSeatTransitionAllowed({
-            institutionId,
-            sourceMembership: null,
-            destinationMembership: {
+        await withTransaction(async (session) => {
+            if (!existingUser) {
+                createdUser = await createInSession(User, {
+                    email,
+                    passwordHash: newUserPasswordHash,
+                    isEmailVerified: true,
+                    mustChangePassword: true,
+                    status: "active",
+                }, session);
+
+                existingUser = {
+                    _id: createdUser._id,
+                    email: createdUser.email,
+                    status: createdUser.status,
+                    isEmailVerified: createdUser.isEmailVerified,
+                    mustChangePassword: createdUser.mustChangePassword,
+                };
+            }
+
+            await assertMembershipSeatTransitionAllowed({
+                institutionId,
+                sourceMembership: null,
+                destinationMembership: {
+                    role,
+                    status: "active",
+                },
+            });
+
+            createdMembership = await createInSession(Membership, {
+                userId: existingUser._id,
+                institutionId,
                 role,
                 status: "active",
-            },
-        });
+                invitedBy: createdByUserId,
+            }, session);
 
-        createdMembership = await Membership.create({
-            userId: existingUser._id,
-            institutionId,
-            role,
-            status: "active",
-            invitedBy: createdByUserId,
+            createdProfile = await createInSession(MemberProfile, {
+                membershipId: createdMembership._id,
+                userId: existingUser._id,
+                institutionId,
+                firstName: profile.firstName,
+                lastName: profile.lastName,
+                fatherName: profile.fatherName,
+                motherName: profile.motherName,
+                birthPlace: profile.birthPlace,
+                birthDate: profile.birthDate,
+                gender: profile.gender,
+                nationality: profile.nationality,
+                nationalNumber: profile.nationalNumber,
+                mobile: profile.mobile,
+                profilePictureUrl: profile.profilePictureUrl,
+                fullName: profile.fullName,
+                fullNameNormalized: profile.fullNameNormalized,
+            }, session);
         });
+    } catch (error) {
+        // Compensation for the non-transactional fallback path (on a real
+        // transaction these deletes are no-ops — the writes already rolled back).
+        if (createdProfile?._id) {
+            await MemberProfile.deleteOne({ _id: createdProfile._id });
+        }
 
-        createdProfile = await MemberProfile.create({
-            membershipId: createdMembership._id,
-            userId: existingUser._id,
-            institutionId,
-            firstName: profile.firstName,
-            lastName: profile.lastName,
-            fatherName: profile.fatherName,
-            motherName: profile.motherName,
-            birthPlace: profile.birthPlace,
-            birthDate: profile.birthDate,
-            gender: profile.gender,
-            nationality: profile.nationality,
-            nationalNumber: profile.nationalNumber,
-            mobile: profile.mobile,
-            profilePictureUrl: profile.profilePictureUrl,
-            fullName: profile.fullName,
-            fullNameNormalized: profile.fullNameNormalized,
-        });
+        if (createdMembership?._id) {
+            await Membership.deleteOne({ _id: createdMembership._id });
+        }
 
+        if (createdUser?._id) {
+            await User.deleteOne({ _id: createdUser._id });
+        }
+
+        const mappedDuplicateError = mapDuplicateCreateError(error);
+        if (mappedDuplicateError) {
+            throw mappedDuplicateError;
+        }
+
+        if (error.statusCode) {
+            throw error;
+        }
+
+        throw createError(500, "Failed to create member");
+    }
+
+    // Post-commit side effects: a committed member is never rolled back if the
+    // invite/notification email fails — the email can be re-sent instead.
+    try {
         if (createdUser) {
             // New account: send a secure one-time setup link (no password in the email).
             const setup = await createAccountSetupToken({
@@ -731,28 +771,7 @@ async function createMember({ institutionId, createdByUserId, payload }) {
             });
         }
     } catch (error) {
-        if (createdProfile?._id) {
-            await MemberProfile.deleteOne({ _id: createdProfile._id });
-        }
-
-        if (createdMembership?._id) {
-            await Membership.deleteOne({ _id: createdMembership._id });
-        }
-
-        if (createdUser?._id) {
-            await User.deleteOne({ _id: createdUser._id });
-        }
-
-        const mappedDuplicateError = mapDuplicateCreateError(error);
-        if (mappedDuplicateError) {
-            throw mappedDuplicateError;
-        }
-
-        if (error.statusCode) {
-            throw error;
-        }
-
-        throw createError(500, "Failed to create member");
+        console.error("Member created but invite/notification email failed:", error?.message || error);
     }
 
     const memberRecord = await loadMemberRecord({
