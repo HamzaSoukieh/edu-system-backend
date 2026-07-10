@@ -106,6 +106,21 @@ function normalizePassword(password) {
     return password;
 }
 
+// SEC-19: enforce a consistent password policy at every set-password point.
+// bcrypt silently truncates input beyond 72 bytes, so a too-long password would
+// hash only its first 72 bytes — reject it explicitly rather than truncate.
+const MIN_PASSWORD_LENGTH = 8;
+const MAX_PASSWORD_BYTES = 72;
+
+function assertPasswordPolicy(password) {
+    if (password.length < MIN_PASSWORD_LENGTH) {
+        throw createError(400, `Password must be at least ${MIN_PASSWORD_LENGTH} characters`);
+    }
+    if (Buffer.byteLength(password, "utf8") > MAX_PASSWORD_BYTES) {
+        throw createError(400, `Password must be at most ${MAX_PASSWORD_BYTES} bytes`);
+    }
+}
+
 function normalizeInstitutionName(name) {
     if (typeof name !== "string") {
         return "";
@@ -243,9 +258,7 @@ async function signup({ email, password, confirmPassword, institutionName, insti
         password: normalizedPassword,
     });
 
-    if (normalizedPassword.length < 8) {
-        throw createError(400, "Password must be at least 8 characters");
-    }
+    assertPasswordPolicy(normalizedPassword);
 
     if (!normalizedConfirmPassword) {
         throw createError(400, "Confirm password is required");
@@ -561,9 +574,7 @@ async function resetPassword({ email, code, newPassword }) {
         throw createError(400, "New password is required");
     }
 
-    if (normalizedNewPassword.length < 8) {
-        throw createError(400, "Password must be at least 8 characters");
-    }
+    assertPasswordPolicy(normalizedNewPassword);
 
     const user = await User.findOne({ email: normalizedEmail })
         .select("_id email status isEmailVerified passwordHash mustChangePassword")
@@ -785,9 +796,7 @@ async function setupPassword({ token, newPassword } = {}, meta = {}) {
     if (!normalizedNewPassword) {
         throw createError(400, "New password is required");
     }
-    if (normalizedNewPassword.length < 8) {
-        throw createError(400, "Password must be at least 8 characters");
-    }
+    assertPasswordPolicy(normalizedNewPassword);
 
     const tokenHash = crypto.createHash("sha256").update(rawToken).digest("hex");
     const record = await AccountSetupToken.findOne({ tokenHash });
