@@ -4,11 +4,14 @@ const jwt = require("jsonwebtoken");
 const Institution = require("../models/Institution");
 const Membership = require("../models/Membership");
 const OtpCode = require("../models/OtpCode");
+const RefreshToken = require("../models/RefreshToken");
 const User = require("../models/User");
 const { sendOtpEmail } = require("./emailService");
 
 const DEFAULT_SALT_ROUNDS = 10;
-const DEFAULT_TOKEN_EXPIRES_IN = "7d";
+// Short-lived access token; long-lived refresh token handles session continuity (D-008).
+const DEFAULT_TOKEN_EXPIRES_IN = "15m";
+const DEFAULT_REFRESH_EXPIRES_DAYS = 30;
 const DEFAULT_OTP_EXPIRES_MINUTES = 10;
 const DEFAULT_OTP_MAX_ATTEMPTS = 5;
 const INSTITUTION_TYPES = ["school", "university"];
@@ -40,14 +43,48 @@ function getJwtSecret() {
     return jwtSecret;
 }
 
-function signAccessToken(userId) {
+function signAccessToken(userId, tokenVersion = 0) {
     const jwtSecret = getJwtSecret();
     const expiresIn = process.env.JWT_EXPIRES_IN || DEFAULT_TOKEN_EXPIRES_IN;
 
-    return jwt.sign({}, jwtSecret, {
+    return jwt.sign({ tokenVersion }, jwtSecret, {
         subject: userId.toString(),
         expiresIn,
     });
+}
+
+function refreshExpiryDays() {
+    return parsePositiveInteger(process.env.REFRESH_TOKEN_EXPIRES_DAYS, DEFAULT_REFRESH_EXPIRES_DAYS);
+}
+
+function hashRefreshToken(rawToken) {
+    return crypto.createHash("sha256").update(rawToken).digest("hex");
+}
+
+// Issue a new refresh token (optionally continuing an existing rotation family) and
+// return the raw token to hand back to the client. Only the hash is persisted.
+async function issueRefreshToken({ userId, family, meta = {} }) {
+    const rawToken = crypto.randomBytes(48).toString("hex");
+    const tokenHash = hashRefreshToken(rawToken);
+    const expiresAt = new Date(Date.now() + refreshExpiryDays() * 24 * 60 * 60 * 1000);
+
+    await RefreshToken.create({
+        userId,
+        tokenHash,
+        family: family || crypto.randomBytes(16).toString("hex"),
+        expiresAt,
+        createdByIp: meta.ip || null,
+        userAgent: meta.userAgent || null,
+    });
+
+    return rawToken;
+}
+
+// Build the standard { accessToken, refreshToken } pair for a freshly-authenticated user.
+async function buildAuthTokens(user, meta = {}) {
+    const accessToken = signAccessToken(user._id, user.tokenVersion || 0);
+    const refreshToken = await issueRefreshToken({ userId: user._id, meta });
+    return { accessToken, refreshToken };
 }
 
 function normalizeEmail(email) {
@@ -170,7 +207,7 @@ function devOtpFields(otpCode) {
     return { devOtpCode: otpCode };
 }
 
-async function signup({ email, password, confirmPassword, institutionName, institutionType }) {
+async function signup({ email, password, confirmPassword, institutionName, institutionType }, meta = {}) {
     const normalizedEmail = normalizeEmail(email);
     const normalizedPassword = normalizePassword(password);
     const normalizedConfirmPassword = normalizePassword(confirmPassword);
@@ -254,8 +291,11 @@ async function signup({ email, password, confirmPassword, institutionName, insti
         throw createError(500, "Failed to create account");
     }
 
+    const tokens = await buildAuthTokens(user, meta);
+
     return {
-        accessToken: signAccessToken(user._id),
+        accessToken: tokens.accessToken,
+        refreshToken: tokens.refreshToken,
         user: toSafeUser(user),
         institution: {
             id: institution._id.toString(),
@@ -271,7 +311,7 @@ async function signup({ email, password, confirmPassword, institutionName, insti
     };
 }
 
-async function login({ email, password }) {
+async function login({ email, password }, meta = {}) {
     const normalizedEmail = normalizeEmail(email);
     const normalizedPassword = normalizePassword(password);
 
@@ -281,7 +321,7 @@ async function login({ email, password }) {
     });
 
     const user = await User.findOne({ email: normalizedEmail })
-        .select("_id email passwordHash status isEmailVerified mustChangePassword")
+        .select("_id email passwordHash status isEmailVerified mustChangePassword tokenVersion")
         .lean();
 
     if (!user) {
@@ -301,8 +341,13 @@ async function login({ email, password }) {
         throw createError(401, "Invalid email or password");
     }
 
+    await User.updateOne({ _id: user._id }, { $set: { lastLoginAt: new Date() } });
+
+    const tokens = await buildAuthTokens(user, meta);
+
     return {
-        accessToken: signAccessToken(user._id),
+        accessToken: tokens.accessToken,
+        refreshToken: tokens.refreshToken,
         user: toSafeUser(user),
     };
 }
@@ -538,9 +583,113 @@ async function resetPassword({ email, code, newPassword }) {
         ),
     ]);
 
+    // Invalidate ALL existing sessions on password reset (SEC-7): bump tokenVersion so
+    // every prior access token is rejected, and revoke all outstanding refresh tokens.
+    await Promise.all([
+        User.updateOne({ _id: user._id }, { $inc: { tokenVersion: 1 } }),
+        RefreshToken.updateMany(
+            { userId: user._id, revokedAt: null },
+            { $set: { revokedAt: new Date() } }
+        ),
+    ]);
+
     return {
         message: "Password reset successful. You can now login.",
     };
+}
+
+function normalizeRefreshToken(rawToken) {
+    return typeof rawToken === "string" ? rawToken.trim() : "";
+}
+
+async function revokeRefreshFamily(family) {
+    await RefreshToken.updateMany(
+        { family, revokedAt: null },
+        { $set: { revokedAt: new Date() } }
+    );
+}
+
+// Rotate a refresh token: verify -> revoke old -> issue new in the same family.
+// Presenting an already-revoked token is treated as reuse/theft and revokes the family.
+async function refreshSession({ refreshToken } = {}, meta = {}) {
+    const raw = normalizeRefreshToken(refreshToken);
+    if (!raw) {
+        throw createError(401, "Refresh token is required");
+    }
+
+    const tokenHash = hashRefreshToken(raw);
+    const record = await RefreshToken.findOne({ tokenHash });
+    if (!record) {
+        throw createError(401, "Invalid refresh token");
+    }
+
+    if (record.revokedAt) {
+        // Reuse of a rotated/revoked token — revoke the whole family defensively.
+        await revokeRefreshFamily(record.family);
+        throw createError(401, "Refresh token reuse detected. Please login again.");
+    }
+
+    if (record.expiresAt && new Date(record.expiresAt) <= new Date()) {
+        throw createError(401, "Refresh token expired. Please login again.");
+    }
+
+    const user = await User.findById(record.userId)
+        .select("_id email status isEmailVerified mustChangePassword tokenVersion")
+        .lean();
+
+    if (!user || user.status !== "active") {
+        await revokeRefreshFamily(record.family);
+        throw createError(401, "Invalid refresh token");
+    }
+
+    const newRawToken = await issueRefreshToken({
+        userId: user._id,
+        family: record.family,
+        meta,
+    });
+
+    record.revokedAt = new Date();
+    record.replacedByTokenHash = hashRefreshToken(newRawToken);
+    await record.save();
+
+    return {
+        accessToken: signAccessToken(user._id, user.tokenVersion || 0),
+        refreshToken: newRawToken,
+        user: toSafeUser(user),
+    };
+}
+
+// Revoke the presented refresh token (single session). Idempotent.
+async function logout({ refreshToken } = {}) {
+    const raw = normalizeRefreshToken(refreshToken);
+    if (!raw) {
+        return { message: "Logged out." };
+    }
+
+    await RefreshToken.updateOne(
+        { tokenHash: hashRefreshToken(raw), revokedAt: null },
+        { $set: { revokedAt: new Date() } }
+    );
+
+    return { message: "Logged out." };
+}
+
+// Revoke every session for the user (all devices) and invalidate all access tokens.
+async function logoutAll(authUser) {
+    const userId = authUser?.id;
+    if (!userId) {
+        throw createError(401, "Unauthorized");
+    }
+
+    await Promise.all([
+        User.updateOne({ _id: userId }, { $inc: { tokenVersion: 1 } }),
+        RefreshToken.updateMany(
+            { userId, revokedAt: null },
+            { $set: { revokedAt: new Date() } }
+        ),
+    ]);
+
+    return { message: "Logged out of all sessions." };
 }
 
 module.exports = {
@@ -550,6 +699,9 @@ module.exports = {
     verifySignupOtp,
     forgotPassword,
     resetPassword,
+    refreshSession,
+    logout,
+    logoutAll,
     // exported for tests: proves OTP is exposed only outside production
     devOtpFields,
 };

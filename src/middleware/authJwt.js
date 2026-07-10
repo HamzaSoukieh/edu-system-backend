@@ -50,7 +50,7 @@ async function authJwt(req, res, next) {
             return res.status(401).json({ message: "Invalid token" });
         }
 
-        const user = await User.findById(userId).select("_id email status isEmailVerified").lean();
+        const user = await User.findById(userId).select("_id email status isEmailVerified tokenVersion").lean();
 
         if (!user) {
             return res.status(401).json({ message: "Invalid token user" });
@@ -58,6 +58,12 @@ async function authJwt(req, res, next) {
 
         if (user.status !== "active") {
             return res.status(403).json({ message: "Account is not active" });
+        }
+
+        // Reject access tokens issued before the last logout-all / password reset.
+        // Missing claim is treated as version 0 for backward compatibility.
+        if ((payload.tokenVersion || 0) !== (user.tokenVersion || 0)) {
+            return res.status(401).json({ message: "Token revoked" });
         }
 
         req.user = {

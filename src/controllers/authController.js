@@ -16,9 +16,16 @@ function resolveMessage(error, statusCode) {
     return error.message || "Request failed";
 }
 
+function requestMeta(req) {
+    return {
+        ip: req.ip,
+        userAgent: typeof req.headers["user-agent"] === "string" ? req.headers["user-agent"] : null,
+    };
+}
+
 async function signup(req, res) {
     try {
-        const result = await authService.signup(req.body || {});
+        const result = await authService.signup(req.body || {}, requestMeta(req));
         return res.status(201).json(result);
     } catch (error) {
         const statusCode = resolveStatusCode(error);
@@ -28,7 +35,37 @@ async function signup(req, res) {
 
 async function login(req, res) {
     try {
-        const result = await authService.login(req.body || {});
+        const result = await authService.login(req.body || {}, requestMeta(req));
+        return res.status(200).json(result);
+    } catch (error) {
+        const statusCode = resolveStatusCode(error);
+        return res.status(statusCode).json({ message: resolveMessage(error, statusCode) });
+    }
+}
+
+async function refresh(req, res) {
+    try {
+        const result = await authService.refreshSession(req.body || {}, requestMeta(req));
+        return res.status(200).json(result);
+    } catch (error) {
+        const statusCode = resolveStatusCode(error);
+        return res.status(statusCode).json({ message: resolveMessage(error, statusCode) });
+    }
+}
+
+async function logout(req, res) {
+    try {
+        const result = await authService.logout(req.body || {});
+        return res.status(200).json(result);
+    } catch (error) {
+        const statusCode = resolveStatusCode(error);
+        return res.status(statusCode).json({ message: resolveMessage(error, statusCode) });
+    }
+}
+
+async function logoutAll(req, res) {
+    try {
+        const result = await authService.logoutAll(req.user || {});
         return res.status(200).json(result);
     } catch (error) {
         const statusCode = resolveStatusCode(error);
@@ -79,6 +116,9 @@ async function resetPassword(req, res) {
 module.exports = {
     signup,
     login,
+    refresh,
+    logout,
+    logoutAll,
     resendSignupOtp,
     verifySignupOtp,
     forgotPassword,

@@ -26,6 +26,12 @@ const userSchema = new mongoose.Schema(
             enum: ["active", "suspended", "archived"],
             default: "active",
         },
+        // Bumped to invalidate every previously-issued access token for this user
+        // (password reset, logout-all). Checked against the access-token claim in authJwt.
+        tokenVersion: {
+            type: Number,
+            default: 0,
+        },
         lastLoginAt: {
             type: Date,
             default: null,
