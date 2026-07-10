@@ -24,6 +24,7 @@ const responsibilityAssignmentController = require("../controllers/responsibilit
 const academicOversightController = require("../controllers/academicOversightController");
 const academicDecisionController = require("../controllers/academicDecisionController");
 const notificationController = require("../controllers/notificationController");
+const announcementController = require("../controllers/announcementController");
 const academicProfileController = require("../controllers/academicProfileController");
 const academicYearController = require("../controllers/academicYearController");
 const universityAcademicStandingController = require("../controllers/universityAcademicStandingController");
@@ -217,6 +218,36 @@ router.patch(
     requireEmailVerified,
     institutionAccess(),
     notificationController.markMyNotificationRead
+);
+// Announcements (institution bulletin). Read = any active member (audience
+// filtered in-service); create/update/delete = admin (enforced in-service).
+router.get(
+    "/:institutionId/announcements",
+    authJwt,
+    requireEmailVerified,
+    institutionAccess(),
+    announcementController.listAnnouncements
+);
+router.post(
+    "/:institutionId/announcements",
+    authJwt,
+    requireEmailVerified,
+    institutionAccess(),
+    announcementController.createAnnouncement
+);
+router.patch(
+    "/:institutionId/announcements/:announcementId",
+    authJwt,
+    requireEmailVerified,
+    institutionAccess(),
+    announcementController.updateAnnouncement
+);
+router.delete(
+    "/:institutionId/announcements/:announcementId",
+    authJwt,
+    requireEmailVerified,
+    institutionAccess(),
+    announcementController.deleteAnnouncement
 );
 router.post(
     "/:institutionId/academic-years",
