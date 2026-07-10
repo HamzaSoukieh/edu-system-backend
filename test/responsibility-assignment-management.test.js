@@ -512,10 +512,10 @@ test("create validates responsibility type, scope type, combinations, tenant sco
             responsibilityAssignmentService.createResponsibilityAssignment({
                 institutionId,
                 ...adminActor(),
-                payload: { ...basePayload, responsibilityType: "principal" },
+                payload: { ...basePayload, responsibilityType: "superadmin" },
             }),
         400,
-        "responsibilityType must be head, coordinator, or mentor"
+        "responsibilityType must be one of: head, coordinator, mentor, dean, principal, president"
     );
     await assertRejectsWith(
         () =>
@@ -1152,9 +1152,18 @@ test("regression: base admin permissions and scoped responsibility catalog remai
     assert.equal(RESPONSIBILITY_PERMISSIONS.head.includes("academicStanding.read_scope"), true);
     assert.equal(RESPONSIBILITY_PERMISSIONS.head.includes("section.read_scope"), false);
     assert.equal(RESPONSIBILITY_PERMISSIONS.head.includes("attendance.manage_scope"), false);
-    assert.deepEqual(RESPONSIBILITY_PERMISSIONS.mentor, []);
+    // mentor gained read-only academic-profile/standing scope (D-005); still no manage perms.
+    assert.deepEqual(RESPONSIBILITY_PERMISSIONS.mentor, [
+        "academicProfile.read_scope",
+        "academicStanding.read_scope",
+    ]);
+    assert.equal(RESPONSIBILITY_PERMISSIONS.mentor.includes("attendance.manage_scope"), false);
     assert.equal(RESPONSIBILITY_PERMISSIONS.coordinator.includes("section.read_scope"), true);
     assert.equal(RESPONSIBILITY_PERMISSIONS.coordinator.includes("attendance.manage_scope"), true);
+    // canonical scoped roles now include dean/principal/president.
+    assert.equal(RESPONSIBILITY_PERMISSIONS.dean.includes("attendance.manage_scope"), true);
+    assert.equal(RESPONSIBILITY_PERMISSIONS.principal.includes("academicRisk.read_scope"), true);
+    assert.equal(RESPONSIBILITY_PERMISSIONS.president.includes("academicRisk.read_scope"), true);
 
     const coordinator = buildAssignment({
         responsibilityType: "coordinator",

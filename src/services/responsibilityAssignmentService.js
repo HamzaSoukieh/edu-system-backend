@@ -1,5 +1,9 @@
 const mongoose = require("mongoose");
-const { ROLE_PERMISSIONS, isResponsibilityScopeAllowed } = require("../auth/permissions");
+const {
+    ROLE_PERMISSIONS,
+    isResponsibilityScopeAllowed,
+    RESPONSIBILITY_TYPES: CANONICAL_RESPONSIBILITY_TYPES,
+} = require("../auth/permissions");
 const { isResponsibilityAssignmentActiveNow } = require("../auth/scopedResponsibilities");
 const ClassLevel = require("../models/ClassLevel");
 const Department = require("../models/Department");
@@ -9,7 +13,9 @@ const ResponsibilityAssignment = require("../models/ResponsibilityAssignment");
 const SchoolClass = require("../models/SchoolClass");
 const Section = require("../models/Section");
 
-const RESPONSIBILITY_TYPES = ["head", "coordinator", "mentor"];
+// Sourced from the canonical permissions map (D-005 / DB-5) so model, service, and
+// authorization never drift. Includes head, coordinator, mentor, dean, principal, president.
+const RESPONSIBILITY_TYPES = CANONICAL_RESPONSIBILITY_TYPES;
 const SCOPE_TYPES = ["institution", "department", "classLevel", "class", "section"];
 const CREATE_FIELDS = ["userId", "responsibilityType", "scopeType", "scopeId", "startAt", "endAt", "isActive"];
 const UPDATE_FIELDS = ["scopeType", "scopeId", "startAt", "endAt", "isActive"];
@@ -95,7 +101,7 @@ function rejectUnexpectedFields(payload, allowedFields) {
 function validateResponsibilityType(rawValue) {
     const responsibilityType = normalizeLowerString(rawValue);
     if (!RESPONSIBILITY_TYPES.includes(responsibilityType)) {
-        throw createError(400, "responsibilityType must be head, coordinator, or mentor");
+        throw createError(400, `responsibilityType must be one of: ${RESPONSIBILITY_TYPES.join(", ")}`);
     }
 
     return responsibilityType;

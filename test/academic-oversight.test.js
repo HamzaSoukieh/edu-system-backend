@@ -582,7 +582,10 @@ test("permission catalog activates Head academic read-only permissions only", ()
     assert.equal(RESPONSIBILITY_PERMISSIONS.head.includes("academicDecision.apply"), false);
     assert.equal(RESPONSIBILITY_PERMISSIONS.head.includes("enrollment.drop"), false);
     assert.equal(RESPONSIBILITY_PERMISSIONS.coordinator.includes("attendance.manage_scope"), true);
-    assert.deepEqual(RESPONSIBILITY_PERMISSIONS.mentor, []);
+    assert.deepEqual(RESPONSIBILITY_PERMISSIONS.mentor, [
+        "academicProfile.read_scope",
+        "academicStanding.read_scope",
+    ]);
 
     assert.equal(
         hasResponsibilityPermissionWithinScope({

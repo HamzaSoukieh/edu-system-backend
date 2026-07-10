@@ -445,7 +445,7 @@ test("GET /institutions/me separates base permissions from scoped capabilities",
             responsibilityType: "mentor",
             scopeType: "class",
             scopeId: classId,
-            permissions: [],
+            permissions: ["academicProfile.read_scope", "academicStanding.read_scope"],
         },
     ]);
 });

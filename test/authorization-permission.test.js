@@ -132,6 +132,7 @@ test("responsibility catalog contains only currently enforced scoped permissions
     assert.equal(ROLE_PERMISSIONS.student.includes("academicDecision.review"), false);
     assert.equal(ROLE_PERMISSIONS.student.includes("academicDecision.apply"), false);
 
+    // Canonical scoped-role catalog (D-005): head/coordinator/mentor + dean/principal/president.
     assert.deepEqual(RESPONSIBILITY_PERMISSIONS, {
         head: [
             "academicRisk.read_scope",
@@ -147,12 +148,45 @@ test("responsibility catalog contains only currently enforced scoped permissions
             "attendance.read_scope",
             "attendance.manage_scope",
         ],
-        mentor: [],
+        mentor: [
+            "academicProfile.read_scope",
+            "academicStanding.read_scope",
+        ],
+        dean: [
+            "academicRisk.read_scope",
+            "academicProfile.read_scope",
+            "academicStanding.read_scope",
+            "academicDecision.read_scope",
+            "academicDecision.recommend_scope",
+            "section.read_scope",
+            "sectionSession.read_scope",
+            "sectionSession.manage_scope",
+            "attendance.read_scope",
+            "attendance.manage_scope",
+        ],
+        principal: [
+            "academicRisk.read_scope",
+            "academicProfile.read_scope",
+            "academicStanding.read_scope",
+            "academicDecision.read_scope",
+            "academicDecision.recommend_scope",
+            "section.read_scope",
+            "attendance.read_scope",
+        ],
+        president: [
+            "academicRisk.read_scope",
+            "academicProfile.read_scope",
+            "academicStanding.read_scope",
+            "academicDecision.read_scope",
+            "academicDecision.recommend_scope",
+            "section.read_scope",
+            "attendance.read_scope",
+        ],
     });
 
     assert.deepEqual(getEffectiveResponsibilityPermissions("head"), RESPONSIBILITY_PERMISSIONS.head);
     assert.deepEqual(getEffectiveResponsibilityPermissions("coordinator"), RESPONSIBILITY_PERMISSIONS.coordinator);
-    assert.deepEqual(getEffectiveResponsibilityPermissions("mentor"), []);
+    assert.deepEqual(getEffectiveResponsibilityPermissions("dean"), RESPONSIBILITY_PERMISSIONS.dean);
 
     const activePermissions = Object.values(RESPONSIBILITY_PERMISSIONS).flat();
     assert.equal(activePermissions.includes("academicRisk.read_scope"), true);
@@ -181,6 +215,9 @@ test("responsibility allowed scope combinations are backend-defined", () => {
         head: ["institution", "department", "classLevel"],
         coordinator: ["department", "classLevel", "class", "section"],
         mentor: ["class", "section"],
+        dean: ["department", "classLevel"],
+        principal: ["institution"],
+        president: ["institution"],
     });
 
     assert.equal(isResponsibilityScopeAllowed("head", "institution"), true);
@@ -189,6 +226,10 @@ test("responsibility allowed scope combinations are backend-defined", () => {
     assert.equal(isResponsibilityScopeAllowed("coordinator", "institution"), false);
     assert.equal(isResponsibilityScopeAllowed("mentor", "class"), true);
     assert.equal(isResponsibilityScopeAllowed("mentor", "department"), false);
+    assert.equal(isResponsibilityScopeAllowed("dean", "department"), true);
+    assert.equal(isResponsibilityScopeAllowed("dean", "institution"), false);
+    assert.equal(isResponsibilityScopeAllowed("principal", "institution"), true);
+    assert.equal(isResponsibilityScopeAllowed("president", "institution"), true);
     assert.equal(isResponsibilityScopeAllowed("unknown", "section"), false);
 });
 
@@ -200,7 +241,7 @@ test("responsibility model validates type, scope type, and type/scope combinatio
     assert.equal(valid.validateSync(), undefined);
 
     const invalidType = new ResponsibilityAssignment(buildAssignment({
-        responsibilityType: "principal",
+        responsibilityType: "superadmin",
         scopeType: "department",
     }));
     assert.equal(invalidType.validateSync().errors.responsibilityType.kind, "enum");

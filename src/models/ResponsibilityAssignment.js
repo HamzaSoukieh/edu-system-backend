@@ -1,5 +1,5 @@
 const mongoose = require("mongoose");
-const { isResponsibilityScopeAllowed } = require("../auth/permissions");
+const { isResponsibilityScopeAllowed, RESPONSIBILITY_TYPES } = require("../auth/permissions");
 
 const responsibilityAssignmentSchema = new mongoose.Schema(
     {
@@ -39,7 +39,7 @@ const responsibilityAssignmentSchema = new mongoose.Schema(
         responsibilityType: {
             type: String,
             required: true,
-            enum: ["head", "mentor", "coordinator"],
+            enum: RESPONSIBILITY_TYPES,
             index: true,
         },
         permissions: {
