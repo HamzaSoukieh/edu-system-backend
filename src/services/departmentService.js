@@ -3,6 +3,7 @@ const Department = require("../models/Department");
 const Institution = require("../models/Institution");
 const Subject = require("../models/Subject");
 const Section = require("../models/Section");
+const { withTransaction } = require("../utils/withTransaction");
 
 function createError(statusCode, message) {
     const error = new Error(message);
@@ -151,11 +152,15 @@ function validateUpdateDepartmentInput(payload) {
     return updates;
 }
 
-async function deleteDepartmentDependencies({ institutionId, departmentId }) {
-    const subjectDeleteResult = await Subject.deleteMany({
-        institutionId,
-        departmentId,
-    });
+async function deleteDepartmentDependencies({ institutionId, departmentId, session = null }) {
+    const options = session ? { session } : {};
+    const subjectDeleteResult = await Subject.deleteMany(
+        {
+            institutionId,
+            departmentId,
+        },
+        options
+    );
 
     return {
         deletedSubjects: subjectDeleteResult.deletedCount || 0,
@@ -408,14 +413,23 @@ async function deleteDepartment({ institutionId, departmentId }) {
         }
     }
 
-    await deleteDepartmentDependencies({
-        institutionId,
-        departmentId,
-    });
+    // DB-1/DB-2: delete the department and cascade its subjects atomically so a
+    // crash between the two can't leave the department without its subjects (or
+    // vice-versa). Falls back to non-transactional on a standalone Mongo.
+    await withTransaction(async (session) => {
+        await deleteDepartmentDependencies({
+            institutionId,
+            departmentId,
+            session,
+        });
 
-    await Department.deleteOne({
-        _id: departmentId,
-        institutionId,
+        await Department.deleteOne(
+            {
+                _id: departmentId,
+                institutionId,
+            },
+            session ? { session } : {}
+        );
     });
 
     return {
