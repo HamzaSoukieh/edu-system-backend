@@ -1259,16 +1259,19 @@ async function deleteSemester({ institutionId, semesterId }) {
         throw createError(404, "Semester not found");
     }
 
-    const isArchived = semester.status === "archived";
-    if (!isArchived) {
-        const hasLinkedData = await hasLinkedSemesterData({
-            institutionId,
-            semesterId,
-        });
+    // Always block deletion when linked academic data exists — regardless of archived
+    // status (DB-7). Archiving hides a semester; it must never license an orphaning delete
+    // of its sections / enrollments / sessions.
+    const hasLinkedData = await hasLinkedSemesterData({
+        institutionId,
+        semesterId,
+    });
 
-        if (hasLinkedData) {
-            throw createError(400, "Archive semester before deleting when linked data exists");
-        }
+    if (hasLinkedData) {
+        throw createError(
+            409,
+            "Cannot delete a semester that has linked academic data. Archive it instead."
+        );
     }
 
     await Semester.deleteOne({

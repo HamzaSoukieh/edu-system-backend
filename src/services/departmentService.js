@@ -2,6 +2,7 @@ const mongoose = require("mongoose");
 const Department = require("../models/Department");
 const Institution = require("../models/Institution");
 const Subject = require("../models/Subject");
+const Section = require("../models/Section");
 
 function createError(statusCode, message) {
     const error = new Error(message);
@@ -386,6 +387,25 @@ async function deleteDepartment({ institutionId, departmentId }) {
 
     if (department.status !== "archived") {
         throw createError(400, "Archive department before deleting");
+    }
+
+    // Guard against orphaning sections (DB-2). The department delete cascades a hard delete
+    // of its subjects; if any section still references one of those subjects, block the
+    // delete so we never leave sections pointing at a non-existent subject.
+    const departmentSubjectIds = await Subject.find({ institutionId, departmentId })
+        .select("_id")
+        .lean();
+    if (departmentSubjectIds.length) {
+        const referencingSection = await Section.exists({
+            institutionId,
+            subjectId: { $in: departmentSubjectIds.map((s) => s._id) },
+        });
+        if (referencingSection) {
+            throw createError(
+                409,
+                "Cannot delete department: its subjects are still used by sections. Remove those sections first."
+            );
+        }
     }
 
     await deleteDepartmentDependencies({
