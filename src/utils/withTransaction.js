@@ -17,15 +17,24 @@ function isTransactionUnsupported(error) {
 }
 
 // Run `work(session)` inside a MongoDB transaction. `work` must pass the given
-// session to every model operation it performs (e.g.
-// `Model.create([doc], { session })`, `.findOne(...).session(session)`), and
-// must be idempotent because withTransaction may retry it on transient errors.
+// session to every model operation it performs — use `createInSession(...)` for
+// inserts and `.session(session)` for reads — and must be idempotent because
+// withTransaction may retry it on transient errors.
 //
-// On a non-replica-set deployment it transparently falls back to running
-// `work(null)` once, without a transaction (no atomicity guarantee) — so the
-// behaviour degrades gracefully in a standalone dev environment.
+// The function degrades gracefully in two ways so the same code runs everywhere:
+//   1. On a non-replica-set deployment (standalone dev Mongo), a transaction is
+//      unsupported → it falls back to running `work(null)` once, without atomicity.
+//   2. When no session can even be started (e.g. a fully-mocked unit test with no
+//      live connection), it also falls back to `work(null)`.
+// Production runs a replica set (roadmap T0.1 / DB-1) and gets a real transaction.
 async function withTransaction(work) {
-    const session = await mongoose.startSession();
+    let session;
+    try {
+        session = await mongoose.startSession();
+    } catch {
+        // No live connection / cannot start a session — run without one.
+        return work(null);
+    }
     try {
         let result;
         await session.withTransaction(async () => {
@@ -42,4 +51,16 @@ async function withTransaction(work) {
     }
 }
 
-module.exports = { withTransaction, isTransactionUnsupported };
+// Insert one document, honoring an optional transaction session. With a session
+// the atomic array form `Model.create([doc], { session })` is required; without
+// one (standalone fallback / mocked unit tests) the plain single-doc form is used
+// so existing mocks that stub `Model.create(payload)` keep working unchanged.
+async function createInSession(Model, doc, session) {
+    if (session) {
+        const [created] = await Model.create([doc], { session });
+        return created;
+    }
+    return Model.create(doc);
+}
+
+module.exports = { withTransaction, isTransactionUnsupported, createInSession };
