@@ -4,6 +4,24 @@ const MemberProfile = require("../models/MemberProfile");
 const ResponsibilityAssignment = require("../models/ResponsibilityAssignment");
 const Semester = require("../models/Semester");
 const AcademicYear = require("../models/AcademicYear");
+const Department = require("../models/Department");
+const ClassLevel = require("../models/ClassLevel");
+const Subject = require("../models/Subject");
+const Section = require("../models/Section");
+
+// True if the institution already has any type-specific academic structure, in which
+// case its type must not change (D-004 / IM-1).
+async function institutionHasAcademicStructure(institutionId) {
+    const [dept, level, subject, section, semester, year] = await Promise.all([
+        Department.exists({ institutionId }),
+        ClassLevel.exists({ institutionId }),
+        Subject.exists({ institutionId }),
+        Section.exists({ institutionId }),
+        Semester.exists({ institutionId }),
+        AcademicYear.exists({ institutionId }),
+    ]);
+    return Boolean(dept || level || subject || section || semester || year);
+}
 const {
     ROLE_PERMISSIONS,
     RESPONSIBILITY_PERMISSIONS,
@@ -418,6 +436,14 @@ function buildInstitutionUpdate(payload) {
         updates.name = normalizedName;
     }
 
+    if (payload.type !== undefined) {
+        const normalizedType = normalizeString(payload.type).toLowerCase();
+        if (!INSTITUTION_TYPES.includes(normalizedType)) {
+            throw createError(400, "type must be school or university");
+        }
+        updates.type = normalizedType;
+    }
+
     if (payload.logoUrl !== undefined) {
         if (payload.logoUrl === null) {
             updates.logoUrl = null;
@@ -482,6 +508,24 @@ function buildInstitutionUpdate(payload) {
 
 async function updateInstitution(institutionId, payload) {
     const updates = buildInstitutionUpdate(payload);
+
+    // Institution type is meaningful only while the institution is empty (D-004 / IM-1).
+    // Changing it later would orphan school-vs-university-specific structure, so guard it:
+    // no-op if unchanged, explicit 409 if academic data exists — never a silent drop.
+    if (updates.type !== undefined) {
+        const current = await Institution.findById(institutionId).select("_id type").lean();
+        if (!current) {
+            throw createError(404, "Institution not found");
+        }
+        if (updates.type === current.type) {
+            delete updates.type; // no-op change; $set may end up empty, which is fine
+        } else if (await institutionHasAcademicStructure(institutionId)) {
+            throw createError(
+                409,
+                "Institution type cannot be changed after academic structure exists"
+            );
+        }
+    }
 
     const institution = await Institution.findByIdAndUpdate(
         institutionId,
