@@ -95,6 +95,7 @@ async function updateEnrollmentStatus(req, res) {
             sectionId,
             enrollmentId,
             payload: req.body || {},
+            actorUserId: req.user?.id || req.user?._id || null,
         });
 
         return res.status(200).json(result);

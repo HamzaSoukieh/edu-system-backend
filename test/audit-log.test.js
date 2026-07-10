@@ -118,3 +118,52 @@ test("member status change writes member.status.changed audit", async (t) => {
     assert.equal(audit.metadata.to, "suspended");
     assert.equal(audit.actorUserId.toString(), actorUserId.toString());
 });
+
+test("member role change writes member.role.changed audit", async (t) => {
+    if (!dbReady) return t.skip("no mongo");
+    const institution = await Institution.create({ name: "Audit Role U", type: "university", ownerUserId: oid() });
+    created.institutions.push(institution._id);
+    const actorUserId = oid();
+
+    const user = await User.create({
+        email: `auditrole-${Date.now()}@example.test`,
+        passwordHash: "x",
+        status: "active",
+        isEmailVerified: true,
+    });
+    created.users.push(user._id);
+    const membership = await Membership.create({
+        institutionId: institution._id,
+        userId: user._id,
+        role: "instructor",
+        status: "active",
+    });
+    created.memberships.push(membership._id);
+    const profile = await MemberProfile.create({
+        institutionId: institution._id,
+        membershipId: membership._id,
+        userId: user._id,
+        firstName: "R",
+        lastName: "C",
+        fullName: "R C",
+        fullNameNormalized: "r c",
+        nationalNumber: `NR${Date.now()}`,
+    });
+    created.profiles.push(profile._id);
+
+    await memberService.updateMember({
+        institutionId: institution._id,
+        membershipId: membership._id,
+        payload: { role: "admin" },
+        actorUserId,
+    });
+
+    const audit = await AuditLog.findOne({
+        institutionId: institution._id,
+        action: "member.role.changed",
+        entityId: membership._id,
+    }).lean();
+    assert.ok(audit, "role-change audit row written");
+    assert.equal(audit.metadata.from, "instructor");
+    assert.equal(audit.metadata.to, "admin");
+});

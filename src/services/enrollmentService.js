@@ -10,6 +10,7 @@ const {
     resolveAcademicPolicyForSemester,
 } = require("./universityAcademicPolicyService");
 const { listStudentAcademicOutcomes } = require("./universityAcademicOutcomeService");
+const { recordAuditLog } = require("./auditService");
 const {
     SELF_ENROLLMENT_REASON_MESSAGES,
     resolveSelfEnrollmentSubmissionEligibility,
@@ -710,7 +711,7 @@ async function getEnrollmentById({ institutionId, sectionId, enrollmentId }) {
     };
 }
 
-async function updateEnrollmentStatus({ institutionId, sectionId, enrollmentId, payload }) {
+async function updateEnrollmentStatus({ institutionId, sectionId, enrollmentId, payload, actorUserId = null }) {
     if (!institutionId || !isValidObjectId(institutionId)) {
         throw createError(400, "Invalid institution context");
     }
@@ -788,6 +789,19 @@ async function updateEnrollmentStatus({ institutionId, sectionId, enrollmentId, 
 
     if (!updatedEnrollment) {
         throw createError(404, "Enrollment not found");
+    }
+
+    // SEC-15: an enrollment status change (drop/re-enroll) is a sensitive
+    // academic mutation — audit it.
+    if (enrollment.status !== status) {
+        await recordAuditLog({
+            institutionId,
+            actorUserId,
+            action: "enrollment.status.changed",
+            entityType: "Enrollment",
+            entityId: enrollmentId,
+            metadata: { from: enrollment.status, to: status, sectionId: String(sectionId) },
+        });
     }
 
     return {

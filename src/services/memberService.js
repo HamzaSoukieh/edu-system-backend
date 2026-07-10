@@ -926,7 +926,7 @@ async function getMyMemberProfile({ institutionId, actorUser, actorMembership })
     };
 }
 
-async function updateMember({ institutionId, membershipId, payload }) {
+async function updateMember({ institutionId, membershipId, payload, actorUserId = null }) {
     if (!institutionId || !isValidObjectId(institutionId)) {
         throw createError(400, "Invalid institution context");
     }
@@ -1029,6 +1029,18 @@ async function updateMember({ institutionId, membershipId, payload }) {
 
     if (!updatedMemberRecord) {
         throw createError(404, "Member not found");
+    }
+
+    // SEC-15: a role change is a sensitive authorization mutation — audit it.
+    if (updates.role && updates.role !== memberRecord.membership.role) {
+        await recordAuditLog({
+            institutionId,
+            actorUserId,
+            action: "member.role.changed",
+            entityType: "Membership",
+            entityId: membershipId,
+            metadata: { from: memberRecord.membership.role, to: updates.role },
+        });
     }
 
     return {
