@@ -46,6 +46,7 @@ function toSubjectResponse(subject) {
         classLevelId: subject.classLevelId ? subject.classLevelId.toString() : null,
         name: subject.name,
         code: subject.code,
+        description: subject.description ?? null,
         creditHours: subject.creditHours,
         prerequisiteSubjectIds: Array.isArray(subject.prerequisiteSubjectIds)
             ? subject.prerequisiteSubjectIds.map((subjectId) => subjectId.toString())
@@ -204,6 +205,19 @@ function validateStatus(rawValue) {
     return status;
 }
 
+function validateDescription(rawValue) {
+    if (rawValue === undefined || rawValue === null) {
+        return null;
+    }
+
+    const description = normalizeString(rawValue) || null;
+    if (description && description.length > 1000) {
+        throw createError(400, "Subject description must be at most 1000 characters");
+    }
+
+    return description;
+}
+
 function validateCreateSubjectInput(payload, institutionType) {
     if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
         throw createError(400, "Invalid request body");
@@ -211,6 +225,7 @@ function validateCreateSubjectInput(payload, institutionType) {
 
     const { name, nameNormalized } = validateName(payload.name);
     const code = validateCode(payload.code);
+    const description = validateDescription(payload.description);
     const creditHours = validateCreateCreditHours(payload.creditHours, institutionType);
     const prerequisiteSubjectIds = validatePrerequisiteSubjectIds(payload.prerequisiteSubjectIds, institutionType);
     const status = validateStatus(payload.status);
@@ -219,6 +234,7 @@ function validateCreateSubjectInput(payload, institutionType) {
         name,
         nameNormalized,
         code,
+        description,
         creditHours,
         prerequisiteSubjectIds,
         status,
@@ -241,6 +257,10 @@ function validateUpdateSubjectInput(payload, institutionType) {
 
     if (payload.code !== undefined) {
         updates.code = validateCode(payload.code);
+    }
+
+    if (payload.description !== undefined) {
+        updates.description = validateDescription(payload.description);
     }
 
     if (payload.creditHours !== undefined) {
@@ -403,7 +423,7 @@ async function listSubjects({ institutionId, departmentId, classLevelId, active 
     }
 
     const subjects = await Subject.find(query)
-        .select("_id institutionId departmentId classLevelId name code creditHours prerequisiteSubjectIds status createdByUserId createdAt updatedAt")
+        .select("_id institutionId departmentId classLevelId name code description creditHours prerequisiteSubjectIds status createdByUserId createdAt updatedAt")
         .sort({ name: 1 })
         .lean();
 
@@ -426,7 +446,7 @@ async function getSubjectById({ institutionId, subjectId }) {
         _id: subjectId,
         institutionId,
     })
-        .select("_id institutionId departmentId classLevelId name code creditHours prerequisiteSubjectIds status createdByUserId createdAt updatedAt")
+        .select("_id institutionId departmentId classLevelId name code description creditHours prerequisiteSubjectIds status createdByUserId createdAt updatedAt")
         .lean();
 
     if (!subject) {
@@ -466,10 +486,8 @@ async function createSubject({ institutionId, departmentId, classLevelId, create
         action: "write",
     });
 
-    const { name, nameNormalized, code, creditHours, prerequisiteSubjectIds, status } = validateCreateSubjectInput(
-        payload,
-        institution.type
-    );
+    const { name, nameNormalized, code, description, creditHours, prerequisiteSubjectIds, status } =
+        validateCreateSubjectInput(payload, institution.type);
     await ensurePrerequisiteSubjectsExist({
         institutionId,
         institutionType: institution.type,
@@ -502,6 +520,7 @@ async function createSubject({ institutionId, departmentId, classLevelId, create
         name,
         nameNormalized,
         code,
+        description,
         creditHours,
         prerequisiteSubjectIds,
         status,
@@ -623,7 +642,7 @@ async function updateSubject({ institutionId, subjectId, payload }) {
             { $set: updates },
             { returnDocument: "after", runValidators: true }
         )
-            .select("_id institutionId departmentId classLevelId name code creditHours prerequisiteSubjectIds status createdByUserId createdAt updatedAt")
+            .select("_id institutionId departmentId classLevelId name code description creditHours prerequisiteSubjectIds status createdByUserId createdAt updatedAt")
             .lean();
     } catch (error) {
         if (isDuplicateKeyError(error)) {
