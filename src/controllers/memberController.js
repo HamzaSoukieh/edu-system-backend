@@ -210,6 +210,7 @@ async function updateMemberStatus(req, res) {
             institutionId,
             membershipId,
             payload: req.body || {},
+            actorUserId: req.user?.id || null,
         });
 
         return res.status(200).json(result);

@@ -7,6 +7,7 @@ const User = require("../models/User");
 const { assertMembershipSeatTransitionAllowed } = require("./billingEntitlementService");
 const { sendMemberAccountCreatedEmail, sendMemberInviteEmail } = require("./emailService");
 const { createAccountSetupToken } = require("./authService");
+const { recordAuditLog } = require("./auditService");
 
 function memberSetupDevFields(rawToken) {
     // Expose the setup token in the API response only outside production, to support
@@ -1035,7 +1036,7 @@ async function updateMember({ institutionId, membershipId, payload }) {
     };
 }
 
-async function updateMemberStatus({ institutionId, membershipId, payload }) {
+async function updateMemberStatus({ institutionId, membershipId, payload, actorUserId = null }) {
     if (!institutionId || !isValidObjectId(institutionId)) {
         throw createError(400, "Invalid institution context");
     }
@@ -1088,6 +1089,19 @@ async function updateMemberStatus({ institutionId, membershipId, payload }) {
 
     if (!memberRecord) {
         throw createError(404, "Member not found");
+    }
+
+    // SEC-15: record the status change (suspend/reactivate) in the tenant audit
+    // trail. Best-effort — never blocks the mutation.
+    if (existingMembership.status !== status) {
+        await recordAuditLog({
+            institutionId,
+            actorUserId,
+            action: "member.status.changed",
+            entityType: "Membership",
+            entityId: membershipId,
+            metadata: { from: existingMembership.status, to: status, role: existingMembership.role },
+        });
     }
 
     return {
