@@ -113,6 +113,16 @@ async function resetPassword(req, res) {
     }
 }
 
+async function setupPassword(req, res) {
+    try {
+        const result = await authService.setupPassword(req.body || {}, requestMeta(req));
+        return res.status(200).json(result);
+    } catch (error) {
+        const statusCode = resolveStatusCode(error);
+        return res.status(statusCode).json({ message: resolveMessage(error, statusCode) });
+    }
+}
+
 module.exports = {
     signup,
     login,
@@ -123,4 +133,5 @@ module.exports = {
     verifySignupOtp,
     forgotPassword,
     resetPassword,
+    setupPassword,
 };

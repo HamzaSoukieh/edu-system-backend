@@ -12,6 +12,7 @@ router.post("/logout", authController.logout);
 router.post("/logout-all", authJwt, authController.logoutAll);
 router.post("/password/forgot", authIssuanceLimiter, authController.forgotPassword);
 router.post("/password/reset", authStandardLimiter, authController.resetPassword);
+router.post("/setup-password", authStandardLimiter, authController.setupPassword);
 router.post("/otp/verify", authStandardLimiter, authJwt, authController.verifySignupOtp);
 router.post("/otp/resend", authIssuanceLimiter, authJwt, authController.resendSignupOtp);
 

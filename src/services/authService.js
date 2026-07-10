@@ -5,6 +5,7 @@ const Institution = require("../models/Institution");
 const Membership = require("../models/Membership");
 const OtpCode = require("../models/OtpCode");
 const RefreshToken = require("../models/RefreshToken");
+const AccountSetupToken = require("../models/AccountSetupToken");
 const User = require("../models/User");
 const { sendOtpEmail } = require("./emailService");
 
@@ -12,6 +13,7 @@ const DEFAULT_SALT_ROUNDS = 10;
 // Short-lived access token; long-lived refresh token handles session continuity (D-008).
 const DEFAULT_TOKEN_EXPIRES_IN = "15m";
 const DEFAULT_REFRESH_EXPIRES_DAYS = 30;
+const DEFAULT_SETUP_TOKEN_EXPIRES_HOURS = 48;
 const DEFAULT_OTP_EXPIRES_MINUTES = 10;
 const DEFAULT_OTP_MAX_ATTEMPTS = 5;
 const INSTITUTION_TYPES = ["school", "university"];
@@ -692,6 +694,111 @@ async function logoutAll(authUser) {
     return { message: "Logged out of all sessions." };
 }
 
+function setupTokenExpiresHours() {
+    return parsePositiveInteger(
+        process.env.ACCOUNT_SETUP_TOKEN_EXPIRES_HOURS,
+        DEFAULT_SETUP_TOKEN_EXPIRES_HOURS
+    );
+}
+
+function buildSetupUrl(rawToken) {
+    const base =
+        (process.env.FRONTEND_URL ||
+            (process.env.FRONTEND_URLS || "").split(",")[0] ||
+            "http://localhost:5173").trim();
+    return `${base.replace(/\/$/, "")}/setup-password?token=${rawToken}`;
+}
+
+// Issue a one-time password-setup token for an admin-created member (D-006).
+// Returns the raw token + a ready-to-email setup URL. Only the hash is stored.
+async function createAccountSetupToken({ userId, institutionId = null }) {
+    const rawToken = crypto.randomBytes(48).toString("hex");
+    const tokenHash = crypto.createHash("sha256").update(rawToken).digest("hex");
+    const expiresInHours = setupTokenExpiresHours();
+    const expiresAt = new Date(Date.now() + expiresInHours * 60 * 60 * 1000);
+
+    // Invalidate any prior unconsumed setup tokens for this user.
+    await AccountSetupToken.updateMany(
+        { userId, consumedAt: null },
+        { $set: { consumedAt: new Date() } }
+    );
+
+    await AccountSetupToken.create({ userId, institutionId, tokenHash, expiresAt });
+
+    return {
+        rawToken,
+        expiresInHours,
+        setupUrl: buildSetupUrl(rawToken),
+    };
+}
+
+// Complete member onboarding: consume the setup token and set the user's own password.
+async function setupPassword({ token, newPassword } = {}, meta = {}) {
+    const rawToken = typeof token === "string" ? token.trim() : "";
+    if (!rawToken) {
+        throw createError(400, "Setup token is required");
+    }
+
+    const normalizedNewPassword = normalizePassword(newPassword);
+    if (!normalizedNewPassword) {
+        throw createError(400, "New password is required");
+    }
+    if (normalizedNewPassword.length < 8) {
+        throw createError(400, "Password must be at least 8 characters");
+    }
+
+    const tokenHash = crypto.createHash("sha256").update(rawToken).digest("hex");
+    const record = await AccountSetupToken.findOne({ tokenHash });
+    if (!record || record.consumedAt) {
+        throw createError(400, "Invalid or expired setup link");
+    }
+    if (record.expiresAt && new Date(record.expiresAt) <= new Date()) {
+        throw createError(400, "Invalid or expired setup link");
+    }
+
+    const user = await User.findById(record.userId)
+        .select("_id email status isEmailVerified mustChangePassword tokenVersion")
+        .lean();
+    if (!user || user.status !== "active") {
+        throw createError(400, "Invalid or expired setup link");
+    }
+
+    const configuredRounds = Number(process.env.BCRYPT_SALT_ROUNDS);
+    const saltRounds =
+        Number.isInteger(configuredRounds) && configuredRounds > 0 ? configuredRounds : DEFAULT_SALT_ROUNDS;
+    const passwordHash = await bcrypt.hash(normalizedNewPassword, saltRounds);
+
+    await Promise.all([
+        User.updateOne(
+            { _id: user._id },
+            {
+                $set: { passwordHash, mustChangePassword: false, isEmailVerified: true },
+                $inc: { tokenVersion: 1 },
+            }
+        ),
+        AccountSetupToken.updateOne({ _id: record._id }, { $set: { consumedAt: new Date() } }),
+        RefreshToken.updateMany(
+            { userId: user._id, revokedAt: null },
+            { $set: { revokedAt: new Date() } }
+        ),
+    ]);
+
+    const refreshedUser = {
+        ...user,
+        isEmailVerified: true,
+        mustChangePassword: false,
+        tokenVersion: (user.tokenVersion || 0) + 1,
+    };
+
+    const tokens = await buildAuthTokens(refreshedUser, meta);
+    return {
+        message: "Password set successfully.",
+        accessToken: tokens.accessToken,
+        refreshToken: tokens.refreshToken,
+        user: toSafeUser(refreshedUser),
+    };
+}
+
 module.exports = {
     signup,
     login,
@@ -702,6 +809,8 @@ module.exports = {
     refreshSession,
     logout,
     logoutAll,
+    createAccountSetupToken,
+    setupPassword,
     // exported for tests: proves OTP is exposed only outside production
     devOtpFields,
 };

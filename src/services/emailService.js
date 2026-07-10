@@ -424,6 +424,49 @@ async function sendOtpEmail({ to, code, purpose, expiresInMinutes }) {
     });
 }
 
+function buildMemberInviteText({ email, setupUrl, expiresInHours }) {
+    return [
+        "Your institution admin created an account for you.",
+        `Login email: ${email}`,
+        "Set your password using this secure one-time link:",
+        setupUrl,
+        `This link expires in ${expiresInHours} hours and can be used only once.`,
+        "If you did not expect this, you can ignore this email.",
+    ].join("\n");
+}
+
+function buildMemberInviteHtml({ email, setupUrl, expiresInHours }) {
+    return `
+<div style="margin:0;padding:24px;background:#f4f6fb;font-family:Arial,sans-serif;">
+  <div style="max-width:560px;margin:0 auto;background:#ffffff;border:1px solid #dbe2ee;border-radius:12px;overflow:hidden;">
+    <div style="background:#0f172a;color:#ffffff;padding:18px 24px;">
+      <h1 style="margin:0;font-size:20px;line-height:1.3;">Set up your account</h1>
+    </div>
+    <div style="padding:24px;">
+      <p style="margin:0 0 12px;color:#334155;font-size:15px;line-height:1.6;">An institution admin created your account.</p>
+      <p style="margin:0 0 16px;color:#475569;font-size:14px;line-height:1.6;">Login email: <strong>${email}</strong></p>
+      <p style="margin:0 0 18px;">
+        <a href="${setupUrl}" style="display:inline-block;background:#4f46e5;color:#ffffff;text-decoration:none;padding:12px 20px;border-radius:8px;font-size:14px;font-weight:600;">Set your password</a>
+      </p>
+      <p style="margin:0 0 8px;color:#64748b;font-size:13px;line-height:1.6;">This link expires in ${expiresInHours} hours and can be used only once.</p>
+      <p style="margin:0;color:#64748b;font-size:13px;line-height:1.6;">If you did not expect this, you can ignore this email.</p>
+    </div>
+  </div>
+</div>`;
+}
+
+async function sendMemberInviteEmail({ to, email, setupUrl, expiresInHours }) {
+    const mailTransporter = getTransporter();
+    const from = process.env.EMAIL_FROM || process.env.GMAIL_USER || "no-reply@edu-system.local";
+    await mailTransporter.sendMail({
+        from,
+        to,
+        subject: "Set up your account",
+        text: buildMemberInviteText({ email, setupUrl, expiresInHours }),
+        html: buildMemberInviteHtml({ email, setupUrl, expiresInHours }),
+    });
+}
+
 async function sendMemberAccountCreatedEmail({ to, email, initialPasswordHint, isNewUser }) {
     const mailTransporter = getTransporter();
     const from = process.env.EMAIL_FROM || process.env.GMAIL_USER;
@@ -626,6 +669,7 @@ async function sendHomeworkAssignedEmail({
 
 module.exports = {
     sendOtpEmail,
+    sendMemberInviteEmail,
     sendMemberAccountCreatedEmail,
     sendSectionSessionStatusUpdatedEmail,
     sendAssessmentAnnouncedEmail,

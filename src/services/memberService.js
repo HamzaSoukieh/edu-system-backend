@@ -1,10 +1,21 @@
 const bcrypt = require("bcrypt");
+const crypto = require("crypto");
 const mongoose = require("mongoose");
 const Membership = require("../models/Membership");
 const MemberProfile = require("../models/MemberProfile");
 const User = require("../models/User");
 const { assertMembershipSeatTransitionAllowed } = require("./billingEntitlementService");
-const { sendMemberAccountCreatedEmail } = require("./emailService");
+const { sendMemberAccountCreatedEmail, sendMemberInviteEmail } = require("./emailService");
+const { createAccountSetupToken } = require("./authService");
+
+function memberSetupDevFields(rawToken) {
+    // Expose the setup token in the API response only outside production, to support
+    // local dev and tests. Production never returns it (it is emailed as a link).
+    if (process.env.NODE_ENV === "production" || !rawToken) {
+        return {};
+    }
+    return { devSetupToken: rawToken };
+}
 
 const DEFAULT_SALT_ROUNDS = 10;
 const MEMBER_ROLES = ["admin", "instructor", "student"];
@@ -633,7 +644,11 @@ async function createMember({ institutionId, createdByUserId, payload }) {
 
     let createdUser = null;
     if (!existingUser) {
-        const passwordHash = await bcrypt.hash(profile.nationalNumber, saltRounds);
+        // Never derive the initial credential from PII (SEC-17/D-006). Create the account
+        // with a random, unusable password; the member sets their own via a one-time
+        // setup link (emailed below). mustChangePassword gates them until they do.
+        const unusablePassword = crypto.randomBytes(32).toString("hex");
+        const passwordHash = await bcrypt.hash(unusablePassword, saltRounds);
         createdUser = await User.create({
             email,
             passwordHash,
@@ -653,6 +668,7 @@ async function createMember({ institutionId, createdByUserId, payload }) {
 
     let createdMembership = null;
     let createdProfile = null;
+    let memberSetupToken = null;
 
     try {
         await assertMembershipSeatTransitionAllowed({
@@ -691,12 +707,28 @@ async function createMember({ institutionId, createdByUserId, payload }) {
             fullNameNormalized: profile.fullNameNormalized,
         });
 
-        await sendMemberAccountCreatedEmail({
-            to: email,
-            email,
-            initialPasswordHint: profile.nationalNumber,
-            isNewUser: !createdUser ? false : true,
-        });
+        if (createdUser) {
+            // New account: send a secure one-time setup link (no password in the email).
+            const setup = await createAccountSetupToken({
+                userId: createdUser._id,
+                institutionId,
+            });
+            memberSetupToken = setup.rawToken;
+            await sendMemberInviteEmail({
+                to: email,
+                email,
+                setupUrl: setup.setupUrl,
+                expiresInHours: setup.expiresInHours,
+            });
+        } else {
+            // Existing user added to another institution: they already have a password.
+            await sendMemberAccountCreatedEmail({
+                to: email,
+                email,
+                initialPasswordHint: null,
+                isNewUser: false,
+            });
+        }
     } catch (error) {
         if (createdProfile?._id) {
             await MemberProfile.deleteOne({ _id: createdProfile._id });
@@ -729,6 +761,7 @@ async function createMember({ institutionId, createdByUserId, payload }) {
 
     return {
         member: toMemberDetailsResponse(memberRecord),
+        ...memberSetupDevFields(memberSetupToken),
     };
 }
 
