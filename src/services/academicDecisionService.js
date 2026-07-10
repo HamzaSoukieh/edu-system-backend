@@ -10,6 +10,7 @@ const { ROLE_PERMISSIONS } = require("../auth/permissions");
 const academicOversightService = require("./academicOversightService");
 const enrollmentService = require("./enrollmentService");
 const notificationService = require("./notificationService");
+const { recordAuditLog } = require("./auditService");
 
 const DECISION_TYPE_ENROLLMENT_DROP = "enrollment_drop";
 const DECISION_TYPES = [DECISION_TYPE_ENROLLMENT_DROP];
@@ -959,6 +960,21 @@ async function finalizeAppliedDecision({
             error: error.message,
         });
     }
+
+    // SEC-15: applying an enrollment-drop decision drops a student's enrollment —
+    // audit the applied decision (actor + student + enrollment).
+    await recordAuditLog({
+        institutionId,
+        actorUserId,
+        action: "academic_decision.applied",
+        entityType: "AcademicDecision",
+        entityId: appliedDecision._id,
+        metadata: {
+            decisionType: appliedDecision.decisionType,
+            enrollmentId: appliedDecision.enrollmentId ? appliedDecision.enrollmentId.toString() : null,
+            studentMemberId: appliedDecision.studentMemberId ? appliedDecision.studentMemberId.toString() : null,
+        },
+    });
 
     return {
         academicDecision: toAppliedDecisionResponse(appliedDecision),
