@@ -439,6 +439,19 @@ function toSectionResponse(section) {
 }
 
 function toSectionListItem(section) {
+    // IM-9: include the schedule array (+ a convenience `room` from the first
+    // entry) so the frontend list view can show room/schedule without a detail
+    // fetch. `scheduleCount` is retained for backward compatibility.
+    const schedule = Array.isArray(section.schedule)
+        ? section.schedule.map((entry) => ({
+              sessionType: entry.sessionType || null,
+              day: normalizeLowerString(entry.day),
+              startTime: entry.startTime,
+              endTime: entry.endTime,
+              room: entry.room || null,
+          }))
+        : [];
+
     return {
         id: section._id.toString(),
         semesterId: section.semesterId.toString(),
@@ -449,7 +462,9 @@ function toSectionListItem(section) {
         instructorMemberId: section.instructorMemberId ? section.instructorMemberId.toString() : null,
         capacity: section.capacity ?? null,
         status: section.status,
-        scheduleCount: Array.isArray(section.schedule) ? section.schedule.length : 0,
+        schedule,
+        room: schedule.find((entry) => entry.room)?.room || null,
+        scheduleCount: schedule.length,
         updatedAt: section.updatedAt,
     };
 }
