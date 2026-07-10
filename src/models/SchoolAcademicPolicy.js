@@ -167,4 +167,21 @@ schoolAcademicPolicySchema.index({
     "appliesTo.classLevelId": 1,
 });
 
+// DB-3: at most one ACTIVE school policy per (institution, year, class level).
+// Without this, two active policies could coexist and promotion/outcome logic
+// would resolve an ambiguous policy non-deterministically. Mirrors the
+// InstitutionAcademicPolicy partial-unique-on-active guard.
+schoolAcademicPolicySchema.index(
+    {
+        institutionId: 1,
+        "appliesTo.academicYearId": 1,
+        "appliesTo.classLevelId": 1,
+    },
+    {
+        unique: true,
+        partialFilterExpression: { status: "active" },
+        name: "uniq_active_school_policy_per_year_level",
+    }
+);
+
 module.exports = mongoose.model("SchoolAcademicPolicy", schoolAcademicPolicySchema);
