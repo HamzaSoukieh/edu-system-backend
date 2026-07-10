@@ -6,6 +6,11 @@ const SchoolClass = require("../models/SchoolClass");
 const Section = require("../models/Section");
 const Semester = require("../models/Semester");
 const Subject = require("../models/Subject");
+const SectionSession = require("../models/SectionSession");
+const SectionMaterial = require("../models/SectionMaterial");
+const Assessment = require("../models/Assessment");
+const Homework = require("../models/Homework");
+const Enrollment = require("../models/Enrollment");
 const { ROLE_PERMISSIONS } = require("../auth/permissions");
 const { resolveScopedResponsibilities } = require("../auth/scopedResponsibilities");
 const { backfillSchoolSectionEnrollments } = require("./enrollmentService");
@@ -1224,6 +1229,31 @@ async function deleteSection({ institutionId, sectionId }) {
     }
 
     ensureSectionCanBeDeleted(section);
+
+    // DB-8: even a draft/cancelled section may already own child records
+    // (sessions, materials, assessments, homework, enrollments) that reference
+    // it by sectionId. Mongo does no cascade, so deleting would orphan them —
+    // block the delete and tell the caller to remove dependents first.
+    const dependencyChecks = [
+        [SectionSession, "sessions"],
+        [SectionMaterial, "materials"],
+        [Assessment, "assessments"],
+        [Homework, "homework"],
+        [Enrollment, "enrollments"],
+    ];
+    const dependencyResults = await Promise.all(
+        dependencyChecks.map(([model]) => model.exists({ institutionId, sectionId }))
+    );
+    const blocking = dependencyChecks
+        .filter((_, index) => dependencyResults[index])
+        .map(([, label]) => label);
+
+    if (blocking.length) {
+        throw createError(
+            409,
+            `Cannot delete section: it still has ${blocking.join(", ")}. Remove those first.`
+        );
+    }
 
     await Section.deleteOne({
         _id: sectionId,
