@@ -95,6 +95,11 @@ function requirePermission(permission) {
                 return next();
             }
 
+            // Responsibility-scoped fallback. This runs only when a route has attached a
+            // scope via withScope() below. Most scoped authorization (head/coordinator/
+            // mentor/dean/principal/president) is currently enforced inside the service
+            // layer (see scopedResponsibilities + service ensureCan* helpers), so this
+            // fallback is a defense-in-depth path for routes that opt in with withScope().
             const institutionId = req.membership.institutionId;
             const scopeType = req.authzScope?.type;
             const scopeId = normalizeId(req.authzScope?.id);
@@ -144,6 +149,15 @@ function requirePermission(permission) {
     return middleware;
 }
 
+// Attaches a resolved authorization scope to the request so requirePermission()'s
+// responsibility-scoped fallback can grant access. Chain it BEFORE requirePermission()
+// on any route that should honor head/coordinator/mentor/dean/principal/president
+// assignments at the middleware layer, e.g.:
+//   router.get(path, authJwt, requireEmailVerified, institutionAccess(),
+//     withScope("section", (req) => req.params.sectionId),
+//     requirePermission("section.read_scope"), controller.handler)
+// Currently most routes enforce scope in the service layer instead (see BR-5 in the
+// audit); this remains available and tested for routes that prefer middleware-level scope.
 function withScope(typeResolver, idResolver) {
     return (req, _res, next) => {
         req.authzScope = {
