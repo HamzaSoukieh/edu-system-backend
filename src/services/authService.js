@@ -155,6 +155,19 @@ async function createAndSendOtp({ email, purpose, userId }) {
 
         throw createError(500, "Failed to send OTP email");
     }
+
+    return otpCode;
+}
+
+// Expose the OTP in the API response ONLY outside production, to support local
+// development and automated tests without inspecting the email transport.
+// Production MUST never return OTP values (SEC / anti-enumeration).
+function devOtpFields(otpCode) {
+    if (process.env.NODE_ENV === "production" || !otpCode) {
+        return {};
+    }
+
+    return { devOtpCode: otpCode };
 }
 
 async function signup({ email, password, confirmPassword, institutionName, institutionType }) {
@@ -205,6 +218,7 @@ async function signup({ email, password, confirmPassword, institutionName, insti
 
     let institution = null;
     let membership = null;
+    let signupOtpCode = null;
     try {
         institution = await Institution.create({
             name: normalizedInstitutionName,
@@ -219,7 +233,7 @@ async function signup({ email, password, confirmPassword, institutionName, insti
             status: "active",
         });
 
-        await createAndSendOtp({
+        signupOtpCode = await createAndSendOtp({
             email: normalizedEmail,
             purpose: SIGNUP_OTP_PURPOSE,
             userId: user._id,
@@ -253,6 +267,7 @@ async function signup({ email, password, confirmPassword, institutionName, insti
             status: "active",
         },
         message: "Account created. Check your email for the OTP code.",
+        ...devOtpFields(signupOtpCode),
     };
 }
 
@@ -311,7 +326,7 @@ async function resendSignupOtp(authUser) {
         throw createError(409, "Email is already verified");
     }
 
-    await createAndSendOtp({
+    const resendOtpCode = await createAndSendOtp({
         email: user.email,
         purpose: SIGNUP_OTP_PURPOSE,
         userId: user._id,
@@ -319,6 +334,7 @@ async function resendSignupOtp(authUser) {
 
     return {
         message: "OTP resent. Check your email for the code.",
+        ...devOtpFields(resendOtpCode),
     };
 }
 
@@ -423,7 +439,7 @@ async function forgotPassword({ email }) {
         return { message: responseMessage };
     }
 
-    await createAndSendOtp({
+    const resetOtpCode = await createAndSendOtp({
         email: user.email,
         purpose: RESET_PASSWORD_OTP_PURPOSE,
         userId: user._id,
@@ -431,6 +447,7 @@ async function forgotPassword({ email }) {
 
     return {
         message: responseMessage,
+        ...devOtpFields(resetOtpCode),
     };
 }
 
@@ -533,4 +550,6 @@ module.exports = {
     verifySignupOtp,
     forgotPassword,
     resetPassword,
+    // exported for tests: proves OTP is exposed only outside production
+    devOtpFields,
 };
