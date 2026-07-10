@@ -8,6 +8,7 @@ const Department = require("../models/Department");
 const ClassLevel = require("../models/ClassLevel");
 const Subject = require("../models/Subject");
 const Section = require("../models/Section");
+const { withTransaction } = require("../utils/withTransaction");
 
 // True if the institution already has any type-specific academic structure, in which
 // case its type must not change (D-004 / IM-1).
@@ -388,32 +389,36 @@ async function createInstitution(authUser, payload) {
 
     const input = buildInstitutionCreate(payload);
 
-    let institution = null;
-    let membership = null;
-    try {
-        institution = await Institution.create({
-            name: input.name,
-            type: input.type,
-            ownerUserId: authUser.id,
-        });
+    // DB-1: create the Institution + its owner Membership atomically so a crash
+    // between the two writes can't leave an Institution with no owner. Falls
+    // back to non-transactional writes on a standalone Mongo (see withTransaction).
+    const { institution, membership } = await withTransaction(async (session) => {
+        const options = session ? { session } : {};
+        const [createdInstitution] = await Institution.create(
+            [
+                {
+                    name: input.name,
+                    type: input.type,
+                    ownerUserId: authUser.id,
+                },
+            ],
+            options
+        );
 
-        membership = await Membership.create({
-            userId: authUser.id,
-            institutionId: institution._id,
-            role: "admin",
-            status: "active",
-        });
-    } catch (error) {
-        if (membership?._id) {
-            await Membership.deleteOne({ _id: membership._id });
-        }
+        const [createdMembership] = await Membership.create(
+            [
+                {
+                    userId: authUser.id,
+                    institutionId: createdInstitution._id,
+                    role: "admin",
+                    status: "active",
+                },
+            ],
+            options
+        );
 
-        if (institution?._id) {
-            await Institution.deleteOne({ _id: institution._id });
-        }
-
-        throw error;
-    }
+        return { institution: createdInstitution, membership: createdMembership };
+    });
 
     return {
         institution: toInstitutionResponse(institution),
