@@ -8,27 +8,63 @@ function createConfigError(message) {
     return error;
 }
 
+function isProduction() {
+    return process.env.NODE_ENV === "production";
+}
+
+// Resolve an email transport with this precedence:
+//   1. Explicit SMTP (e.g. Mailpit for local dev, or a real SMTP relay) when SMTP_HOST is set.
+//   2. Gmail service when GMAIL_USER + GMAIL_APP_PASSWORD are set.
+//   3. Non-production fallback: a stream (JSON) transport that "delivers" to the log so
+//      signup / password-reset flows work locally without any SMTP credentials.
+//   4. Production with no transport configured -> hard configuration error (fail shut).
 function getTransporter() {
     if (transporter) {
         return transporter;
     }
 
-    const gmailUser = process.env.GMAIL_USER;
-    const gmailAppPassword = process.env.GMAIL_APP_PASSWORD;
-
-    if (!gmailUser || !gmailAppPassword) {
-        throw createConfigError("GMAIL_USER and GMAIL_APP_PASSWORD are required for email sending");
+    const smtpHost = process.env.SMTP_HOST;
+    if (smtpHost) {
+        const port = Number(process.env.SMTP_PORT) || 1025;
+        const hasAuth = process.env.SMTP_USER && process.env.SMTP_PASS;
+        transporter = nodemailer.createTransport({
+            host: smtpHost,
+            port,
+            secure: process.env.SMTP_SECURE === "true",
+            ...(hasAuth
+                ? { auth: { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS } }
+                : {}),
+        });
+        return transporter;
     }
 
-    transporter = nodemailer.createTransport({
-        service: "gmail",
-        auth: {
-            user: gmailUser,
-            pass: gmailAppPassword,
-        },
-    });
+    const gmailUser = process.env.GMAIL_USER;
+    const gmailAppPassword = process.env.GMAIL_APP_PASSWORD;
+    if (gmailUser && gmailAppPassword) {
+        transporter = nodemailer.createTransport({
+            service: "gmail",
+            auth: {
+                user: gmailUser,
+                pass: gmailAppPassword,
+            },
+        });
+        return transporter;
+    }
 
-    return transporter;
+    if (!isProduction()) {
+        // Development/test fallback: do not require real credentials. Messages are
+        // serialized to JSON and surfaced in logs so the OTP/reset flow is testable.
+        // eslint-disable-next-line no-console
+        console.warn(
+            "[emailService] No SMTP_HOST or GMAIL credentials configured; using non-production stream transport (emails are logged, not delivered)."
+        );
+        transporter = nodemailer.createTransport({ jsonTransport: true });
+        return transporter;
+    }
+
+    throw createConfigError(
+        "Email transport is not configured. Set SMTP_HOST (recommended) or GMAIL_USER + GMAIL_APP_PASSWORD."
+    );
 }
 
 function getOtpSubject(purpose) {
