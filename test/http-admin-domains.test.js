@@ -161,3 +161,33 @@ test("responsibilities: assign president → list → deactivate over HTTP (IM-4
     const deactivated = await api(`${b}/${assignmentId}/deactivate`, { method: "PATCH", token });
     assert.equal(deactivated.status, 200);
 });
+
+test("registrar reads: oversight risk-summary, university standing, and policies over HTTP", async (t) => {
+    if (!dbReady) return t.skip("no mongo");
+    const { token, institutionId } = await adminContext("reads");
+
+    const oversight = await api(`/institutions/${institutionId}/academic-oversight/risk-summary`, { token });
+    assert.equal(oversight.status, 200);
+    assert.ok(oversight.body.academicRiskSummary);
+
+    const standing = await api(`/institutions/${institutionId}/academic-standing/university/summary`, { token });
+    assert.equal(standing.status, 200);
+    assert.ok(standing.body.standingSummary);
+
+    const policies = await api(`/institutions/${institutionId}/academic-policies`, { token });
+    assert.equal(policies.status, 200);
+    assert.ok(Array.isArray(policies.body.academicPolicies));
+});
+
+test("tenant isolation: owner A cannot create an academic-year in institution B over HTTP", async (t) => {
+    if (!dbReady) return t.skip("no mongo");
+    const a = await adminContext("iso-a");
+    const b = await adminContext("iso-b");
+
+    const cross = await api(`/institutions/${b.institutionId}/academic-years`, {
+        method: "POST",
+        token: a.token,
+        body: { name: "2040 / 2041", startDate: "2040-09-01", endDate: "2041-06-30", status: "draft" },
+    });
+    assert.equal(cross.status, 403);
+});
