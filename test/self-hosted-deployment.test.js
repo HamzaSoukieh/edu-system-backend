@@ -77,6 +77,27 @@ test("server binds the configured host and defaults to all container interfaces"
     assert.match(serverSource, /app\.listen\(PORT, HOST,/);
 });
 
+test("GET /billing/plans is public (no auth, no DB) and returns the safe plan catalog", async () => {
+    await withAppEnvironment({ NODE_ENV: "development" }, async (app) => {
+        const server = await listenOnEphemeralPort(app);
+        try {
+            const res = await fetch(`${server.baseUrl}/billing/plans`);
+            assert.equal(res.status, 200);
+            const body = await res.json();
+            assert.equal(body.plans.length, 2);
+            assert.deepEqual(
+                body.plans.map((p) => p.name).sort(),
+                ["Plus", "Pro"]
+            );
+            assert.ok(body.plans.every((p) => typeof p.maxActiveStudents === "number"));
+            // No secrets / Stripe identifiers leak through the public endpoint.
+            assert.doesNotMatch(JSON.stringify(body), /price_|sk_|whsec_/);
+        } finally {
+            await server.close();
+        }
+    });
+});
+
 test("health is public and minimal, and production CORS does not add localhost", async () => {
     await withAppEnvironment({
         NODE_ENV: "production",
