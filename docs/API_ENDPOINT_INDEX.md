@@ -9,6 +9,7 @@
 | POST | `/auth/otp/verify` | OTP/email verification | Protected | Authenticated user | Verify signup OTP. |
 | POST | `/auth/otp/resend` | OTP/email verification | Protected | Authenticated user | Resend signup OTP. |
 | POST | `/stripe/webhook` | Stripe webhook | Public | Stripe signature | Receive Stripe events using raw body. |
+| GET | `/billing/plans` | Billing/Stripe | Public | Public | Display-safe plan catalog (name + seat limits + billing cycle; no secrets) for the marketing/pricing page. |
 | GET | `/platform/institutions` | Provider control plane | Protected platform admin | platform.institutions.read | List safe aggregate institution operations. |
 | GET | `/platform/institutions/:institutionId` | Provider control plane | Protected platform admin | platform.institutions.read | Read one provider-level institution summary. |
 | GET | `/platform/institutions/:institutionId/billing` | Provider control plane | Protected platform admin | platform.billing.read | Read local billing, seats, sync state, and failed webhooks. |
