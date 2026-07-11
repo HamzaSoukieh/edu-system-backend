@@ -60,6 +60,11 @@ app.use(express.urlencoded({ extended: true, limit: "1mb" }));
 app.get("/health", (_req, res) => {
     return res.status(200).json({ status: "ok" });
 });
+// SEC-13: member profile pictures are PII and must not be publicly served.
+// Block that subdirectory before the public static handler; institution logos
+// (under /uploads/institution-logos) remain public. A future authenticated or
+// signed-URL route can serve profile pictures to authorized viewers.
+app.use("/uploads/member-profiles", (_req, res) => res.status(404).json({ message: "Not found" }));
 app.use("/uploads", express.static(path.join(__dirname, "..", "uploads")));
 app.use("/auth", authRoutes);
 app.use("/institutions", institutionRoutes);

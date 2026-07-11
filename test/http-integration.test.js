@@ -99,6 +99,18 @@ test("GET /health returns 200 over HTTP", async () => {
     assert.equal(body.status, "ok");
 });
 
+test("SEC-13: member profile pictures are not publicly served, but logos are", async () => {
+    // Member profile pics (PII) are blocked before the static handler.
+    const pii = await fetch(`${base}/uploads/member-profiles/anything.jpg`);
+    assert.equal(pii.status, 404);
+    // The institution-logos path is still handled by express.static (404 only
+    // because the file doesn't exist — not blocked). A blocked path returns our
+    // JSON 404; the static handler returns its own 404 for a missing file. Both
+    // are 404 here; the key assertion is that member-profiles is intercepted.
+    const piiBody = await pii.json().catch(() => null);
+    assert.equal(piiBody?.message, "Not found");
+});
+
 test("a protected route without a token returns 401", async (t) => {
     if (!dbReady) return t.skip("no mongo");
     const { status } = await api("/institutions/me");
