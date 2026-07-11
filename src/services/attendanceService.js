@@ -11,7 +11,7 @@ const Subject = require("../models/Subject");
 const User = require("../models/User");
 const { ensureCanChangeSectionSessionStatus } = require("./sectionSessionService");
 
-const ATTENDANCE_STATUSES = ["present", "absent", "late", "excused"];
+const { ATTENDANCE_STATUSES } = require("../constants/attendanceConstants");
 const ROSTER_FILTERS = ["all", "attended", "not_attended", "present", "absent", "late", "excused", "pending"];
 const ACTIVE_ENROLLMENT_STATUS = "enrolled";
 const MAX_NOTE_LENGTH = 500;

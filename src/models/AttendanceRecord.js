@@ -1,7 +1,5 @@
 const mongoose = require("mongoose");
-
-const ATTENDANCE_STATUSES = ["present", "absent", "late", "excused"];
-const ATTENDANCE_SOURCES = ["manual", "qr"];
+const { ATTENDANCE_STATUSES, ATTENDANCE_SOURCES } = require("../constants/attendanceConstants");
 
 const attendanceRecordSchema = new mongoose.Schema(
     {
