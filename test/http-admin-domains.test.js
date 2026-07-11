@@ -179,6 +179,27 @@ test("registrar reads: oversight risk-summary, university standing, and policies
     assert.ok(Array.isArray(policies.body.academicPolicies));
 });
 
+test("delete guard: a department must be archived before deletion (DB-2) over HTTP", async (t) => {
+    if (!dbReady) return t.skip("no mongo");
+    const { token, institutionId } = await adminContext("del-guard");
+    const b = `/institutions/${institutionId}/departments`;
+
+    const created = await api(b, { method: "POST", token, body: { name: "Computer Science", code: "CS" } });
+    assert.equal(created.status, 201, JSON.stringify(created.body));
+    const deptId = created.body.department?.id || created.body.id;
+
+    // Deleting an active department is refused — must archive first.
+    const blocked = await api(`${b}/${deptId}`, { method: "DELETE", token });
+    assert.equal(blocked.status, 400);
+    assert.match(blocked.body.message || "", /archive/i);
+
+    // Archive, then delete succeeds (no dependent sections).
+    const archived = await api(`${b}/${deptId}`, { method: "PATCH", token, body: { status: "archived" } });
+    assert.equal(archived.status, 200);
+    const deleted = await api(`${b}/${deptId}`, { method: "DELETE", token });
+    assert.equal(deleted.status, 200);
+});
+
 test("tenant isolation: owner A cannot create an academic-year in institution B over HTTP", async (t) => {
     if (!dbReady) return t.skip("no mongo");
     const a = await adminContext("iso-a");
