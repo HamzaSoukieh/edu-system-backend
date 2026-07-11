@@ -56,7 +56,9 @@ async function adminContext(seed) {
     });
     assert.equal(signup.status, 201, JSON.stringify(signup.body));
     await User.updateOne({ email }, { $set: { isEmailVerified: true } });
-    return { institutionId: signup.body.institution.id };
+    const login = await api("/auth/login", { method: "POST", body: { email, password: "Password123!" } });
+    assert.equal(login.status, 200);
+    return { institutionId: signup.body.institution.id, token: login.body.accessToken };
 }
 
 // Seed a verified student with a known password so we can log in as them.
@@ -145,4 +147,23 @@ test("a student is denied the admin members list (403) over HTTP", async (t) => 
 
     const members = await api(`/institutions/${institutionId}/members`, { token: login.body.accessToken });
     assert.equal(members.status, 403);
+});
+
+test("announcements audience filtering: a student sees 'all' but not 'admin' announcements", async (t) => {
+    if (!dbReady) return t.skip("no mongo");
+    const { institutionId, token: adminToken } = await adminContext("announce");
+    const { email } = await seedStudent(institutionId);
+    const b = `/institutions/${institutionId}/announcements`;
+
+    const everyone = await api(b, { method: "POST", token: adminToken, body: { title: "Welcome all", body: "Visible to everyone", audience: "all" } });
+    assert.equal(everyone.status, 201, JSON.stringify(everyone.body));
+    const adminOnly = await api(b, { method: "POST", token: adminToken, body: { title: "Staff memo", body: "Admins only", audience: "admin" } });
+    assert.equal(adminOnly.status, 201);
+
+    const studentLogin = await api("/auth/login", { method: "POST", body: { email, password: "Password123!" } });
+    const studentView = await api(b, { token: studentLogin.body.accessToken });
+    assert.equal(studentView.status, 200);
+    const titles = (studentView.body.announcements || []).map((a) => a.title);
+    assert.ok(titles.includes("Welcome all"), "student should see the 'all' announcement");
+    assert.ok(!titles.includes("Staff memo"), "student must NOT see the 'admin' announcement");
 });
