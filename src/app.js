@@ -43,15 +43,28 @@ function parseAllowedOrigins() {
 
 const allowedOrigins = parseAllowedOrigins();
 
+// In development the Vite dev server may land on any free port (5173, 5174, …)
+// when earlier instances hold the default, and it may report itself as either
+// `localhost` or `127.0.0.1`. Hardcoding two ports meant the browser blocked
+// login/signup whenever the app ran on a different port. So, OUTSIDE production,
+// accept any loopback origin regardless of port. Production keeps the strict,
+// explicit allowlist from FRONTEND_URL(S).
+function isLoopbackOrigin(origin) {
+    if (process.env.NODE_ENV === "production") {
+        return false;
+    }
+    return /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin);
+}
+
+function isOriginAllowed(origin) {
+    return !origin || allowedOrigins.includes(origin) || isLoopbackOrigin(origin);
+}
+
 app.use(
     cors({
         credentials: true,
         origin(origin, callback) {
-            if (!origin || allowedOrigins.includes(origin)) {
-                return callback(null, true);
-            }
-
-            return callback(null, false);
+            return callback(null, isOriginAllowed(origin));
         },
     })
 );

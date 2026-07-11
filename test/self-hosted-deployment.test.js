@@ -118,6 +118,39 @@ test("health is public and minimal, and production CORS does not add localhost",
     });
 });
 
+test("development CORS accepts any loopback port; production rejects non-allowlisted loopback", async () => {
+    // Dev: the Vite server may land on any free port (5174, 5176, …) and report
+    // itself as localhost OR 127.0.0.1 — all must be accepted so browser
+    // login/signup works regardless of port.
+    await withAppEnvironment({ NODE_ENV: "development" }, async (app) => {
+        const server = await listenOnEphemeralPort(app);
+        try {
+            for (const origin of ["http://localhost:5176", "http://127.0.0.1:5174", "http://localhost:3001"]) {
+                const res = await fetch(`${server.baseUrl}/health`, { headers: { Origin: origin } });
+                assert.equal(res.headers.get("access-control-allow-origin"), origin, `dev should allow ${origin}`);
+            }
+        } finally {
+            await server.close();
+        }
+    });
+
+    // Production: an arbitrary loopback origin is NOT allowlisted and must be rejected.
+    await withAppEnvironment({
+        NODE_ENV: "production",
+        FRONTEND_URL: "https://app.example.com",
+    }, async (app) => {
+        const server = await listenOnEphemeralPort(app);
+        try {
+            const res = await fetch(`${server.baseUrl}/health`, {
+                headers: { Origin: "http://localhost:5176" },
+            });
+            assert.equal(res.headers.get("access-control-allow-origin"), null);
+        } finally {
+            await server.close();
+        }
+    });
+});
+
 test("self-hosted Compose keeps backend, worker, MongoDB, and Redis private with persistent data", () => {
     const compose = read("compose.selfhosted.yml");
     const backend = getComposeService(compose, "backend");
