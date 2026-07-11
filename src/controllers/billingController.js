@@ -77,8 +77,16 @@ async function upgradeToPro(req, res) {
     }
 }
 
+// Public (unauthenticated) plan catalog — display-safe name + seat limits + cycle,
+// no secrets/Stripe IDs — so the marketing/pricing page uses the backend as the
+// single source of truth for plan limits instead of hardcoding them.
+function getPublicBillingPlans(_req, res) {
+    return res.status(200).json({ plans: billingService.getBillingPlanCatalog() });
+}
+
 module.exports = {
     createCheckoutSession,
     getBillingStatus,
     upgradeToPro,
+    getPublicBillingPlans,
 };

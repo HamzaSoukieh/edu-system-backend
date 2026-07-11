@@ -6,6 +6,7 @@ const authRoutes = require("./routes/authRoutes");
 const institutionRoutes = require("./routes/institutionRoutes");
 const platformRoutes = require("./routes/platformRoutes");
 const stripeWebhookController = require("./controllers/stripeWebhookController");
+const billingController = require("./controllers/billingController");
 const { errorHandler } = require("./middleware/errorHandler");
 
 const app = express();
@@ -74,6 +75,8 @@ app.use(express.urlencoded({ extended: true, limit: "1mb" }));
 app.get("/health", (_req, res) => {
     return res.status(200).json({ status: "ok" });
 });
+// Public plan catalog (no auth, no secrets) for the marketing/pricing page.
+app.get("/billing/plans", billingController.getPublicBillingPlans);
 // SEC-13: member profile pictures are PII and must not be publicly served.
 // Block that subdirectory before the public static handler; institution logos
 // (under /uploads/institution-logos) remain public. A future authenticated or

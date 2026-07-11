@@ -76,6 +76,20 @@ test("checkout: a 409 already-active conflict passes its code + message through"
     });
 });
 
+test("public plans: returns the display-safe catalog with no auth and no secrets", async () => {
+    const res = {
+        statusCode: null,
+        body: null,
+        status(code) { this.statusCode = code; return this; },
+        json(payload) { this.body = payload; return this; },
+    };
+    billingController.getPublicBillingPlans({}, res);
+    assert.equal(res.statusCode, 200);
+    assert.equal(res.body.plans.length, 2);
+    assert.ok(res.body.plans.every((p) => typeof p.maxActiveStudents === "number"));
+    assert.doesNotMatch(JSON.stringify(res.body), /price_|sk_|whsec_|stripeCustomerId|stripeSubscriptionId/);
+});
+
 test("checkout: a successful result is returned with 201", async () => {
     const result = { checkoutSession: { id: "cs_1", url: "https://stripe.test/x" }, billingProfile: {}, entitlements: {} };
     await withServiceStub("createCheckoutSession", async () => result, async () => {
