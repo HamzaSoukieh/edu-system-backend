@@ -142,7 +142,13 @@ function normalizeBoundedNullableString(rawValue, fieldName, maxLength, { allowU
 
 function validateAttendanceStatus(rawValue, { allowUndefined = false } = {}) {
     if (rawValue === undefined) {
-        return allowUndefined ? undefined : null;
+        if (allowUndefined) {
+            return undefined;
+        }
+        // The schema requires attendanceStatus, but the manual-upsert bulkWrite
+        // bypasses schema validation — a null here used to be PERSISTED, leaving
+        // corrupt attendance records. Reject the entry up front instead.
+        throw createError(400, "attendanceStatus must be present, absent, late, or excused");
     }
 
     const attendanceStatus = normalizeLowerString(rawValue);

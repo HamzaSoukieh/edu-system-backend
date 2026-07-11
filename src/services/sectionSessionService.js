@@ -175,7 +175,12 @@ function normalizeBoundedNullableString(rawValue, fieldName, maxLength, { allowU
 
 function validateSectionSessionType(rawValue, { allowUndefined = false } = {}) {
     if (rawValue === undefined) {
-        return allowUndefined ? undefined : null;
+        if (allowUndefined) {
+            return undefined;
+        }
+        // The schema requires sessionType; returning null here used to surface
+        // as an unhandled Mongoose ValidationError (masked 500) on create.
+        throw createError(400, "sessionType is required (lecture or lab)");
     }
 
     const sessionType = normalizeLowerString(rawValue);
@@ -542,7 +547,7 @@ function buildScheduleEntriesForGeneration(schedule) {
     }
 
     return schedule.map((entry, index) => {
-        const sessionType = validateSectionSessionType(entry.sessionType, `schedule[${index}].sessionType`, {
+        const sessionType = validateSectionSessionType(entry.sessionType, {
             allowUndefined: true,
         });
         if (!sessionType) {

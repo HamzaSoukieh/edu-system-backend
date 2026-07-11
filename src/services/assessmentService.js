@@ -163,7 +163,12 @@ function normalizeOptionalDateOnly(rawValue, fieldName, { allowNull = false } = 
 
 function validateAssessmentType(rawValue, { allowUndefined = false } = {}) {
     if (rawValue === undefined) {
-        return allowUndefined ? undefined : null;
+        if (allowUndefined) {
+            return undefined;
+        }
+        // The schema requires type; returning null here used to surface as an
+        // unhandled Mongoose ValidationError (masked 500) on create.
+        throw createError(400, `type is required (${ASSESSMENT_TYPES.join(", ")})`);
     }
 
     const value = normalizeLowerString(rawValue);
@@ -2076,6 +2081,7 @@ async function listMyAssessments({ institutionId, actorUserId, actorMembership }
 }
 
 module.exports = {
+    validateCreateAssessmentInput,
     createAssessment,
     listAssessments,
     getAssessmentById,
