@@ -759,7 +759,11 @@ function buildSetupUrl(rawToken) {
         (process.env.FRONTEND_URL ||
             (process.env.FRONTEND_URLS || "").split(",")[0] ||
             "http://localhost:5173").trim();
-    return `${base.replace(/\/$/, "")}/setup-password?token=${rawToken}`;
+    // The SPA is hash-routed (see frontend app/router/routes.js): the link
+    // must be the #/setup-password form. A bare /setup-password path would be
+    // swallowed by the SPA fallback and render Home, silently dropping the
+    // token (found by E2E acceptance).
+    return `${base.replace(/\/$/, "")}/#/setup-password?token=${rawToken}`;
 }
 
 // Issue a one-time password-setup token for an admin-created member (D-006).

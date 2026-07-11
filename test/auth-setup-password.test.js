@@ -164,3 +164,19 @@ test("completing setup invalidates any prior access tokens (tokenVersion bump)",
         await cleanup(user._id);
     }
 });
+
+test("emailed setup URL targets the SPA's hash route and carries the token", async (t) => {
+    if (!dbReady) return t.skip("no mongo");
+    const { user } = await makeInvitedUser("url");
+    try {
+        const { rawToken, setupUrl } = await authService.createAccountSetupToken({ userId: user._id });
+        // The frontend routes exclusively via hash (#/setup-password). A bare
+        // /setup-password path is swallowed by the SPA fallback and renders
+        // Home, dropping the token — the emailed link must be the hash form.
+        assert.match(setupUrl, /\/#\/setup-password\?token=/, "hash-routed setup link");
+        assert.ok(setupUrl.endsWith(`token=${rawToken}`), "raw token present in link");
+        assert.ok(!/[^#]\/setup-password/.test(setupUrl.replace("/#/setup-password", "")), "no path-form residue");
+    } finally {
+        await cleanup(user._id);
+    }
+});
