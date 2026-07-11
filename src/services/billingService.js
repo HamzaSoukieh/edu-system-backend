@@ -10,7 +10,10 @@ const {
     resolveBillingPlanByStripePriceId,
     validateConfiguredBillingPrices,
 } = require("./billingPlanConfig");
-const { getInstitutionBillingEntitlements } = require("./billingEntitlementService");
+const {
+    getInstitutionBillingEntitlements,
+    countInstitutionActiveSeats,
+} = require("./billingEntitlementService");
 const logger = require("../utils/logger");
 
 let stripeClientForTests = null;
@@ -531,12 +534,24 @@ async function getBillingStatus({ institutionId, actorUserId, actorMembership })
         actorMembership,
     });
 
-    const profile = await InstitutionBillingProfile.findOne({ institutionId }).lean();
+    const [profile, seatUsage] = await Promise.all([
+        InstitutionBillingProfile.findOne({ institutionId }).lean(),
+        countInstitutionActiveSeats({ institutionId }).catch(() => ({ activeStudents: 0, activeStaff: 0 })),
+    ]);
     const billingProfile = toBillingProfileResponse(profile);
+    const entitlements = getInstitutionBillingEntitlements(profile);
 
     return {
         billingProfile,
-        entitlements: getInstitutionBillingEntitlements(profile),
+        entitlements,
+        // Current seat usage vs the plan's limits so the frontend can render real
+        // usage bars (students/staff used-of-allowed) without a second request.
+        usage: {
+            activeStudents: seatUsage.activeStudents,
+            activeStaff: seatUsage.activeStaff,
+            maxActiveStudents: entitlements.maxActiveStudents,
+            maxActiveStaff: entitlements.maxActiveStaff,
+        },
         availableActions: computeAvailableActions(profile),
     };
 }
