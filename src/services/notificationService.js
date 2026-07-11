@@ -2,14 +2,7 @@ const mongoose = require("mongoose");
 const Notification = require("../models/Notification");
 const Membership = require("../models/Membership");
 
-const NOTIFICATION_TYPES = [
-    "academic_decision_review_required",
-    "academic_decision_cancelled",
-    "academic_decision_approved",
-    "academic_decision_rejected",
-    "academic_decision_applied",
-    "enrollment_status_changed",
-];
+const { NOTIFICATION_TYPES } = require("../constants/notificationConstants");
 const DEFAULT_PAGE = 1;
 const DEFAULT_LIMIT = 20;
 const MAX_LIMIT = 50;

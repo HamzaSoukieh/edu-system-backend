@@ -1,6 +1,6 @@
 const mongoose = require("mongoose");
 
-const SCHOOL_FINAL_OUTCOME_STATUSES = ["draft", "finalized", "cancelled"];
+const { SCHOOL_FINAL_OUTCOME_STATUSES } = require("../constants/schoolFinalOutcomeConstants");
 const SCHOOL_PROMOTION_DECISIONS = [
     "promoted",
     "repeat_year",

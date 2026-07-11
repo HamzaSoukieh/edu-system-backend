@@ -1,13 +1,6 @@
 const mongoose = require("mongoose");
 
-const NOTIFICATION_TYPES = [
-    "academic_decision_review_required",
-    "academic_decision_cancelled",
-    "academic_decision_approved",
-    "academic_decision_rejected",
-    "academic_decision_applied",
-    "enrollment_status_changed",
-];
+const { NOTIFICATION_TYPES } = require("../constants/notificationConstants");
 
 const academicDecisionNotificationDataSchema = new mongoose.Schema(
     {

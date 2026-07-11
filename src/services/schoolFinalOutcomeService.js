@@ -12,7 +12,7 @@ const schoolPromotionService = require("./schoolPromotionService");
 const { ensureSchoolInstitution } = require("./classLevelService");
 const { recordAuditLog } = require("./auditService");
 
-const SCHOOL_FINAL_OUTCOME_STATUSES = ["draft", "finalized", "cancelled"];
+const { SCHOOL_FINAL_OUTCOME_STATUSES } = require("../constants/schoolFinalOutcomeConstants");
 const SCHOOL_FINAL_OUTCOME_MANAGE_PERMISSION = "class.manage";
 const ACTIVE_CLASS_ASSIGNMENT_STATUS = ClassStudentAssignment.schema.path("status").defaultValue;
 const ACTIVE_MEMBERSHIP_STATUS = Membership.schema.path("status").defaultValue;
