@@ -4,6 +4,7 @@ const Institution = require("../models/Institution");
 const InstitutionBillingProfile = require("../models/InstitutionBillingProfile");
 const StripeWebhookEvent = require("../models/StripeWebhookEvent");
 const {
+    BILLING_PLAN_CONFIG,
     BILLING_PLANS,
     PAID_SUBSCRIPTION_STATUSES,
     getBillingPlanConfig,
@@ -106,14 +107,12 @@ function stripeModeMismatch() {
     return false;
 }
 
-// Request-time billing configuration gate. Runs before any Stripe call so a
-// misconfigured deployment returns a structured, user-safe BILLING_NOT_CONFIGURED
-// (503) instead of a masked "Internal server error". Skipped entirely when a test
-// stripe client is injected (the suite mocks the provider). Never logs secret
-// values — only the NAMES of the missing/invalid variables.
-function assertBillingConfigured() {
+// Collect the NAMES of missing/invalid billing configuration variables (never
+// their values). Empty array = fully configured. Returns null (treated as "OK")
+// when a test stripe client is injected so provider-mocked tests need no config.
+function billingConfigProblems() {
     if (stripeClientForTests) {
-        return;
+        return [];
     }
 
     const problems = [];
@@ -134,11 +133,39 @@ function assertBillingConfigured() {
     if (stripeModeMismatch()) {
         problems.push("STRIPE test/live mode mismatch");
     }
+    return problems;
+}
 
+// Non-throwing check for the status contract so the frontend can proactively
+// disable checkout / annotate plan cards instead of only discovering the problem
+// after a click.
+function isBillingConfigured() {
+    return billingConfigProblems().length === 0;
+}
+
+// Request-time billing configuration gate. Runs before any Stripe call so a
+// misconfigured deployment returns a structured, user-safe BILLING_NOT_CONFIGURED
+// (503) instead of a masked "Internal server error". Skipped entirely when a test
+// stripe client is injected (the suite mocks the provider). Never logs secret
+// values — only the NAMES of the missing/invalid variables.
+function assertBillingConfigured() {
+    const problems = billingConfigProblems();
     if (problems.length > 0) {
         logger.error("Billing is not configured", { missingOrInvalid: problems });
         throw createError(503, BILLING_NOT_CONFIGURED_MESSAGE, BILLING_ERROR_CODES.NOT_CONFIGURED);
     }
+}
+
+// Display-safe plan catalog for the frontend plan cards (single source of truth
+// for names + seat limits + billing cycle). No secrets, no Stripe IDs.
+function getBillingPlanCatalog() {
+    return Object.values(BILLING_PLAN_CONFIG).map((config) => ({
+        plan: config.plan,
+        name: config.plan === "pro" ? "Pro" : "Plus",
+        billingInterval: config.billingInterval,
+        maxActiveStudents: config.maxActiveStudents,
+        maxActiveStaff: config.maxActiveStaff,
+    }));
 }
 
 // Translate a Stripe SDK error into a stable, user-safe application error. Never
@@ -552,6 +579,10 @@ async function getBillingStatus({ institutionId, actorUserId, actorMembership })
             maxActiveStudents: entitlements.maxActiveStudents,
             maxActiveStaff: entitlements.maxActiveStaff,
         },
+        // Display-safe plan catalog + a proactive "is billing set up?" flag so the
+        // UI shows real limits and disables/annotates actions before a click.
+        plans: getBillingPlanCatalog(),
+        billingConfigured: isBillingConfigured(),
         availableActions: computeAvailableActions(profile),
     };
 }
@@ -1317,6 +1348,8 @@ function constructStripeWebhookEvent({ rawBody, signature }) {
 module.exports = {
     BILLING_ERROR_CODES,
     assertBillingConfigured,
+    isBillingConfigured,
+    getBillingPlanCatalog,
     setStripeClientForTests,
     toBillingProfileResponse,
     createCheckoutSession,

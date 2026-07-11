@@ -120,3 +120,28 @@ test("BILLING_ERROR_CODES exposes the stable codes used by the frontend", () => 
     assert.equal(billingService.BILLING_ERROR_CODES.ALREADY_ACTIVE, "SUBSCRIPTION_ALREADY_ACTIVE");
     assert.equal(billingService.BILLING_ERROR_CODES.STRIPE_UNAVAILABLE, "STRIPE_UNAVAILABLE");
 });
+
+test("getBillingPlanCatalog returns display-safe plan metadata (no secrets/Stripe IDs)", () => {
+    const catalog = billingService.getBillingPlanCatalog();
+    assert.equal(catalog.length, 2);
+    const plus = catalog.find((p) => p.plan === "plus");
+    const pro = catalog.find((p) => p.plan === "pro");
+    assert.equal(plus.name, "Plus");
+    assert.equal(pro.name, "Pro");
+    assert.equal(plus.maxActiveStudents, 300);
+    assert.equal(pro.maxActiveStudents, 1000);
+    assert.equal(plus.billingInterval, "six_month");
+    // No Stripe price IDs / secrets leak into the catalog.
+    const serialized = JSON.stringify(catalog);
+    assert.doesNotMatch(serialized, /price_|sk_|whsec_/);
+});
+
+test("isBillingConfigured is false for placeholder config and true for valid config", () => {
+    billingService.setStripeClientForTests(null);
+    withEnv({ ...VALID_CONFIG, STRIPE_PRICE_PLUS_6_MONTH: "price_replace_me" }, () => {
+        assert.equal(billingService.isBillingConfigured(), false);
+    });
+    withEnv(VALID_CONFIG, () => {
+        assert.equal(billingService.isBillingConfigured(), true);
+    });
+});
