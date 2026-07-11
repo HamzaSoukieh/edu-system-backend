@@ -6,6 +6,7 @@ const authRoutes = require("./routes/authRoutes");
 const institutionRoutes = require("./routes/institutionRoutes");
 const platformRoutes = require("./routes/platformRoutes");
 const stripeWebhookController = require("./controllers/stripeWebhookController");
+const { errorHandler } = require("./middleware/errorHandler");
 
 const app = express();
 
@@ -74,11 +75,6 @@ app.use((req, res) => {
     return res.status(404).json({ message: "Route not found" });
 });
 
-app.use((error, _req, res, _next) => {
-    const statusCode = Number.isInteger(error.statusCode) ? error.statusCode : 500;
-    const message = statusCode >= 500 ? "Internal server error" : error.message;
-
-    return res.status(statusCode).json({ message });
-});
+app.use(errorHandler);
 
 module.exports = app;
