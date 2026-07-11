@@ -1,8 +1,7 @@
 const mongoose = require("mongoose");
 
-const HOMEWORK_TYPES = ["homework", "project"];
+const { HOMEWORK_TYPES, HOMEWORK_STATUSES } = require("../constants/homeworkConstants");
 const HOMEWORK_SUBMISSION_MODES = ["none", "offline", "online_upload"];
-const HOMEWORK_STATUSES = ["draft", "assigned", "closed", "archived"];
 
 const homeworkSchema = new mongoose.Schema(
     {

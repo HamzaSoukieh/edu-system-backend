@@ -16,12 +16,10 @@ const emailQueue = require("../queues/emailQueue");
 const { EMAIL_JOB_TYPES } = require("../queues/emailQueueNames");
 const { ensureCanChangeSectionSessionStatus } = require("./sectionSessionService");
 
-const HOMEWORK_TYPES = ["homework", "project"];
+const { HOMEWORK_TYPES, HOMEWORK_STATUSES, HOMEWORK_SUBMISSION_STATUSES } = require("../constants/homeworkConstants");
 const HOMEWORK_SUBMISSION_MODES = ["none", "offline", "online_upload"];
-const HOMEWORK_STATUSES = ["draft", "assigned", "closed", "archived"];
 const HOMEWORK_LIST_STATUSES = [...HOMEWORK_STATUSES, "all"];
 const STUDENT_VISIBLE_HOMEWORK_STATUSES = ["assigned", "closed"];
-const HOMEWORK_SUBMISSION_STATUSES = ["submitted", "late", "missing", "returned"];
 const ACTIVE_ENROLLMENT_STATUS = "enrolled";
 const MAX_TITLE_LENGTH = 120;
 const MAX_INSTRUCTIONS_LENGTH = 5000;
