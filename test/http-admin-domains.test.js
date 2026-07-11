@@ -179,6 +179,28 @@ test("registrar reads: oversight risk-summary, university standing, and policies
     assert.ok(Array.isArray(policies.body.academicPolicies));
 });
 
+test("institution logo upload accepts multipart and returns a stored logoUrl over HTTP", async (t) => {
+    if (!dbReady) return t.skip("no mongo");
+    const { token, institutionId } = await adminContext("logo");
+    // A tiny 1x1 PNG.
+    const png = Buffer.from(
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==",
+        "base64"
+    );
+    const form = new FormData();
+    form.append("logo", new Blob([png], { type: "image/png" }), "logo.png");
+    const res = await fetch(`${base}/institutions/${institutionId}/logo`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}` },
+        body: form,
+    });
+    assert.equal(res.status, 200);
+    const body = await res.json();
+    const logoUrl = body?.institution?.logoUrl || body?.logoUrl;
+    assert.ok(logoUrl, "expected a stored logoUrl");
+    assert.match(logoUrl, /institution-logos\//);
+});
+
 test("delete guard: a department must be archived before deletion (DB-2) over HTTP", async (t) => {
     if (!dbReady) return t.skip("no mongo");
     const { token, institutionId } = await adminContext("del-guard");
