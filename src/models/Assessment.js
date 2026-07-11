@@ -9,7 +9,6 @@ const assessmentSchema = new mongoose.Schema(
             type: mongoose.Schema.Types.ObjectId,
             ref: "Institution",
             required: true,
-            index: true,
         },
         sectionId: {
             type: mongoose.Schema.Types.ObjectId,
