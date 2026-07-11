@@ -41,8 +41,12 @@ STRIPE_WEBHOOK_SECRET=whsec_xxx
 STRIPE_PRICE_PLUS_6_MONTH=price_replace_me
 STRIPE_PRICE_PRO_6_MONTH=price_replace_me
 
-BILLING_SUCCESS_URL=https://frontend-domain.com/billing/success?session_id={CHECKOUT_SESSION_ID}
-BILLING_CANCEL_URL=https://frontend-domain.com/billing/cancel
+# Clean FRONTEND base URLs only — the backend appends
+# `billing=success|cancel&session_id={CHECKOUT_SESSION_ID}` itself
+# (buildBillingReturnUrl). Do not add a path or query here: the SPA uses
+# hash routing, so a /billing/success path would 404 on the frontend host.
+BILLING_SUCCESS_URL=https://frontend-domain.com/
+BILLING_CANCEL_URL=https://frontend-domain.com/
 ```
 
 ## MongoDB Atlas
@@ -96,11 +100,15 @@ Then copy the generated Stripe webhook signing secret into:
 STRIPE_WEBHOOK_SECRET=whsec_xxx
 ```
 
-Billing success and cancel URLs should point to the deployed frontend domain:
+Billing success and cancel URLs must be CLEAN base URLs on the deployed frontend domain (the backend appends the `billing=…&session_id=…` query itself):
 
 ```env
-BILLING_SUCCESS_URL=https://frontend-domain.com/billing/success?session_id={CHECKOUT_SESSION_ID}
-BILLING_CANCEL_URL=https://frontend-domain.com/billing/cancel
+# Clean FRONTEND base URLs only — the backend appends
+# `billing=success|cancel&session_id={CHECKOUT_SESSION_ID}` itself
+# (buildBillingReturnUrl). Do not add a path or query here: the SPA uses
+# hash routing, so a /billing/success path would 404 on the frontend host.
+BILLING_SUCCESS_URL=https://frontend-domain.com/
+BILLING_CANCEL_URL=https://frontend-domain.com/
 ```
 
 ## Local Files And Uploads
