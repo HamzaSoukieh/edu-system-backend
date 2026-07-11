@@ -20,7 +20,7 @@ const {
     toSelfEnrollmentEligibilitySummary,
 } = require("./universitySelfEnrollmentEligibilityService");
 
-const ENROLLMENT_STATUSES = ["enrolled", "dropped"];
+const { ENROLLMENT_STATUSES } = require("../constants/enrollmentConstants");
 const ENROLLABLE_SECTION_STATUSES = ["draft", "active"];
 const STUDENT_MEMBER_ROLES = ["student"];
 const ENROLLMENT_SELECT_FIELDS =

@@ -1,6 +1,5 @@
 const mongoose = require("mongoose");
-
-const ENROLLMENT_STATUSES = ["enrolled", "dropped"];
+const { ENROLLMENT_STATUSES } = require("../constants/enrollmentConstants");
 
 const enrollmentSchema = new mongoose.Schema(
     {
