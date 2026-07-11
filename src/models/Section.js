@@ -1,6 +1,6 @@
 const mongoose = require("mongoose");
 
-const SECTION_STATUSES = ["draft", "active", "closed", "cancelled"];
+const { SECTION_STATUSES } = require("../constants/sectionConstants");
 const SCHEDULE_DAYS = ["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"];
 const SECTION_SCHEDULE_SESSION_TYPES = ["lecture", "lab"];
 

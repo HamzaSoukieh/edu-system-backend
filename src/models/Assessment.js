@@ -1,7 +1,6 @@
 const mongoose = require("mongoose");
 
-const ASSESSMENT_TYPES = ["quiz", "assignment", "midterm", "final", "project", "practical", "oral", "other"];
-const ASSESSMENT_STATUSES = ["draft", "announced", "published", "archived"];
+const { ASSESSMENT_TYPES, ASSESSMENT_STATUSES } = require("../constants/assessmentConstants");
 
 const assessmentSchema = new mongoose.Schema(
     {

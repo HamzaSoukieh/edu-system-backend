@@ -14,8 +14,7 @@ const emailQueue = require("../queues/emailQueue");
 const { EMAIL_JOB_TYPES } = require("../queues/emailQueueNames");
 const { ensureCanChangeSectionSessionStatus } = require("./sectionSessionService");
 
-const ASSESSMENT_TYPES = ["quiz", "assignment", "midterm", "final", "project", "practical", "oral", "other"];
-const ASSESSMENT_STATUSES = ["draft", "announced", "published", "archived"];
+const { ASSESSMENT_TYPES, ASSESSMENT_STATUSES } = require("../constants/assessmentConstants");
 const ASSESSMENT_LIST_STATUSES = [...ASSESSMENT_STATUSES, "all"];
 const STUDENT_VISIBLE_ASSESSMENT_STATUSES = ["announced", "published"];
 const ACTIVE_ENROLLMENT_STATUS = "enrolled";
