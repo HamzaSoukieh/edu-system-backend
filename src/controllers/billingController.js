@@ -8,12 +8,30 @@ function resolveStatusCode(error) {
     return 500;
 }
 
-function resolveMessage(error, statusCode) {
-    if (statusCode >= 500) {
-        return "Internal server error";
+// Build the client error body. Unexpected 5xx faults (no `code`) are masked to a
+// generic message so nothing leaks. Intentional application errors carry a stable
+// `code` and a user-safe message — including coded 5xx like BILLING_NOT_CONFIGURED
+// (503) and STRIPE_UNAVAILABLE (502) — and are surfaced with their code so the
+// frontend can present an actionable state instead of "Internal server error".
+function buildErrorResponse(error, statusCode) {
+    const hasCode = Boolean(error && error.code);
+    if (statusCode >= 500 && !hasCode) {
+        return { message: "Internal server error" };
     }
 
-    return error.message || "Request failed";
+    const body = { message: (error && error.message) || "Request failed" };
+    if (hasCode) {
+        body.code = error.code;
+    }
+    if (error && error.details) {
+        body.details = error.details;
+    }
+    return body;
+}
+
+function sendBillingError(res, error) {
+    const statusCode = resolveStatusCode(error);
+    return res.status(statusCode).json(buildErrorResponse(error, statusCode));
 }
 
 async function createCheckoutSession(req, res) {
@@ -27,8 +45,7 @@ async function createCheckoutSession(req, res) {
 
         return res.status(201).json(result);
     } catch (error) {
-        const statusCode = resolveStatusCode(error);
-        return res.status(statusCode).json({ message: resolveMessage(error, statusCode) });
+        return sendBillingError(res, error);
     }
 }
 
@@ -42,8 +59,7 @@ async function getBillingStatus(req, res) {
 
         return res.status(200).json(result);
     } catch (error) {
-        const statusCode = resolveStatusCode(error);
-        return res.status(statusCode).json({ message: resolveMessage(error, statusCode) });
+        return sendBillingError(res, error);
     }
 }
 
@@ -57,8 +73,7 @@ async function upgradeToPro(req, res) {
 
         return res.status(200).json(result);
     } catch (error) {
-        const statusCode = resolveStatusCode(error);
-        return res.status(statusCode).json({ message: resolveMessage(error, statusCode) });
+        return sendBillingError(res, error);
     }
 }
 

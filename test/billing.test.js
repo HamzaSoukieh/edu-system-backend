@@ -541,8 +541,17 @@ test("checkout session creates Stripe customer and tenant-scoped billing profile
     assert.equal(calls.checkoutSessionsCreate[0].mode, "subscription");
     assert.equal(calls.checkoutSessionsCreate[0].customer, "cus_new");
     assert.equal(calls.checkoutSessionsCreate[0].line_items[0].price, "price_plus_6_month");
-    assert.deepEqual(calls.checkoutSessionsCreate[0].metadata, { institutionId, plan: "plus" });
+    // Reconciliation metadata for the webhook: institution + requested plan + actor.
+    const sessionMetadata = calls.checkoutSessionsCreate[0].metadata;
+    assert.equal(sessionMetadata.institutionId, institutionId);
+    assert.equal(sessionMetadata.requestedPlan, "plus");
+    assert.equal(sessionMetadata.actorUserId, ownerUserId);
+    assert.equal(typeof sessionMetadata.billingProfileId, "string");
     assert.deepEqual(calls.checkoutSessionsCreate[0].subscription_data.metadata, { institutionId, plan: "plus" });
+    // Return URLs carry the billing state (+ Stripe session id on success).
+    assert.match(calls.checkoutSessionsCreate[0].success_url, /billing=success/);
+    assert.match(calls.checkoutSessionsCreate[0].success_url, /session_id=\{CHECKOUT_SESSION_ID\}/);
+    assert.match(calls.checkoutSessionsCreate[0].cancel_url, /billing=cancel/);
 
     const profileUpdate = data.queryLog.find((entry) => entry.model === "InstitutionBillingProfile" && entry.method === "findOneAndUpdate");
     assert.equal(normalizeId(profileUpdate.query.institutionId), institutionId);
@@ -665,7 +674,8 @@ for (const status of ["active", "trialing", "past_due"]) {
                 }),
             (error) => {
                 assert.equal(error.statusCode, 409);
-                assert.equal(error.message, "Institution already has an active subscription");
+                assert.equal(error.message, "Your institution already has an active subscription.");
+                assert.equal(error.code, "SUBSCRIPTION_ALREADY_ACTIVE");
                 return true;
             }
         );
@@ -696,7 +706,7 @@ for (const status of ["active", "trialing", "past_due"]) {
                     actorMembership: buildMembership(),
                     payload: { plan: "plus" },
                 }),
-            { statusCode: 409, message: "Institution already has an active subscription" }
+            { statusCode: 409, message: "Your institution already has an active subscription." }
         );
 
         assert.equal(calls.customersCreate.length, 0);
@@ -773,7 +783,7 @@ test("unauthorized membership cannot create checkout session", async (t) => {
             }),
         (error) => {
             assert.equal(error.statusCode, 403);
-            assert.equal(error.message, "Permission denied");
+            assert.equal(error.message, "You do not have permission to manage billing for this institution.");
             return true;
         }
     );

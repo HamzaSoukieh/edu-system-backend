@@ -377,13 +377,13 @@ test("upgrade authorization fails closed and does not call Stripe", async (t) =>
             name: "student",
             actorUserId: studentUserId,
             actorMembership: buildMembership({ userId: studentUserId, role: "student" }),
-            message: "Permission denied",
+            message: "You do not have permission to manage billing for this institution.",
         },
         {
             name: "instructor",
             actorUserId: instructorUserId,
             actorMembership: buildMembership({ userId: instructorUserId, role: "instructor" }),
-            message: "Permission denied",
+            message: "You do not have permission to manage billing for this institution.",
         },
         {
             name: "inactive admin",
@@ -658,7 +658,7 @@ test("upgrade fails safely when Stripe subscription retrieval fails", async (t) 
 
     await assertRejectsWithStatus(requestUpgrade(), {
         statusCode: 502,
-        message: "Stripe subscription retrieval failed",
+        message: "The payment provider is temporarily unavailable. Please try again.",
     });
 
     assert.equal(calls.subscriptionsRetrieve.length, 1);

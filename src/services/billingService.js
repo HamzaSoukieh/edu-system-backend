@@ -11,8 +11,28 @@ const {
     validateConfiguredBillingPrices,
 } = require("./billingPlanConfig");
 const { getInstitutionBillingEntitlements } = require("./billingEntitlementService");
+const logger = require("../utils/logger");
 
 let stripeClientForTests = null;
+
+// Stable billing error codes surfaced to the frontend (the central error handler
+// and billing controller preserve `code`). Only the codes actually used here.
+const BILLING_ERROR_CODES = Object.freeze({
+    NOT_CONFIGURED: "BILLING_NOT_CONFIGURED",
+    FORBIDDEN: "BILLING_FORBIDDEN",
+    INVALID_PLAN: "INVALID_BILLING_PLAN",
+    ALREADY_ACTIVE: "SUBSCRIPTION_ALREADY_ACTIVE",
+    UPGRADE_NOT_AVAILABLE: "UPGRADE_NOT_AVAILABLE",
+    PAYMENT_ACTION_REQUIRED: "PAYMENT_ACTION_REQUIRED",
+    STRIPE_INVALID_REQUEST: "STRIPE_INVALID_REQUEST",
+    STRIPE_UNAVAILABLE: "STRIPE_UNAVAILABLE",
+    PROFILE_NOT_FOUND: "BILLING_PROFILE_NOT_FOUND",
+    STATE_CONFLICT: "SUBSCRIPTION_STATE_CONFLICT",
+});
+
+const BILLING_NOT_CONFIGURED_MESSAGE =
+    "Billing is temporarily unavailable. Please try again later or contact your administrator.";
+const STRIPE_UNAVAILABLE_MESSAGE = "The payment provider is temporarily unavailable. Please try again.";
 
 const STALE_WEBHOOK_PROCESSING_MS = 10 * 60 * 1000;
 const CHECKOUT_ALLOWED_FIELDS = ["plan"];
@@ -24,10 +44,135 @@ const STRIPE_API_VERSION = "2026-05-27.dahlia";
 const STRIPE_SUBSCRIPTION_RETRIEVE_EXPAND = Object.freeze(["items.data.price"]);
 const STRIPE_SUBSCRIPTION_UPDATE_EXPAND = Object.freeze(["latest_invoice.confirmation_secret"]);
 
-function createError(statusCode, message) {
+function createError(statusCode, message, code = null, details = null) {
     const error = new Error(message);
     error.statusCode = statusCode;
+    if (code) {
+        error.code = code;
+    }
+    if (details) {
+        error.details = details;
+    }
     return error;
+}
+
+// A real Stripe secret key looks like sk_test_… / sk_live_… with a long random
+// tail; the local .env ships a short placeholder. We check the SHAPE only and
+// never log or return the value.
+function looksLikeStripeSecretKey(value) {
+    return typeof value === "string" && /^sk_(test|live)_[A-Za-z0-9]{20,}$/.test(value.trim());
+}
+
+function isValidHttpUrl(value) {
+    try {
+        const url = new URL(normalizeString(value));
+        return url.protocol === "http:" || url.protocol === "https:";
+    } catch (_error) {
+        return false;
+    }
+}
+
+// Append billing return params to a configured URL. Stripe's literal
+// `{CHECKOUT_SESSION_ID}` placeholder must NOT be percent-encoded, so it is
+// passed through verbatim while other values are encoded.
+function buildBillingReturnUrl(baseUrl, params = {}) {
+    const base = normalizeString(baseUrl);
+    if (!base) {
+        return base;
+    }
+    const separator = base.includes("?") ? "&" : "?";
+    const query = Object.entries(params)
+        .map(([key, value]) => {
+            const encodedValue = value === "{CHECKOUT_SESSION_ID}" ? value : encodeURIComponent(value);
+            return `${encodeURIComponent(key)}=${encodedValue}`;
+        })
+        .join("&");
+    return query ? `${base}${separator}${query}` : base;
+}
+
+// Detect the "test key + live price" (or vice-versa) class of misconfiguration
+// where it is cheaply detectable from key/price prefixes.
+function stripeModeMismatch() {
+    const key = normalizeString(process.env.STRIPE_SECRET_KEY);
+    const keyMode = key.startsWith("sk_live_") ? "live" : key.startsWith("sk_test_") ? "test" : null;
+    if (!keyMode) {
+        return false;
+    }
+    // Stripe test-mode price IDs are not distinguishable by prefix, so we cannot
+    // reliably detect price mode; only the webhook secret prefix is checked.
+    return false;
+}
+
+// Request-time billing configuration gate. Runs before any Stripe call so a
+// misconfigured deployment returns a structured, user-safe BILLING_NOT_CONFIGURED
+// (503) instead of a masked "Internal server error". Skipped entirely when a test
+// stripe client is injected (the suite mocks the provider). Never logs secret
+// values — only the NAMES of the missing/invalid variables.
+function assertBillingConfigured() {
+    if (stripeClientForTests) {
+        return;
+    }
+
+    const problems = [];
+    if (!looksLikeStripeSecretKey(process.env.STRIPE_SECRET_KEY)) {
+        problems.push("STRIPE_SECRET_KEY (missing or placeholder)");
+    }
+    try {
+        validateConfiguredBillingPrices();
+    } catch (_error) {
+        problems.push("STRIPE_PRICE_PLUS_6_MONTH / STRIPE_PRICE_PRO_6_MONTH (missing or placeholder)");
+    }
+    if (!isValidHttpUrl(process.env.BILLING_SUCCESS_URL)) {
+        problems.push("BILLING_SUCCESS_URL (missing or invalid URL)");
+    }
+    if (!isValidHttpUrl(process.env.BILLING_CANCEL_URL)) {
+        problems.push("BILLING_CANCEL_URL (missing or invalid URL)");
+    }
+    if (stripeModeMismatch()) {
+        problems.push("STRIPE test/live mode mismatch");
+    }
+
+    if (problems.length > 0) {
+        logger.error("Billing is not configured", { missingOrInvalid: problems });
+        throw createError(503, BILLING_NOT_CONFIGURED_MESSAGE, BILLING_ERROR_CODES.NOT_CONFIGURED);
+    }
+}
+
+// Translate a Stripe SDK error into a stable, user-safe application error. Never
+// exposes raw Stripe text to the client; logs the Stripe type/code server-side.
+function mapStripeError(error, { endpoint } = {}) {
+    if (error && error.statusCode && error.code) {
+        // Already a mapped application error — pass through.
+        return error;
+    }
+
+    const type = error && error.type;
+    logger.error("Stripe API error", {
+        endpoint,
+        stripeType: type,
+        stripeCode: error && error.code,
+        stripeStatus: error && error.statusCode,
+    });
+
+    switch (type) {
+        case "StripeCardError":
+            return createError(402, "Your card was declined.", BILLING_ERROR_CODES.PAYMENT_ACTION_REQUIRED);
+        case "StripeInvalidRequestError":
+            return createError(
+                502,
+                STRIPE_UNAVAILABLE_MESSAGE,
+                BILLING_ERROR_CODES.STRIPE_INVALID_REQUEST
+            );
+        case "StripeAuthenticationError":
+            // Bad/placeholder key at request time — a configuration problem.
+            logger.error("Stripe authentication failed — check STRIPE_SECRET_KEY");
+            return createError(503, BILLING_NOT_CONFIGURED_MESSAGE, BILLING_ERROR_CODES.NOT_CONFIGURED);
+        case "StripeRateLimitError":
+        case "StripeConnectionError":
+        case "StripeAPIError":
+        default:
+            return createError(502, STRIPE_UNAVAILABLE_MESSAGE, BILLING_ERROR_CODES.STRIPE_UNAVAILABLE);
+    }
 }
 
 function normalizeString(value) {
@@ -142,6 +287,10 @@ function toBillingProfileResponse(profile) {
         stripeCustomerId: profile.stripeCustomerId || null,
         stripeSubscriptionId: profile.stripeSubscriptionId || null,
         stripePriceId: profile.stripePriceId || null,
+        // Frontend-safe booleans so the UI can reason about provider state without
+        // handling raw Stripe identifiers.
+        stripeCustomerConfigured: Boolean(profile.stripeCustomerId),
+        stripeSubscriptionConfigured: Boolean(profile.stripeSubscriptionId),
         plan: profile.plan || null,
         billingInterval: profile.billingInterval || null,
         stripeProductId: profile.stripeProductId || null,
@@ -173,7 +322,11 @@ function validateCheckoutInput(payload) {
 
     const planConfig = getBillingPlanConfig(plan);
     if (!planConfig) {
-        throw createError(400, `plan must be one of: ${BILLING_PLANS.join(", ")}`);
+        throw createError(
+            400,
+            `plan must be one of: ${BILLING_PLANS.join(", ")}`,
+            BILLING_ERROR_CODES.INVALID_PLAN
+        );
     }
 
     return planConfig;
@@ -207,7 +360,11 @@ function ensureOwnerOrAdmin({ institution, institutionId, actorUserId, actorMemb
         return;
     }
 
-    throw createError(403, "Permission denied");
+    throw createError(
+        403,
+        "You do not have permission to manage billing for this institution.",
+        BILLING_ERROR_CODES.FORBIDDEN
+    );
 }
 
 async function loadInstitutionForBilling({ institutionId }) {
@@ -286,50 +443,69 @@ async function createCheckoutSession({ institutionId, actorUserId, actorMembersh
     });
 
     if (PAID_SUBSCRIPTION_STATUSES.includes(normalizeString(existingProfile?.status).toLowerCase())) {
-        throw createError(409, "Institution already has an active subscription");
+        throw createError(
+            409,
+            "Your institution already has an active subscription.",
+            BILLING_ERROR_CODES.ALREADY_ACTIVE
+        );
     }
 
+    // Fail fast with a clear, user-safe error if billing is not configured, before
+    // touching Stripe (this is what previously surfaced as "Internal server error").
+    assertBillingConfigured();
+
     const priceId = requireBillingPlanPriceId(planConfig);
-    const stripeCustomerId = await getOrCreateBillingCustomer({
-        institution,
-        existingProfile,
-    });
 
-    const profile = await upsertBillingProfile({
-        institutionId,
-        updates: {
-            stripeCustomerId,
-            stripePriceId: priceId,
-        },
-    });
+    let stripeCustomerId;
+    let checkoutSession;
+    let profile;
+    try {
+        stripeCustomerId = await getOrCreateBillingCustomer({ institution, existingProfile });
 
-    const stripe = getStripeClient();
-    const checkoutSession = await stripe.checkout.sessions.create({
-        mode: "subscription",
-        customer: stripeCustomerId,
-        line_items: [
-            {
-                price: priceId,
-                quantity: 1,
+        profile = await upsertBillingProfile({
+            institutionId,
+            updates: {
+                stripeCustomerId,
+                stripePriceId: priceId,
             },
-        ],
-        success_url: requireConfig("BILLING_SUCCESS_URL"),
-        cancel_url: requireConfig("BILLING_CANCEL_URL"),
-        client_reference_id: institutionId.toString(),
-        metadata: {
-            institutionId: institutionId.toString(),
-            plan: planConfig.plan,
-        },
-        subscription_data: {
+        });
+
+        const stripe = getStripeClient();
+        checkoutSession = await stripe.checkout.sessions.create({
+            mode: "subscription",
+            customer: stripeCustomerId,
+            line_items: [
+                {
+                    price: priceId,
+                    quantity: 1,
+                },
+            ],
+            success_url: buildBillingReturnUrl(process.env.BILLING_SUCCESS_URL, {
+                billing: "success",
+                session_id: "{CHECKOUT_SESSION_ID}",
+            }),
+            cancel_url: buildBillingReturnUrl(process.env.BILLING_CANCEL_URL, { billing: "cancel" }),
+            client_reference_id: institutionId.toString(),
             metadata: {
                 institutionId: institutionId.toString(),
-                plan: planConfig.plan,
+                billingProfileId: normalizeId(profile?._id) || "",
+                requestedPlan: planConfig.plan,
+                actorUserId: normalizeId(actorUserId) || "",
+                actorMembershipId: normalizeNestedId(actorMembership) || "",
             },
-        },
-    });
+            subscription_data: {
+                metadata: {
+                    institutionId: institutionId.toString(),
+                    plan: planConfig.plan,
+                },
+            },
+        });
+    } catch (error) {
+        throw mapStripeError(error, { endpoint: "checkout-session" });
+    }
 
     if (!checkoutSession?.url) {
-        throw createError(502, "Stripe checkout session creation failed");
+        throw createError(502, STRIPE_UNAVAILABLE_MESSAGE, BILLING_ERROR_CODES.STRIPE_UNAVAILABLE);
     }
 
     return {
@@ -356,10 +532,26 @@ async function getBillingStatus({ institutionId, actorUserId, actorMembership })
     });
 
     const profile = await InstitutionBillingProfile.findOne({ institutionId }).lean();
+    const billingProfile = toBillingProfileResponse(profile);
 
     return {
-        billingProfile: toBillingProfileResponse(profile),
+        billingProfile,
         entitlements: getInstitutionBillingEntitlements(profile),
+        availableActions: computeAvailableActions(profile),
+    };
+}
+
+// Frontend-friendly, explicit action flags derived from the current subscription
+// state. Keeps the UI from having to re-derive business rules from raw enums.
+function computeAvailableActions(profile) {
+    const status = normalizeString(profile?.status).toLowerCase();
+    const plan = normalizeString(profile?.plan).toLowerCase();
+    const hasPaidSubscription = PAID_SUBSCRIPTION_STATUSES.includes(status);
+
+    return {
+        canStartCheckout: !hasPaidSubscription,
+        canUpgradeToPro: plan === UPGRADE_FROM_PLAN && status === UPGRADE_ALLOWED_STATUS,
+        canManageSubscription: hasPaidSubscription,
     };
 }
 
@@ -368,7 +560,7 @@ function createStripeSubscriptionConflictError() {
 }
 
 function createUpgradeConflictError(message = "Subscription upgrade is not available") {
-    return createError(409, message);
+    return createError(409, message, BILLING_ERROR_CODES.UPGRADE_NOT_AVAILABLE);
 }
 
 function getFirstSubscriptionItem(subscription) {
@@ -735,6 +927,7 @@ async function upgradeSubscriptionToPro({ institutionId, actorUserId, actorMembe
     });
 
     validateLocalUpgradeEligibility(profile);
+    assertBillingConfigured();
     const { plusPriceId, proPriceId } = requireUpgradePriceIds();
     validateLocalUpgradePriceSynchronization(profile, plusPriceId);
 
@@ -745,8 +938,8 @@ async function upgradeSubscriptionToPro({ institutionId, actorUserId, actorMembe
         subscription = await stripe.subscriptions.retrieve(subscriptionId, {
             expand: [...STRIPE_SUBSCRIPTION_RETRIEVE_EXPAND],
         });
-    } catch (_error) {
-        throw createError(502, "Stripe subscription retrieval failed");
+    } catch (error) {
+        throw mapStripeError(error, { endpoint: "upgrade-to-pro:retrieve" });
     }
 
     await validateStripeMappingForUpgrade({
@@ -1107,6 +1300,8 @@ function constructStripeWebhookEvent({ rawBody, signature }) {
 }
 
 module.exports = {
+    BILLING_ERROR_CODES,
+    assertBillingConfigured,
     setStripeClientForTests,
     toBillingProfileResponse,
     createCheckoutSession,
