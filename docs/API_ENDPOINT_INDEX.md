@@ -3,9 +3,13 @@
 | Method | Path | Module | Auth | Permission | Description |
 |---|---|---|---|---|---|
 | POST | `/auth/signup` | Auth | Public | Public | Create user, institution, admin membership, send signup OTP, return JWT. |
-| POST | `/auth/login` | Auth | Public | Public | Authenticate verified active user and return JWT. |
+| POST | `/auth/login` | Auth | Public | Public | Authenticate verified active user and return an access + refresh token pair. |
+| POST | `/auth/refresh` | Auth | Public | Refresh token | Rotate the refresh token and issue a new access token (reuse detection revokes the family). |
+| POST | `/auth/logout` | Auth | Public | Refresh token | Revoke the presented refresh token. |
+| POST | `/auth/logout-all` | Auth | Protected | Authenticated user | Bump tokenVersion, invalidating all sessions/devices. |
+| POST | `/auth/setup-password` | Auth | Public | Setup token | Member sets their initial password via a single-use setup token, then can log in. |
 | POST | `/auth/password/forgot` | Auth | Public | Public | Send password reset OTP if eligible. |
-| POST | `/auth/password/reset` | Auth | Public | Public | Reset password with OTP. |
+| POST | `/auth/password/reset` | Auth | Public | Public | Reset password with OTP (invalidates prior sessions). |
 | POST | `/auth/otp/verify` | OTP/email verification | Protected | Authenticated user | Verify signup OTP. |
 | POST | `/auth/otp/resend` | OTP/email verification | Protected | Authenticated user | Resend signup OTP. |
 | POST | `/stripe/webhook` | Stripe webhook | Public | Stripe signature | Receive Stripe events using raw body. |
@@ -42,6 +46,10 @@
 | PATCH | `/institutions/:institutionId/academic-decisions/:decisionId/cancel` | Academic decisions | Protected | Recommending Head in current scope | Cancel own recommended decision. |
 | GET | `/institutions/:institutionId/notifications` | Notifications | Protected | Own active institution membership | List current user's in-app notifications. |
 | PATCH | `/institutions/:institutionId/notifications/:notificationId/read` | Notifications | Protected | Own active institution membership | Mark current user's notification read. |
+| GET | `/institutions/:institutionId/announcements` | Announcements | Protected | Active membership (audience-filtered) | List institution announcements visible to the caller's audience. |
+| POST | `/institutions/:institutionId/announcements` | Announcements | Protected | Admin | Create an announcement (title, body, audience). |
+| PATCH | `/institutions/:institutionId/announcements/:announcementId` | Announcements | Protected | Admin | Update an announcement. |
+| DELETE | `/institutions/:institutionId/announcements/:announcementId` | Announcements | Protected | Admin | Delete an announcement. |
 | POST | `/institutions/:institutionId/academic-years` | Academic Years | Protected | institution.manage | Create academic year. |
 | GET | `/institutions/:institutionId/academic-years` | Academic Years | Protected | institution.manage | List academic years. |
 | GET | `/institutions/:institutionId/academic-years/active` | Academic Years | Protected | Active institution membership | Get active academic year. |
