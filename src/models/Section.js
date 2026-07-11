@@ -1,8 +1,7 @@
 const mongoose = require("mongoose");
 
-const { SECTION_STATUSES } = require("../constants/sectionConstants");
-const SCHEDULE_DAYS = ["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"];
-const SECTION_SCHEDULE_SESSION_TYPES = ["lecture", "lab"];
+const { SECTION_STATUSES, SECTION_SCHEDULE_SESSION_TYPES } = require("../constants/sectionConstants");
+const { SCHEDULE_DAYS } = require("../constants/scheduleConstants");
 
 const sectionSchema = new mongoose.Schema(
     {

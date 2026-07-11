@@ -15,9 +15,8 @@ const { ROLE_PERMISSIONS } = require("../auth/permissions");
 const { resolveScopedResponsibilities } = require("../auth/scopedResponsibilities");
 const { backfillSchoolSectionEnrollments } = require("./enrollmentService");
 
-const { SECTION_STATUSES } = require("../constants/sectionConstants");
-const SCHEDULE_DAYS = ["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"];
-const SECTION_SCHEDULE_SESSION_TYPES = ["lecture", "lab"];
+const { SECTION_STATUSES, SECTION_SCHEDULE_SESSION_TYPES } = require("../constants/sectionConstants");
+const { SCHEDULE_DAYS } = require("../constants/scheduleConstants");
 const TEACHING_MEMBER_ROLES = ["instructor"];
 const ROOM_RESERVED_SECTION_STATUSES = ["draft", "active"];
 const DELETABLE_SECTION_STATUSES = ["draft", "cancelled"];

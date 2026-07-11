@@ -1,14 +1,6 @@
 const mongoose = require("mongoose");
 
-const TEACHING_DAY_LABELS = [
-    "Sunday",
-    "Monday",
-    "Tuesday",
-    "Wednesday",
-    "Thursday",
-    "Friday",
-    "Saturday",
-];
+const { TEACHING_DAY_LABELS } = require("../constants/scheduleConstants");
 
 const semesterSchema = new mongoose.Schema(
     {

@@ -16,8 +16,7 @@ const emailQueue = require("../queues/emailQueue");
 const { EMAIL_JOB_TYPES } = require("../queues/emailQueueNames");
 const { ensureCanChangeSectionSessionStatus } = require("./sectionSessionService");
 
-const { HOMEWORK_TYPES, HOMEWORK_STATUSES, HOMEWORK_SUBMISSION_STATUSES } = require("../constants/homeworkConstants");
-const HOMEWORK_SUBMISSION_MODES = ["none", "offline", "online_upload"];
+const { HOMEWORK_TYPES, HOMEWORK_STATUSES, HOMEWORK_SUBMISSION_STATUSES, HOMEWORK_SUBMISSION_MODES } = require("../constants/homeworkConstants");
 const HOMEWORK_LIST_STATUSES = [...HOMEWORK_STATUSES, "all"];
 const STUDENT_VISIBLE_HOMEWORK_STATUSES = ["assigned", "closed"];
 const ACTIVE_ENROLLMENT_STATUS = "enrolled";

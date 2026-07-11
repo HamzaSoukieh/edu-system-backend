@@ -10,7 +10,7 @@ const {
 } = require("./universityRepeatPolicyService");
 
 const SELF_ENROLLMENT_ENROLLABLE_SECTION_STATUSES = ["draft", "active"];
-const SCHEDULE_DAYS = ["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"];
+const { SCHEDULE_DAYS } = require("../constants/scheduleConstants");
 const SCHEDULE_CONFLICT_MESSAGE =
     "Selected section schedule conflicts with another enrolled or selected section.";
 const SELF_ENROLLMENT_REASON_MESSAGES = {

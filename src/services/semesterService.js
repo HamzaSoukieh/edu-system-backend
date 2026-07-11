@@ -3,15 +3,7 @@ const Semester = require("../models/Semester");
 const { validateAcademicYearReference } = require("./academicYearService");
 
 const DAY_MS = 24 * 60 * 60 * 1000;
-const TEACHING_DAY_LABELS = [
-    "Sunday",
-    "Monday",
-    "Tuesday",
-    "Wednesday",
-    "Thursday",
-    "Friday",
-    "Saturday",
-];
+const { TEACHING_DAY_LABELS } = require("../constants/scheduleConstants");
 const TEACHING_DAY_LOOKUP = {
     sunday: "Sunday",
     monday: "Monday",

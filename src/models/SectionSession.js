@@ -1,8 +1,6 @@
 const mongoose = require("mongoose");
 
-const SECTION_SESSION_TYPES = ["lecture", "lab"];
-const { SECTION_SESSION_STATUSES } = require("../constants/sectionConstants");
-const ATTENDANCE_STATES = ["not_started", "open", "closed"];
+const { SECTION_SESSION_STATUSES, SECTION_SESSION_TYPES, ATTENDANCE_STATES } = require("../constants/sectionConstants");
 
 const sectionSessionSchema = new mongoose.Schema(
     {

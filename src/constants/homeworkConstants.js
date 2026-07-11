@@ -3,5 +3,11 @@
 const HOMEWORK_STATUSES = Object.freeze(["draft", "assigned", "closed", "archived"]);
 const HOMEWORK_TYPES = Object.freeze(["homework", "project"]);
 const HOMEWORK_SUBMISSION_STATUSES = Object.freeze(["submitted", "late", "missing", "returned"]);
+const HOMEWORK_SUBMISSION_MODES = Object.freeze(["none", "offline", "online_upload"]);
 
-module.exports = { HOMEWORK_STATUSES, HOMEWORK_TYPES, HOMEWORK_SUBMISSION_STATUSES };
+module.exports = {
+    HOMEWORK_STATUSES,
+    HOMEWORK_TYPES,
+    HOMEWORK_SUBMISSION_STATUSES,
+    HOMEWORK_SUBMISSION_MODES,
+};

@@ -17,9 +17,7 @@ const {
 
 const DAY_LABELS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
 const DAY_KEYS = DAY_LABELS.map((day) => day.toLowerCase());
-const SECTION_SESSION_TYPES = ["lecture", "lab"];
-const { SECTION_SESSION_STATUSES } = require("../constants/sectionConstants");
-const ATTENDANCE_STATES = ["not_started", "open", "closed"];
+const { SECTION_SESSION_STATUSES, SECTION_SESSION_TYPES, ATTENDANCE_STATES } = require("../constants/sectionConstants");
 const SESSION_CREATABLE_SECTION_STATUSES = ["draft", "active"];
 const ENROLLMENT_ACTIVE_STATUS = "enrolled";
 const MEMBER_ACTIVE_STATUS = "active";
